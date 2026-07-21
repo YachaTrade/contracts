@@ -38,8 +38,6 @@ contract V3PoolDeployer is IV3PoolDeployer, UUPSUpgradeable, AccessManagedUpgrad
 
         IUniswapV3Factory v3Factory = IUniswapV3Factory(factory);
         if (v3Factory.feeAmountTickSpacing(config.v3FeeTier) == 0) revert InvalidFeeTier();
-        pool = v3Factory.createPool(token, quoteToken, config.v3FeeTier);
-        _validateCanonicalPool(v3Factory, pool, token, quoteToken, config.v3FeeTier);
 
         uint256 k = config.virtualReserve * config.virtualTokenReserve;
         uint256 targetVirtualQuoteAmount = k / config.minTokenReserve;
@@ -48,8 +46,16 @@ contract V3PoolDeployer is IV3PoolDeployer, UUPSUpgradeable, AccessManagedUpgrad
             token < quoteToken ? targetVirtualQuoteAmount : config.minTokenReserve
         );
 
-        IUniswapV3Pool(pool).initialize(sqrtPriceX96);
-        IUniswapV3Pool(pool).increaseObservationCardinalityNext(32);
+        pool = v3Factory.getPool(token, quoteToken, config.v3FeeTier);
+        if (pool == address(0)) pool = v3Factory.createPool(token, quoteToken, config.v3FeeTier);
+        _validateCanonicalPool(v3Factory, pool, token, quoteToken, config.v3FeeTier);
+
+        IUniswapV3Pool v3Pool = IUniswapV3Pool(pool);
+        (uint160 currentSqrtPriceX96,,,,,,) = v3Pool.slot0();
+        if (currentSqrtPriceX96 != 0) revert PoolAlreadyInitialized();
+
+        v3Pool.initialize(sqrtPriceX96);
+        v3Pool.increaseObservationCardinalityNext(32);
     }
 
     function _validateCanonicalPool(

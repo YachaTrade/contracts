@@ -186,20 +186,72 @@ contract V3PoolDeployerTest is Test {
         nonCanonicalDeployer.createPool(_addressBelow(address(quoteToken)), address(quoteToken));
     }
 
-    function test_createPool_existingPoolFailureIsAtomic() public {
-        address token = _addressBelow(address(quoteToken));
-        address existingPool = factory.createPool(token, address(quoteToken), FEE_TIER);
-        (uint160 sqrtPriceBefore,,,, uint16 cardinalityNextBefore,,) = IUniswapV3Pool(existingPool).slot0();
+    function test_predictedTokenPoolSquatting_reusesUninitializedCanonicalPool() public {
+        address futureToken = _futureAddressBelow(address(quoteToken));
+        assertEq(futureToken.code.length, 0, "predicted token must not exist yet");
+
+        vm.prank(ATTACKER);
+        address squattedPool = factory.createPool(futureToken, address(quoteToken), FEE_TIER);
+        (uint160 sqrtPriceBefore,,,,,,) = IUniswapV3Pool(squattedPool).slot0();
+        assertEq(sqrtPriceBefore, 0);
 
         vm.prank(CREATOR);
-        vm.expectRevert();
-        deployer.createPool(token, address(quoteToken));
+        address pool = deployer.createPool(futureToken, address(quoteToken));
 
-        (uint160 sqrtPriceAfter,,,, uint16 cardinalityNextAfter,,) = IUniswapV3Pool(existingPool).slot0();
-        assertEq(sqrtPriceBefore, 0);
-        assertEq(sqrtPriceAfter, sqrtPriceBefore);
-        assertEq(cardinalityNextAfter, cardinalityNextBefore);
-        assertEq(factory.getPool(token, address(quoteToken), FEE_TIER), existingPool);
+        uint256 targetVirtualQuoteAmount = VIRTUAL_RESERVE * VIRTUAL_TOKEN_RESERVE / MIN_TOKEN_RESERVE;
+        uint160 expected = mathReference.calculateSqrtPrice(MIN_TOKEN_RESERVE, targetVirtualQuoteAmount);
+        (uint160 sqrtPriceX96,,,, uint16 observationCardinalityNext,,) = IUniswapV3Pool(pool).slot0();
+        assertEq(pool, squattedPool);
+        assertEq(factory.getPool(futureToken, address(quoteToken), FEE_TIER), squattedPool);
+        assertEq(sqrtPriceX96, expected);
+        assertEq(observationCardinalityNext, 32);
+        assertEq(registry.getPool(futureToken), address(0));
+        assertFalse(registry.isRegistered(futureToken));
+    }
+
+    function test_predictedTokenPoolSquatting_rejectsArbitraryInitializedPoolWithoutMutation() public {
+        address futureToken = _futureAddressBelow(address(quoteToken));
+        assertEq(futureToken.code.length, 0, "predicted token must not exist yet");
+
+        vm.prank(ATTACKER);
+        address squattedPool = factory.createPool(futureToken, address(quoteToken), FEE_TIER);
+        vm.prank(ATTACKER);
+        IUniswapV3Pool(squattedPool).initialize(uint160(1 << 96));
+        uint256 targetVirtualQuoteAmount = VIRTUAL_RESERVE * VIRTUAL_TOKEN_RESERVE / MIN_TOKEN_RESERVE;
+        uint160 expected = mathReference.calculateSqrtPrice(MIN_TOKEN_RESERVE, targetVirtualQuoteAmount);
+        assertNotEq(uint160(1 << 96), expected, "attacker price must be arbitrary");
+        bytes32 slot0Before = _slot0Hash(squattedPool);
+
+        vm.prank(CREATOR);
+        vm.expectRevert(IV3PoolDeployer.PoolAlreadyInitialized.selector);
+        deployer.createPool(futureToken, address(quoteToken));
+
+        assertEq(_slot0Hash(squattedPool), slot0Before);
+        assertEq(factory.getPool(futureToken, address(quoteToken), FEE_TIER), squattedPool);
+        assertEq(registry.getPool(futureToken), address(0));
+        assertFalse(registry.isRegistered(futureToken));
+    }
+
+    function test_predictedTokenPoolSquatting_rejectsExpectedPriceInitializedPoolWithoutMutation() public {
+        address futureToken = _futureAddressBelow(address(quoteToken));
+        assertEq(futureToken.code.length, 0, "predicted token must not exist yet");
+        uint256 targetVirtualQuoteAmount = VIRTUAL_RESERVE * VIRTUAL_TOKEN_RESERVE / MIN_TOKEN_RESERVE;
+        uint160 expected = mathReference.calculateSqrtPrice(MIN_TOKEN_RESERVE, targetVirtualQuoteAmount);
+
+        vm.prank(ATTACKER);
+        address squattedPool = factory.createPool(futureToken, address(quoteToken), FEE_TIER);
+        vm.prank(ATTACKER);
+        IUniswapV3Pool(squattedPool).initialize(expected);
+        bytes32 slot0Before = _slot0Hash(squattedPool);
+
+        vm.prank(CREATOR);
+        vm.expectRevert(IV3PoolDeployer.PoolAlreadyInitialized.selector);
+        deployer.createPool(futureToken, address(quoteToken));
+
+        assertEq(_slot0Hash(squattedPool), slot0Before);
+        assertEq(factory.getPool(futureToken, address(quoteToken), FEE_TIER), squattedPool);
+        assertEq(registry.getPool(futureToken), address(0));
+        assertFalse(registry.isRegistered(futureToken));
     }
 
     function test_initializer_rejectsZeroOrCodeLessFactory() public {
@@ -339,5 +391,32 @@ contract V3PoolDeployerTest is Test {
     function _addressAbove(address other) internal returns (address result) {
         result = address(uint160(other) + 1);
         vm.etch(result, hex"00");
+    }
+
+    function _futureAddressBelow(address other) internal pure returns (address) {
+        return address(uint160(other) - 1);
+    }
+
+    function _slot0Hash(address pool) internal view returns (bytes32) {
+        (
+            uint160 sqrtPriceX96,
+            int24 tick,
+            uint16 observationIndex,
+            uint16 observationCardinality,
+            uint16 observationCardinalityNext,
+            uint8 feeProtocol,
+            bool unlocked
+        ) = IUniswapV3Pool(pool).slot0();
+        return keccak256(
+            abi.encode(
+                sqrtPriceX96,
+                tick,
+                observationIndex,
+                observationCardinality,
+                observationCardinalityNext,
+                feeProtocol,
+                unlocked
+            )
+        );
     }
 }

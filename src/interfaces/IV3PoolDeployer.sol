@@ -8,6 +8,7 @@ interface IV3PoolDeployer {
     error InvalidFeeTier();
     error InvalidPool();
     error OverFlow();
+    error PoolAlreadyInitialized();
     error QuoteTokenNotAllowed();
 
     /// @notice The canonical Uniswap V3 factory used for pool creation.

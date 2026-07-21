@@ -288,6 +288,9 @@ function test_createPool_quoteIsToken0_matchesContractV3Price() public;
 function test_createPool_registersCanonicalPoolAndFeeTier() public;
 function test_createPool_revertsForUnauthorizedCaller() public;
 function test_createPool_revertsForUnsupportedFeeTier() public;
+function test_predictedTokenPoolSquatting_reusesUninitializedCanonicalPool() public;
+function test_predictedTokenPoolSquatting_rejectsArbitraryInitializedPoolWithoutMutation() public;
+function test_predictedTokenPoolSquatting_rejectsExpectedPriceInitializedPoolWithoutMutation() public;
 function test_register_revertsWhenPoolAlreadyMapped() public;
 function test_poolInitCodeHashMatchesPeripheryConstant() public;
 function test_factoryPoolMatchesPoolAddressComputedAddress() public;
@@ -346,7 +349,6 @@ function createPool(address token, address quoteToken) external restricted retur
 
     IUniswapV3Factory v3Factory = IUniswapV3Factory(factory);
     if (v3Factory.feeAmountTickSpacing(config.v3FeeTier) == 0) revert InvalidFeeTier();
-    pool = v3Factory.createPool(token, quoteToken, config.v3FeeTier);
 
     uint256 k = config.virtualReserve * config.virtualTokenReserve;
     uint256 targetVirtualQuoteAmount = k / config.minTokenReserve;
@@ -355,8 +357,16 @@ function createPool(address token, address quoteToken) external restricted retur
         token < quoteToken ? targetVirtualQuoteAmount : config.minTokenReserve
     );
 
-    IUniswapV3Pool(pool).initialize(sqrtPriceX96);
-    IUniswapV3Pool(pool).increaseObservationCardinalityNext(32);
+    pool = v3Factory.getPool(token, quoteToken, config.v3FeeTier);
+    if (pool == address(0)) pool = v3Factory.createPool(token, quoteToken, config.v3FeeTier);
+    _validateCanonicalPool(v3Factory, pool, token, quoteToken, config.v3FeeTier);
+
+    IUniswapV3Pool v3Pool = IUniswapV3Pool(pool);
+    (uint160 currentSqrtPriceX96,,,,,,) = v3Pool.slot0();
+    if (currentSqrtPriceX96 != 0) revert PoolAlreadyInitialized();
+
+    v3Pool.initialize(sqrtPriceX96);
+    v3Pool.increaseObservationCardinalityNext(32);
 }
 
 function _calculateSqrtPrice(uint256 amount0, uint256 amount1) internal pure returns (uint160 sqrtPriceX96) {
@@ -368,7 +378,7 @@ function _calculateSqrtPrice(uint256 amount0, uint256 amount1) internal pure ret
 }
 ~~~
 
-This body intentionally mirrors contract-v3/src/DexDeployer.sol. Do not replace it with a different fixed-point derivation.
+The target-reserve and `_calculateSqrtPrice` bodies intentionally mirror contract-v3/src/DexDeployer.sol. Do not replace them with a different fixed-point derivation. Query `factory.getPool` before creation: reuse only the exact canonical pool while uninitialized, and reject every initialized pool even if its price equals `sqrtPriceX96`. An initialized pool at a predictable no-code token address may already contain hostile positions, so matching price is not proof of a clean pool.
 
 - [ ] **Step 5: Verify GREEN and formula parity**
 
@@ -379,7 +389,7 @@ forge test --match-path test/core/V3PoolDeployer.t.sol -vvv
 forge test --match-path test/integration/UniswapV3Compatibility.t.sol -vvv
 ~~~
 
-Expected: both address orderings produce the same sqrtPriceX96 as ContractV3MathReference and PoolAddress matches factory output.
+Expected: both address orderings produce the same sqrtPriceX96 as ContractV3MathReference, an attacker-pre-created uninitialized canonical pool is safely reused, any initialized squatted pool is rejected without mutation or registry writes, and PoolAddress matches factory output.
 
 ### Task 4: Port the Contract-V3 Direct Position Actor
 

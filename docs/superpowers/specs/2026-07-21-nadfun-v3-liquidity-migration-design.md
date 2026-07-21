@@ -65,9 +65,11 @@ External V2 launch routing is removed. Any remaining external venue integration 
 
 #### V3PoolDeployer
 
-A UUPS module authorized through ProtocolManager. It holds the canonical V3 factory address and creates a pool for `(token, quoteToken, feeTier)`. It validates the factory result and initializes the pool in the token-creation transaction at the deterministic graduation price.
+A UUPS module authorized through ProtocolManager. It holds the canonical V3 factory address and creates or adopts the factory's pool for `(token, quoteToken, feeTier)`. It validates the factory result and initializes an uninitialized pool in the token-creation transaction at the deterministic graduation price.
 
-Creating and initializing the pool atomically prevents another account from initializing the permissionless canonical pool at an arbitrary price before graduation. The pool has no protocol liquidity until graduation.
+The factory is permissionless, so an attacker can predict a future token address and create its canonical pool first. V3PoolDeployer safely reuses that exact canonical pool only while `slot0.sqrtPriceX96` is zero, then initializes it and raises observation cardinality atomically. Any already-initialized pool is rejected, even when its price equals the expected graduation price: while the predicted token address has no code, token-transfer calls can appear successful and allow hostile positions or other pool contamination that price equality cannot detect.
+
+Predictable token addresses plus a permissionless canonical factory therefore leave an unavoidable targeted launch denial-of-service: an attacker can initialize the pool before the launch transaction and force creation to revert. Launch submissions should use private relays or builder-protected transaction submission where available so the token address and pool-creation intent are not exposed in the public mempool before execution. The pool has no protocol liquidity until graduation.
 
 #### V3LiquidityActor
 
@@ -133,7 +135,7 @@ struct CollectParams {
 1. NadFunRouter validates the deadline and transfers the deploy fee plus optional initial-buy quote amount.
 2. BondingCurve verifies that the selected quote token is active.
 3. BondingCurve clones the Token at the deterministic salt.
-4. V3PoolDeployer reads the quote token's fee tier and graduation configuration, creates the canonical pool, and initializes its price.
+4. V3PoolDeployer reads the quote token's fee tier and graduation configuration, creates or reuses an uninitialized canonical pool, rejects an initialized pool, and initializes the accepted pool's price.
 5. TokenRegistry records the token, pool, quote token, and fee tier.
 6. BondingCurve configures the token's vault slots in CreatorFeeProcessor.
 7. Token is initialized with the pool address so pre-graduation transfers to the pool are blocked.
@@ -224,6 +226,7 @@ The WMON-specific names become quote-token names, and global WMON configuration 
 - Mint and swap callbacks require an active context, exact expected pool, canonical factory lookup, matching token order and fee tier, matching calldata hash, correct delta direction, and a bounded amount owed.
 - Callback context is deleted before paying the pool.
 - Every pool read is checked against TokenRegistry and `factory.getPool`.
+- V3PoolDeployer may reuse a pre-created canonical pool only when it remains uninitialized; any initialized pool is treated as contaminated and rejected regardless of its price.
 - Exact balance deltas isolate donations and reject fee-on-transfer, rebasing, surcharge, or otherwise non-standard balance behavior.
 - Collection swap bounds are explicit per transaction. An expired deadline, insufficient quote output, invalid square-root price limit, or partially filled exact input reverts the complete collect.
 - A zero or self-referential fee receiver, processor, actor, adapter, or registry wiring is rejected.
