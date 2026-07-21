@@ -15,12 +15,15 @@ interface IProtocolManager {
         uint16 curveProtocolFeeRate;
         uint16 dexProtocolFeeRate;
         uint256 settlementThreshold;
+        uint24 v3FeeTier;
+        uint16 lpFeeProtocolShareBps;
         bool active;
     }
 
     event FeeReceiverUpdate(address indexed feeReceiver);
     event CreatorFeeRatesUpdate(uint16[] rates);
     event SettlementThresholdUpdate(address indexed quoteToken, uint256 threshold);
+    event V3QuoteConfigUpdate(address indexed quoteToken, uint24 v3FeeTier, uint16 lpFeeProtocolShareBps);
     /// @notice Emitted when the per-block sniping penalty table is updated.
     /// @dev Index `i` of `penaltyTable` is the BPS penalty applied at `block.number == createdAtBlock + i`.
     ///      Length 0 disables sniping. Past the final index the penalty is 0.
@@ -54,6 +57,8 @@ interface IProtocolManager {
 
     error QuoteTokenNotAllowed();
     error QuoteTokenAlreadyAdded();
+    error InvalidFeeTier();
+    error InvalidLpFeeShare();
     error ZeroAddress();
 
     function setFactoryFeeTo(address factory, address feeTo) external;
@@ -66,6 +71,8 @@ interface IProtocolManager {
     function dexProtocolFeeRate(address quoteToken) external view returns (uint16);
     function deployFee(address quoteToken) external view returns (uint256);
     function graduateFee(address quoteToken) external view returns (uint256);
+    function v3FeeTier(address quoteToken) external view returns (uint24);
+    function lpFeeProtocolShareBps(address quoteToken) external view returns (uint16);
 
     function setFeeReceiver(address receiver) external;
 
@@ -74,6 +81,7 @@ interface IProtocolManager {
     function setAllowedCreatorFeeRates(uint16[] calldata rates) external;
     function removeCreatorFeeRate(uint16 rate) external;
     function setSettlementThreshold(address quoteToken, uint256 threshold) external;
+    function setV3QuoteConfig(address quoteToken, uint24 v3FeeTier, uint16 lpFeeProtocolShareBps) external;
 
     /// @notice Returns the full per-block sniping penalty table in BPS.
     function snipingPenaltyTable() external view returns (uint256[] memory);

@@ -58,6 +58,14 @@ contract ProtocolManager is IProtocolManager, UUPSUpgradeable, OwnableUpgradeabl
         return _configs[quoteToken].graduateFee;
     }
 
+    function v3FeeTier(address quoteToken) external view returns (uint24) {
+        return _configs[quoteToken].v3FeeTier;
+    }
+
+    function lpFeeProtocolShareBps(address quoteToken) external view returns (uint16) {
+        return _configs[quoteToken].lpFeeProtocolShareBps;
+    }
+
     function setFeeReceiver(address receiver) external onlyOwner {
         require(receiver != address(0), "Zero address");
         _feeReceiver = receiver;
@@ -87,6 +95,17 @@ contract ProtocolManager is IProtocolManager, UUPSUpgradeable, OwnableUpgradeabl
     function setSettlementThreshold(address quoteToken, uint256 threshold) external onlyOwner {
         _configs[quoteToken].settlementThreshold = threshold;
         emit SettlementThresholdUpdate(quoteToken, threshold);
+    }
+
+    function setV3QuoteConfig(address quoteToken, uint24 v3FeeTier_, uint16 lpFeeProtocolShareBps_) external onlyOwner {
+        require(_configs[quoteToken].active, "Not active");
+        if (v3FeeTier_ == 0) revert InvalidFeeTier();
+        if (lpFeeProtocolShareBps_ > BPS) revert InvalidLpFeeShare();
+
+        _configs[quoteToken].v3FeeTier = v3FeeTier_;
+        _configs[quoteToken].lpFeeProtocolShareBps = lpFeeProtocolShareBps_;
+
+        emit V3QuoteConfigUpdate(quoteToken, v3FeeTier_, lpFeeProtocolShareBps_);
     }
 
     function snipingPenaltyTable() external view returns (uint256[] memory) {
@@ -160,6 +179,8 @@ contract ProtocolManager is IProtocolManager, UUPSUpgradeable, OwnableUpgradeabl
             curveProtocolFeeRate: curveProtocolFeeRate_,
             dexProtocolFeeRate: dexProtocolFeeRate_,
             settlementThreshold: settlementThreshold_,
+            v3FeeTier: 0,
+            lpFeeProtocolShareBps: 0,
             active: true
         });
 

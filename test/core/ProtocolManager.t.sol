@@ -282,6 +282,8 @@ contract ProtocolManagerTest is SetUp {
         assertEq(config.virtualReserve, virtualReserve);
         assertEq(config.virtualTokenReserve, virtualTokenReserve);
         assertEq(config.minTokenReserve, minTokenReserve);
+        assertEq(config.v3FeeTier, 0);
+        assertEq(config.lpFeeProtocolShareBps, 0);
         assertTrue(config.active);
     }
 
