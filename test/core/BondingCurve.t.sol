@@ -13,6 +13,7 @@ import {MockWMON} from "../mocks/MockWMON.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {TOKEN_TOTAL_SUPPLY} from "../../src/libraries/Constants.sol";
 
 contract BondingCurveTest is SetUp {
     GiwaRouter localRouter;
@@ -44,6 +45,7 @@ contract BondingCurveTest is SetUp {
 
         bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), address(this));
         bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), user1);
+        bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), user2);
 
         // Deploy GiwaRouter as UUPS proxy with MockWMON as wrappedNative
         GiwaRouter routerImpl = new GiwaRouter();
@@ -72,9 +74,8 @@ contract BondingCurveTest is SetUp {
 
         vm.deal(address(wmon), 1000 ether);
 
-        // Transfer deployFee to bondingCurve before create (balance detection)
         wmon.mint(address(this), defaultDeployFee);
-        wmon.transfer(address(bondingCurve), defaultDeployFee);
+        wmon.approve(address(bondingCurve), defaultDeployFee);
         (token,) = bondingCurve.create(_defaultBCParams());
 
         // Skip past anti-sniping window (table length = 7, indexed by `block.number - createdAtBlock`).
@@ -86,7 +87,7 @@ contract BondingCurveTest is SetUp {
         uint256 buyAmount = 1 ether;
         _mintAndTransferBC(user1, buyAmount);
         vm.prank(user1);
-        uint256 tokenOut = bondingCurve.buy(user1, token);
+        uint256 tokenOut = bondingCurve.buy(user1, token, buyAmount);
 
         uint256 protocolFee = FixedPointMathLib.mulDivUp(buyAmount, defaultCurveProtocolFee, 10000);
         uint256 quoteInAfterFees = buyAmount - protocolFee;
@@ -103,7 +104,7 @@ contract BondingCurveTest is SetUp {
         uint256 buyAmount = 1 ether;
         _mintAndTransferBC(user1, buyAmount);
         vm.prank(user1);
-        uint256 tokenOut = bondingCurve.buy(user1, token);
+        uint256 tokenOut = bondingCurve.buy(user1, token, buyAmount);
 
         uint256 protocolFee = FixedPointMathLib.mulDivUp(buyAmount, defaultCurveProtocolFee, 10000);
         uint256 quoteInAfterFees = buyAmount - protocolFee;
@@ -120,17 +121,39 @@ contract BondingCurveTest is SetUp {
     function test_buy_multipleBuys() public {
         _mintAndTransferBC(user1, 1 ether);
         vm.prank(user1);
-        bondingCurve.buy(user1, token);
+        bondingCurve.buy(user1, token, 1 ether);
 
         _mintAndTransferBC(user2, 1 ether);
         vm.prank(user2);
-        bondingCurve.buy(user2, token);
+        bondingCurve.buy(user2, token, 1 ether);
 
         assertGt(
             IERC20(token).balanceOf(user1),
             IERC20(token).balanceOf(user2),
             "Second buy should yield fewer tokens (price increases)"
         );
+    }
+
+    function test_buy_declaredAmountDoesNotSweepQuoteDonation() public {
+        uint256 donation = 7 ether;
+        uint256 quoteIn = 1 ether;
+        wmon.mint(user2, donation);
+        vm.prank(user2);
+        wmon.transfer(address(bondingCurve), donation);
+
+        uint256 expectedTokenOut = bondingCurve.getAmountOut(token, quoteIn, true);
+        _mintAndTransferBC(user1, quoteIn);
+        vm.prank(user1);
+        uint256 tokenOut = bondingCurve.buy(user1, token, quoteIn);
+
+        IBondingCurve.Curve memory curve = bondingCurve.getCurve(token);
+        uint256 trackedQuote = curve.virtualQuoteReserve - curve.initialQuoteReserve;
+        assertEq(tokenOut, expectedTokenOut, "donation must not increase declared buy input");
+        assertEq(wmon.balanceOf(address(bondingCurve)), trackedQuote + donation, "quote donation remains untouched");
+
+        vm.prank(user1);
+        vm.expectRevert();
+        bondingCurve.buy(user1, token, donation);
     }
 
     function test_buy_slippageProtection() public {
@@ -154,13 +177,20 @@ contract BondingCurveTest is SetUp {
         _mintAndTransferBC(user1, 1 ether);
         vm.prank(user1);
         vm.expectRevert(IBondingCurve.TokenNotFound.selector);
-        bondingCurve.buy(user1, fakeToken);
+        bondingCurve.buy(user1, fakeToken, 1 ether);
+    }
+
+    function test_buy_nonRouterCannotUseLowLevelEntrypoint() public {
+        _mintAndTransferBC(user3, 1 ether);
+        vm.prank(user3);
+        vm.expectRevert();
+        bondingCurve.buy(user3, token, 1 ether);
     }
 
     function test_sell_receivesQuote() public {
         _mintAndTransferBC(user1, 1 ether);
         vm.prank(user1);
-        uint256 tokenOut = bondingCurve.buy(user1, token);
+        uint256 tokenOut = bondingCurve.buy(user1, token, 1 ether);
 
         uint256 sellAmount = tokenOut / 2;
         uint256 quoteBefore = wmon.balanceOf(user1);
@@ -184,7 +214,7 @@ contract BondingCurveTest is SetUp {
     function test_sell_updatesState() public {
         _mintAndTransferBC(user1, 2 ether);
         vm.prank(user1);
-        uint256 tokenOut = bondingCurve.buy(user1, token);
+        uint256 tokenOut = bondingCurve.buy(user1, token, 2 ether);
 
         IBondingCurve.Curve memory infoBefore = bondingCurve.getCurve(token);
         uint256 sellAmount = tokenOut / 2;
@@ -213,10 +243,32 @@ contract BondingCurveTest is SetUp {
         assertEq(quoteOut, grossQuote - protocolFee, "quoteOut should be grossQuote minus protocol fee");
     }
 
+    function test_sell_declaredAmountDoesNotSweepLaunchTokenDonation() public {
+        uint256 quoteIn = 2 ether;
+        _mintAndTransferBC(user1, quoteIn);
+        vm.prank(user1);
+        uint256 tokenOut = bondingCurve.buy(user1, token, quoteIn);
+
+        uint256 donation = tokenOut / 4;
+        uint256 tokenIn = tokenOut / 4;
+        vm.startPrank(user1);
+        IERC20(token).transfer(address(bondingCurve), donation);
+        IERC20(token).approve(address(bondingCurve), tokenIn);
+        bondingCurve.sell(user1, token, tokenIn);
+        vm.stopPrank();
+
+        uint256 trackedToken = TOKEN_TOTAL_SUPPLY - tokenOut + tokenIn;
+        assertEq(
+            IERC20(token).balanceOf(address(bondingCurve)),
+            trackedToken + donation,
+            "launch-token donation remains outside tracked reserves"
+        );
+    }
+
     function test_sell_slippageProtection() public {
         _mintAndTransferBC(user1, 1 ether);
         vm.prank(user1);
-        uint256 tokenOut = bondingCurve.buy(user1, token);
+        uint256 tokenOut = bondingCurve.buy(user1, token, 1 ether);
 
         vm.startPrank(user1);
         IERC20(token).approve(address(localRouter), tokenOut);
@@ -235,7 +287,7 @@ contract BondingCurveTest is SetUp {
 
     function test_antiSniping_maxPenaltyAtCreation() public {
         wmon.mint(address(this), defaultDeployFee);
-        wmon.transfer(address(bondingCurve), defaultDeployFee);
+        wmon.approve(address(bondingCurve), defaultDeployFee);
         (address newToken,) = bondingCurve.create(_createBCParams("SnipeTest", "ST", keccak256("snipeTest")));
         assertEq(bondingCurve.getSnipingPenalty(newToken), 8000, "Penalty should be 8000 BPS (80%) at creation");
         _verifySnipingBuyAndFees(newToken);
@@ -248,7 +300,7 @@ contract BondingCurveTest is SetUp {
         protocolManager.setSnipingPenaltyTable(penaltyTable);
 
         wmon.mint(address(this), defaultDeployFee);
-        wmon.transfer(address(bondingCurve), defaultDeployFee);
+        wmon.approve(address(bondingCurve), defaultDeployFee);
         (address newToken,) = bondingCurve.create(_createBCParams("FullPenalty", "FP", keccak256("fullPenalty")));
 
         uint256 quoteIn = 1 ether;
@@ -262,7 +314,7 @@ contract BondingCurveTest is SetUp {
         uint256 feeCollectorBefore = wmon.balanceOf(address(feeCollector));
 
         vm.prank(user1);
-        uint256 tokenOut = bondingCurve.buy(user1, newToken);
+        uint256 tokenOut = bondingCurve.buy(user1, newToken, quoteIn);
 
         assertEq(tokenOut, 0, "execution must match the zero-output view");
         assertEq(wmon.balanceOf(currentFeeReceiver), quoteIn, "current fee receiver gets the full quote input");
@@ -279,11 +331,13 @@ contract BondingCurveTest is SetUp {
         uint256 feeReceiverBefore = wmon.balanceOf(feeReceiver);
         uint256 feeCollectorBefore = wmon.balanceOf(address(feeCollector));
 
-        vm.prank(user1);
-        uint256 tokenOut = bondingCurve.buy(user1, newToken);
-
         uint256 snipingFee = 800_000_000_000_000_000;
         uint256 protocolFee = 1 ether * uint256(defaultCurveProtocolFee) / 10000;
+
+        vm.prank(user1);
+        vm.expectEmit(true, true, false, true, address(bondingCurve));
+        emit IBondingCurve.SnipingPenalty(newToken, user1, snipingFee, 8000);
+        uint256 tokenOut = bondingCurve.buy(user1, newToken, 1 ether);
 
         assertGt(tokenOut, 0, "buy succeeds at 80% sniping penalty");
         assertEq(IERC20(newToken).balanceOf(user1), tokenOut, "buyer receives quoted tokens");
@@ -296,7 +350,7 @@ contract BondingCurveTest is SetUp {
     ///      [8000, 4000, 2000, 1500, 1000, 1000, 500] BPS for blocks 0..6, then 0.
     function test_antiSniping_perBlockTableMatchesCurve() public {
         wmon.mint(address(this), defaultDeployFee);
-        wmon.transfer(address(bondingCurve), defaultDeployFee);
+        wmon.approve(address(bondingCurve), defaultDeployFee);
         (address newToken,) = bondingCurve.create(_createBCParams("Curve", "CV", keccak256("curve")));
         IBondingCurve.Curve memory curve = bondingCurve.getCurve(newToken);
         uint64 createdAtBlock = curve.createdAtBlock;
@@ -323,14 +377,14 @@ contract BondingCurveTest is SetUp {
     function test_antiSniping_sameBlockUsesIndexZero() public {
         // Create + read in the same block — elapsed = 0, max penalty applies.
         wmon.mint(address(this), defaultDeployFee);
-        wmon.transfer(address(bondingCurve), defaultDeployFee);
+        wmon.approve(address(bondingCurve), defaultDeployFee);
         (address newToken,) = bondingCurve.create(_createBCParams("SameBlk", "SB", keccak256("sameBlk")));
         assertEq(bondingCurve.getSnipingPenalty(newToken), 8000, "same-block read should hit table[0]");
     }
 
     function test_buy_smallAmountDuringSniping_doesNotUnderflowFeeRounding() public {
         wmon.mint(address(this), defaultDeployFee);
-        wmon.transfer(address(bondingCurve), defaultDeployFee);
+        wmon.approve(address(bondingCurve), defaultDeployFee);
         (address newToken,) = bondingCurve.create(_createBCParams("Rounding", "RND", keccak256("rounding")));
 
         IBondingCurve.Curve memory curve = bondingCurve.getCurve(newToken);
@@ -339,10 +393,14 @@ contract BondingCurveTest is SetUp {
         assertEq(bondingCurve.getSnipingPenalty(newToken), 500, "precondition: tail-of-window sniping penalty");
 
         _mintAndTransferBC(user1, 10);
+        uint256 feeReceiverBefore = wmon.balanceOf(feeReceiver);
         vm.prank(user1);
-        uint256 tokenOut = bondingCurve.buy(user1, newToken);
+        vm.expectEmit(true, true, false, true, address(bondingCurve));
+        emit IBondingCurve.SnipingPenalty(newToken, user1, 1, 500);
+        uint256 tokenOut = bondingCurve.buy(user1, newToken, 10);
 
         assertGt(tokenOut, 0, "small buy should not underflow fee split");
+        assertEq(wmon.balanceOf(feeReceiver) - feeReceiverBefore, 1, "rounded fee is fully sniping penalty");
     }
 
     // BondingCurve.getAmountIn includes protocolFee + snipingPenalty.
@@ -366,7 +424,7 @@ contract BondingCurveTest is SetUp {
 
     function test_getAmountIn_buy_withSnipingPenalty() public {
         wmon.mint(address(this), defaultDeployFee);
-        wmon.transfer(address(bondingCurve), defaultDeployFee);
+        wmon.approve(address(bondingCurve), defaultDeployFee);
         (address newToken,) = bondingCurve.create(_createBCParams("PenaltyTest", "PT", keccak256("penaltyTest")));
 
         // Same-block buy → max sniping (8000 BPS). getAmountIn must inflate the input to cover
@@ -398,7 +456,7 @@ contract BondingCurveTest is SetUp {
 
         _mintAndTransferBC(user1, 5 ether);
         vm.prank(user1);
-        bondingCurve.buy(user1, token);
+        bondingCurve.buy(user1, token, 5 ether);
 
         uint256 desiredQuote = 1 ether;
         uint256 bcAmountIn = bondingCurve.getAmountIn(token, desiredQuote, false);
@@ -428,7 +486,7 @@ contract BondingCurveTest is SetUp {
     function test_getAmountOut_sell_noFee() public {
         _mintAndTransferBC(user1, 5 ether);
         vm.prank(user1);
-        uint256 tokenOut = bondingCurve.buy(user1, token);
+        uint256 tokenOut = bondingCurve.buy(user1, token, 5 ether);
 
         uint256 sellAmount = tokenOut / 2;
         uint256 bcOut = bondingCurve.getAmountOut(token, sellAmount, false);
@@ -443,7 +501,7 @@ contract BondingCurveTest is SetUp {
 
         _mintAndTransferBC(user1, 5 ether);
         vm.prank(user1);
-        uint256 tokenOut = bondingCurve.buy(user1, token);
+        uint256 tokenOut = bondingCurve.buy(user1, token, 5 ether);
 
         uint256 sellAmount = tokenOut / 2;
         uint256 bcOut = bondingCurve.getAmountOut(token, sellAmount, false);
@@ -516,7 +574,7 @@ contract BondingCurveTest is SetUp {
 
     function test_exactOutBuy_withSnipingPenalty() public {
         wmon.mint(address(this), defaultDeployFee);
-        wmon.transfer(address(bondingCurve), defaultDeployFee);
+        wmon.approve(address(bondingCurve), defaultDeployFee);
         (address newToken,) =
             bondingCurve.create(_createBCParams("ExactOutPenalty", "EOP", keccak256("exactOutPenalty")));
 
@@ -648,7 +706,7 @@ contract BondingCurveTest is SetUp {
         params.buyQuoteAmount = buyAmount;
         wmon.mint(user1, defaultDeployFee + buyAmount);
         vm.prank(user1);
-        wmon.transfer(address(bondingCurve), defaultDeployFee + buyAmount);
+        wmon.approve(address(bondingCurve), defaultDeployFee + buyAmount);
 
         vm.prank(user1);
         (address newToken, uint256 tokenOut) = bondingCurve.create(params);
@@ -669,7 +727,7 @@ contract BondingCurveTest is SetUp {
         params.buyQuoteAmount = buyAmount;
         wmon.mint(user1, defaultDeployFee + buyAmount);
         vm.prank(user1);
-        wmon.transfer(address(bondingCurve), defaultDeployFee + buyAmount);
+        wmon.approve(address(bondingCurve), defaultDeployFee + buyAmount);
 
         vm.prank(user1);
         (address newToken, uint256 creatorTokenOut) = bondingCurve.create(params);
@@ -679,10 +737,10 @@ contract BondingCurveTest is SetUp {
 
         wmon.mint(user2, buyAmount);
         vm.prank(user2);
-        wmon.transfer(address(bondingCurve), buyAmount);
+        wmon.approve(address(bondingCurve), buyAmount);
 
         vm.prank(user2);
-        uint256 nonCreatorTokenOut = bondingCurve.buy(user2, newToken);
+        uint256 nonCreatorTokenOut = bondingCurve.buy(user2, newToken, buyAmount);
 
         assertGt(creatorTokenOut, nonCreatorTokenOut, "Creator should receive more (no sniping penalty)");
     }
@@ -692,7 +750,7 @@ contract BondingCurveTest is SetUp {
 
         wmon.mint(user1, defaultDeployFee);
         vm.prank(user1);
-        wmon.transfer(address(bondingCurve), defaultDeployFee);
+        wmon.approve(address(bondingCurve), defaultDeployFee);
         vm.prank(user1);
         (address newToken, uint256 tokenOut) = bondingCurve.create(params);
 
@@ -714,7 +772,7 @@ contract BondingCurveTest is SetUp {
         params.dexType = ITokenRegistry.DexType.UniswapV2;
 
         wmon.mint(address(this), defaultDeployFee);
-        wmon.transfer(address(bondingCurve), defaultDeployFee);
+        wmon.approve(address(bondingCurve), defaultDeployFee);
         vm.expectRevert("Unsupported dexType");
         bondingCurve.create(params);
     }
@@ -724,7 +782,7 @@ contract BondingCurveTest is SetUp {
         params.dexType = ITokenRegistry.DexType.UniswapV4;
 
         wmon.mint(address(this), defaultDeployFee);
-        wmon.transfer(address(bondingCurve), defaultDeployFee);
+        wmon.approve(address(bondingCurve), defaultDeployFee);
         vm.expectRevert("Unsupported dexType");
         bondingCurve.create(params);
     }
@@ -735,7 +793,7 @@ contract BondingCurveTest is SetUp {
         params.dexType = ITokenRegistry.DexType.UniswapV3;
 
         wmon.mint(address(this), defaultDeployFee);
-        wmon.transfer(address(bondingCurve), defaultDeployFee);
+        wmon.approve(address(bondingCurve), defaultDeployFee);
         (address v3Token,) = bondingCurve.create(params);
 
         ITokenRegistry.TokenInfo memory info = tokenRegistry.getTokenInfo(v3Token);
@@ -757,7 +815,7 @@ contract BondingCurveTest is SetUp {
 
         _mintAndTransferBC(user1, 800_000 ether);
         vm.prank(user1);
-        bondingCurve.buy(user1, token);
+        bondingCurve.buy(user1, token, 800_000 ether);
 
         assertTrue(bondingCurve.getCurve(token).graduated, "token should graduate through tier A pool");
         ITokenRegistry.TokenInfo memory afterInfo = tokenRegistry.getTokenInfo(token);
@@ -765,6 +823,30 @@ contract BondingCurveTest is SetUp {
         assertEq(afterInfo.pool, beforeInfo.pool, "registry keeps canonical tier A pool");
         assertEq(v3Factory.getPool(token, address(wmon), DEFAULT_V3_FEE_TIER), beforeInfo.pool, "factory tier A pool");
         assertEq(v3Factory.getPool(token, address(wmon), updatedFeeTier), address(0), "no tier B pool created");
+    }
+
+    function test_graduate_distributesOnlyTrackedReservesAndLeavesDonations() public {
+        uint256 initialQuoteIn = 2 ether;
+        _mintAndTransferBC(user1, initialQuoteIn);
+        vm.prank(user1);
+        uint256 tokenOut = bondingCurve.buy(user1, token, initialQuoteIn);
+
+        uint256 tokenDonation = tokenOut / 4;
+        uint256 quoteDonation = 9 ether;
+        vm.prank(user1);
+        IERC20(token).transfer(address(bondingCurve), tokenDonation);
+        wmon.mint(user2, quoteDonation);
+        vm.prank(user2);
+        wmon.transfer(address(bondingCurve), quoteDonation);
+
+        uint256 graduationQuoteIn = 800_000 ether;
+        _mintAndTransferBC(user1, graduationQuoteIn);
+        vm.prank(user1);
+        bondingCurve.buy(user1, token, graduationQuoteIn);
+
+        assertTrue(bondingCurve.getCurve(token).graduated, "precondition: token graduated");
+        assertEq(IERC20(token).balanceOf(address(bondingCurve)), tokenDonation, "token donation remains on curve");
+        assertEq(wmon.balanceOf(address(bondingCurve)), quoteDonation, "quote donation remains on curve");
     }
 
     /// @dev Previously, empty setupData skipped IVault.setup, leaving CreatorFeeVault
@@ -776,7 +858,7 @@ contract BondingCurveTest is SetUp {
         params.vaults[0].setupData = "";
 
         wmon.mint(address(this), defaultDeployFee);
-        wmon.transfer(address(bondingCurve), defaultDeployFee);
+        wmon.approve(address(bondingCurve), defaultDeployFee);
         vm.expectRevert();
         bondingCurve.create(params);
     }
@@ -792,7 +874,7 @@ contract BondingCurveTest is SetUp {
 
         wmon.mint(user1, defaultDeployFee);
         vm.prank(user1);
-        wmon.transfer(address(bondingCurve), defaultDeployFee);
+        wmon.approve(address(bondingCurve), defaultDeployFee);
         vm.prank(user1);
         (address newToken,) = bondingCurve.create(params);
 
@@ -803,7 +885,7 @@ contract BondingCurveTest is SetUp {
     function _mintAndTransferBC(address _user, uint256 amount) internal {
         wmon.mint(_user, amount);
         vm.prank(_user);
-        wmon.transfer(address(bondingCurve), amount);
+        wmon.approve(address(bondingCurve), amount);
     }
 
     function _mintAndApproveRouter(address _user, uint256 amount) internal {

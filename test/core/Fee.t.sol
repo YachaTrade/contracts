@@ -90,12 +90,12 @@ contract FeeTest is SetUp {
 
         uint256 buyAmount = 10_000 ether;
         uint256 quotedTokenOut = bondingCurve.getAmountOut(token, buyAmount, true);
-        _mintAndTransfer(user1, buyAmount);
+        _mintAndApproveCurve(user1, buyAmount);
 
         uint256 feeReceiverBefore = quoteToken.balanceOf(currentFeeReceiver);
         uint256 fcBefore = quoteToken.balanceOf(address(feeCollector));
         vm.prank(user1);
-        uint256 tokenOut = bondingCurve.buy(user1, token);
+        uint256 tokenOut = bondingCurve.buy(user1, token, buyAmount);
 
         uint256 feeReceiverGot = quoteToken.balanceOf(currentFeeReceiver) - feeReceiverBefore;
         uint256 expectedProtocolFee = FixedPointMathLib.mulDivUp(buyAmount, 100, 10000);
@@ -122,12 +122,12 @@ contract FeeTest is SetUp {
         vm.roll(block.number + 10);
 
         // Buy first
-        _mintAndTransfer(user1, 10_000 ether);
+        _mintAndApproveCurve(user1, 10_000 ether);
         vm.prank(user1);
-        uint256 tokensOut = bondingCurve.buy(user1, token);
+        uint256 tokensOut = bondingCurve.buy(user1, token, 10_000 ether);
 
         vm.prank(user1);
-        IERC20(token).transfer(address(bondingCurve), tokensOut);
+        IERC20(token).approve(address(bondingCurve), tokensOut);
 
         address currentFeeReceiver = makeAddr("currentSellFeeReceiver");
         vm.prank(admin);
@@ -140,7 +140,7 @@ contract FeeTest is SetUp {
         uint256 userBefore = quoteToken.balanceOf(user1);
 
         vm.prank(user1);
-        uint256 quoteOut = bondingCurve.sell(user1, token);
+        uint256 quoteOut = bondingCurve.sell(user1, token, tokensOut);
 
         uint256 feeReceiverGot = quoteToken.balanceOf(currentFeeReceiver) - feeReceiverBefore;
         uint256 userReceived = quoteToken.balanceOf(user1) - userBefore;
@@ -178,12 +178,12 @@ contract FeeTest is SetUp {
         );
         uint256 quotedTokenOut = bondingCurve.getAmountOut(token, quoteIn, true);
 
-        _mintAndTransfer(user1, quoteIn);
+        _mintAndApproveCurve(user1, quoteIn);
 
         uint256 feeReceiverBefore = quoteToken.balanceOf(feeReceiver);
         uint256 fcBefore = quoteToken.balanceOf(address(feeCollector));
         vm.prank(user1);
-        uint256 tokenOut = bondingCurve.buy(user1, token);
+        uint256 tokenOut = bondingCurve.buy(user1, token, quoteIn);
 
         uint256 feeReceiverGot = quoteToken.balanceOf(feeReceiver) - feeReceiverBefore;
         uint256 expectedProtocolFee = FixedPointMathLib.mulDivUp(quoteIn, 300, 10000);
@@ -203,7 +203,7 @@ contract FeeTest is SetUp {
         IBondingCurve.CreateTokenParams memory params = _feeDefaultParams(keccak256("initial-buy-fee"));
         params.creator = user1;
         params.buyQuoteAmount = buyQuoteAmount;
-        _mintAndTransfer(user1, buyQuoteAmount);
+        _mintAndApproveCurve(user1, buyQuoteAmount);
 
         address currentFeeReceiver = makeAddr("initialBuyFeeReceiver");
         vm.prank(admin);
@@ -244,7 +244,7 @@ contract FeeTest is SetUp {
         // User must transfer deploy fee to BC (balance detection)
         quoteToken.mint(user1, 0.01 ether);
         vm.prank(user1);
-        quoteToken.transfer(address(bondingCurve), 0.01 ether);
+        quoteToken.approve(address(bondingCurve), 0.01 ether);
 
         uint256 feeReceiverBefore = quoteToken.balanceOf(feeReceiver);
 
@@ -277,9 +277,9 @@ contract FeeTest is SetUp {
         uint256 feeReceiverBefore = quoteToken.balanceOf(feeReceiver);
 
         // Buy enough to graduate (excess goes to feeReceiver along with grad fee)
-        _mintAndTransfer(user1, 700_000 ether);
+        _mintAndApproveCurve(user1, 700_000 ether);
         vm.prank(user1);
-        bondingCurve.buy(user1, token);
+        bondingCurve.buy(user1, token, 700_000 ether);
 
         assertTrue(bondingCurve.getCurve(token).graduated, "Should be graduated");
 
@@ -312,7 +312,7 @@ contract FeeTest is SetUp {
 
         quoteToken.mint(user1, 0.01 ether);
         vm.prank(user1);
-        quoteToken.transfer(address(bondingCurve), 0.01 ether);
+        quoteToken.approve(address(bondingCurve), 0.01 ether);
 
         uint256 feeReceiverBefore = quoteToken.balanceOf(feeReceiver);
         vm.prank(user1);
@@ -341,6 +341,12 @@ contract FeeTest is SetUp {
 
     function _createTokenWithVault(bytes32 salt) internal returns (address token) {
         (token,) = bondingCurve.create(_feeDefaultParams(salt));
+    }
+
+    function _mintAndApproveCurve(address account, uint256 amount) internal {
+        quoteToken.mint(account, amount);
+        vm.prank(account);
+        quoteToken.approve(address(bondingCurve), amount);
     }
 
     function _feeDefaultParams(bytes32 salt) internal view returns (IBondingCurve.CreateTokenParams memory params) {

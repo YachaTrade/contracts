@@ -10,6 +10,7 @@ import {IGiwaRouter} from "../../src/interfaces/IGiwaRouter.sol";
 import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockWMON} from "../mocks/MockWMON.sol";
+import {MockFeeOnTransferERC20} from "../mocks/MockFeeOnTransferERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
@@ -90,6 +91,7 @@ contract GiwaRouterCreateTest is SetUp {
         assertTrue(token != address(0), "Token should be created");
         assertGt(tokenOut, 0, "Should receive tokens");
         assertEq(IERC20(token).balanceOf(user1), tokenOut, "Balance should match");
+        assertEq(wmon.allowance(address(giwaRouter), address(bondingCurve)), 0, "Curve allowance reset");
     }
 
     function test_createWithNative() public {
@@ -173,34 +175,75 @@ contract GiwaRouterCreateTest is SetUp {
         assertEq(tokenOut, 0, "Should receive no tokens");
     }
 
-    function test_create_prefundedQuoteGoesToFeeReceiver() public {
+    function test_create_doesNotSweepPrefundedCurveOrRouterQuote() public {
         uint256 buyQuoteAmount = 1 ether;
-        uint256 donation = 3 ether;
+        uint256 curveDonation = 3 ether;
+        uint256 routerDonation = 5 ether;
 
         IGiwaRouter.CreateParams memory prefundedParams = _createParams(buyQuoteAmount);
         prefundedParams.salt = keccak256("prefunded-create");
 
-        wmon.mint(user2, donation);
+        wmon.mint(user2, curveDonation + routerDonation);
         vm.prank(user2);
-        wmon.transfer(address(bondingCurve), donation);
+        wmon.transfer(address(bondingCurve), curveDonation);
+        vm.prank(user2);
+        wmon.transfer(address(giwaRouter), routerDonation);
 
         uint256 feeReceiverBeforePrefunded = wmon.balanceOf(feeReceiver);
-        (, uint256 prefundedTokenOut) = _createViaRouter(user1, prefundedParams);
+        (address prefundedToken, uint256 prefundedTokenOut) = _createViaRouter(user1, prefundedParams);
         uint256 feeReceiverDeltaPrefunded = wmon.balanceOf(feeReceiver) - feeReceiverBeforePrefunded;
 
         IGiwaRouter.CreateParams memory cleanParams = _createParams(buyQuoteAmount);
         cleanParams.salt = keccak256("clean-create");
 
         uint256 feeReceiverBeforeClean = wmon.balanceOf(feeReceiver);
-        (, uint256 cleanTokenOut) = _createViaRouter(user1, cleanParams);
+        (address cleanToken, uint256 cleanTokenOut) = _createViaRouter(user1, cleanParams);
         uint256 feeReceiverDeltaClean = wmon.balanceOf(feeReceiver) - feeReceiverBeforeClean;
 
         assertEq(prefundedTokenOut, cleanTokenOut, "Prefunded quote must not increase creator initial buy");
+        assertEq(feeReceiverDeltaPrefunded, feeReceiverDeltaClean, "donations must not become protocol fees");
         assertEq(
-            feeReceiverDeltaPrefunded,
-            feeReceiverDeltaClean + donation,
-            "Prefunded quote should be swept to feeReceiver"
+            wmon.balanceOf(address(bondingCurve)) - _trackedQuote(prefundedToken) - _trackedQuote(cleanToken),
+            curveDonation,
+            "curve donation remains"
         );
+        assertEq(wmon.balanceOf(address(giwaRouter)), routerDonation, "router donation remains");
+    }
+
+    function test_create_taxedQuoteInputRevertsAndRollsBack() public {
+        MockFeeOnTransferERC20 taxedQuote = new MockFeeOnTransferERC20();
+        vm.startPrank(admin);
+        protocolManager.addQuoteToken(
+            address(taxedQuote),
+            virtualReserve,
+            virtualTokenReserve,
+            minTokenReserve,
+            defaultDeployFee,
+            defaultGraduateFee,
+            defaultCurveProtocolFee,
+            defaultDexProtocolFee
+        );
+        protocolManager.setV3QuoteConfig(address(taxedQuote), DEFAULT_V3_FEE_TIER, DEFAULT_LP_FEE_PROTOCOL_SHARE_BPS);
+        vm.stopPrank();
+
+        IGiwaRouter.CreateParams memory params = _createParams(1 ether);
+        params.quoteToken = address(taxedQuote);
+        params.salt = keccak256("taxed-create");
+        uint256 quoteRequired = defaultDeployFee + params.buyQuoteAmount;
+        taxedQuote.mint(user1, quoteRequired);
+        vm.startPrank(user1);
+        taxedQuote.approve(address(giwaRouter), quoteRequired);
+        vm.expectPartialRevert(IGiwaRouter.InvalidBalanceDelta.selector);
+        giwaRouter.create(params);
+        vm.stopPrank();
+
+        assertEq(taxedQuote.balanceOf(user1), quoteRequired, "failed exact pull rolls back payer balance");
+        assertEq(taxedQuote.balanceOf(address(giwaRouter)), 0, "failed exact pull leaves no router residue");
+    }
+
+    function _trackedQuote(address token) internal view returns (uint256) {
+        IBondingCurve.Curve memory curve = bondingCurve.getCurve(token);
+        return curve.virtualQuoteReserve - curve.initialQuoteReserve;
     }
 
     function _createViaRouter(address caller, IGiwaRouter.CreateParams memory params)

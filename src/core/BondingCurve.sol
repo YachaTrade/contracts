@@ -9,7 +9,7 @@ import {ILPManager} from "../interfaces/ILPManager.sol";
 import {IV3PoolDeployer} from "../interfaces/IV3PoolDeployer.sol";
 import {IToken} from "../interfaces/IToken.sol";
 import {ICreatorFeeProcessor} from "../interfaces/ICreatorFeeProcessor.sol";
-import {BPS} from "../libraries/Constants.sol";
+import {BPS, TOKEN_TOTAL_SUPPLY} from "../libraries/Constants.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 import {IVault} from "../interfaces/IVault.sol";
@@ -86,27 +86,19 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
         require(_protocolManager.isAllowed(params.quoteToken), "Quote token not allowed");
 
         address creator = params.creator;
-        uint256 quoteIn;
+        uint256 quoteIn = params.buyQuoteAmount;
 
         {
-            uint256 totalIn =
-                IERC20(params.quoteToken).balanceOf(address(this)) - _totalQuoteReserved[params.quoteToken];
-
+            IERC20 quoteToken = IERC20(params.quoteToken);
             uint256 deployFee_ = _protocolManager.deployFee(params.quoteToken);
             uint256 requiredQuote = deployFee_ + params.buyQuoteAmount;
-            require(totalIn >= requiredQuote, "Insufficient for create");
+            _pullExact(quoteToken, msg.sender, requiredQuote);
 
             if (deployFee_ > 0) {
-                IERC20(params.quoteToken).safeTransfer(_protocolManager.feeReceiver(), deployFee_);
-            }
-
-            uint256 excessQuote = totalIn - requiredQuote;
-            if (excessQuote > 0) {
-                IERC20(params.quoteToken).safeTransfer(_protocolManager.feeReceiver(), excessQuote);
+                _pushExact(quoteToken, _protocolManager.feeReceiver(), deployFee_);
             }
 
             token = _create(params, creator);
-            quoteIn = params.buyQuoteAmount;
         }
 
         {
@@ -157,7 +149,7 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
 
         _initCurve(_CurveInitArgs(token, pair), params, quoteConfig, creator);
 
-        _totalTokenReserved[token] = IERC20(token).balanceOf(address(this));
+        _totalTokenReserved[token] = TOKEN_TOTAL_SUPPLY;
     }
 
     function _setupVaults(address token, VaultAllocation[] calldata allocations)
@@ -219,25 +211,34 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
 
     //   if (curve.version == CurveVersion.V1) _buyV1(...)
     //   else if (curve.version == CurveVersion.V2) _buyV2(...)
-    /// @notice Buys tokens from the bonding curve using quote tokens already transferred to this contract.
+    /// @notice Buys tokens from the bonding curve using an explicitly declared quote amount.
     /// @dev This low-level entrypoint performs no slippage or deadline checks. User-facing buys should
     ///      go through GiwaRouter, which enforces caller-provided execution protection.
-    function buy(address to, address token) external notHalted nonReentrant returns (uint256 tokenOut) {
+    function buy(address to, address token, uint256 quoteIn)
+        external
+        onlyRole(ROUTER_ROLE)
+        notHalted
+        nonReentrant
+        returns (uint256 tokenOut)
+    {
         Curve storage curve = curves[token];
         if (curve.token == address(0)) revert TokenNotFound();
         if (curve.graduated) revert AlreadyGraduated();
+        require(quoteIn > 0, "No quote sent");
+
+        _pullExact(IERC20(curve.quoteToken), msg.sender, quoteIn);
 
         if (curve.version == CurveVersion.V1) {
-            tokenOut = _buyV1(to, token, curve);
+            tokenOut = _buyV1(to, token, curve, quoteIn);
         } else {
             revert UnsupportedVersion();
         }
     }
 
-    function _buyV1(address to, address token, Curve storage curve) internal returns (uint256 tokenOut) {
-        uint256 quoteIn = IERC20(curve.quoteToken).balanceOf(address(this)) - _totalQuoteReserved[curve.quoteToken];
-        require(quoteIn > 0, "No quote sent");
-
+    function _buyV1(address to, address token, Curve storage curve, uint256 quoteIn)
+        internal
+        returns (uint256 tokenOut)
+    {
         (uint256 protocolFee, uint256 snipingFee, uint256 quoteInAfterFees) =
             _calculateFees(token, quoteIn, curve, true);
 
@@ -260,14 +261,14 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
             );
             uint256 excessQuoteIn = quoteInAfterFees - requiredQuoteIn;
             if (excessQuoteIn > 0) {
-                IERC20(curve.quoteToken).safeTransfer(_protocolManager.feeReceiver(), excessQuoteIn);
+                _pushExact(IERC20(curve.quoteToken), _protocolManager.feeReceiver(), excessQuoteIn);
             }
             quoteInAfterFees = requiredQuoteIn;
         }
 
         _sendCurveFees(token, to, curve.quoteToken, protocolFee, snipingFee);
 
-        IERC20(token).safeTransfer(to, tokenOut);
+        _pushExact(IERC20(token), to, tokenOut);
 
         _updateCurve(token, quoteInAfterFees, tokenOut, true);
 
@@ -293,48 +294,58 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
             );
             uint256 excessQuoteIn = quoteInAfterFees - requiredQuoteIn;
             if (excessQuoteIn > 0) {
-                IERC20(curve.quoteToken).safeTransfer(_protocolManager.feeReceiver(), excessQuoteIn);
+                _pushExact(IERC20(curve.quoteToken), _protocolManager.feeReceiver(), excessQuoteIn);
             }
             quoteInAfterFees = requiredQuoteIn;
         }
 
         _sendCurveFees(token, to, curve.quoteToken, protocolFee, 0);
 
-        IERC20(token).safeTransfer(to, tokenOut);
+        _pushExact(IERC20(token), to, tokenOut);
 
         _updateCurve(token, quoteInAfterFees, tokenOut, true);
 
         emit Buy(token, to, quoteIn, tokenOut);
     }
 
-    /// @notice Sells tokens into the bonding curve using base tokens already transferred to this contract.
+    /// @notice Sells an explicitly declared launch-token amount into the bonding curve.
     /// @dev This low-level entrypoint performs no slippage or deadline checks. User-facing sells should
     ///      go through GiwaRouter, which enforces caller-provided execution protection.
-    function sell(address to, address token) external notHalted nonReentrant returns (uint256 quoteOut) {
+    function sell(address to, address token, uint256 tokenIn)
+        external
+        onlyRole(ROUTER_ROLE)
+        notHalted
+        nonReentrant
+        returns (uint256 quoteOut)
+    {
         Curve storage curve = curves[token];
         if (curve.token == address(0)) revert TokenNotFound();
         if (curve.graduated) revert AlreadyGraduated();
+        require(tokenIn > 0, "No tokens");
+
+        _pullExact(IERC20(token), msg.sender, tokenIn);
 
         if (curve.version == CurveVersion.V1) {
-            quoteOut = _sellV1(to, token, curve);
+            quoteOut = _sellV1(to, token, curve, tokenIn);
         } else {
             revert UnsupportedVersion();
         }
     }
 
-    function _sellV1(address to, address token, Curve storage curve) internal returns (uint256 quoteOutAfterFees) {
-        uint256 tokenIn = IERC20(token).balanceOf(address(this)) - _totalTokenReserved[token];
-        require(tokenIn > 0, "No tokens");
-
-        uint256 quoteOutBeforeFees =
-            BondingCurveLibrary.getAmountOut(tokenIn, curve.k, curve.virtualTokenReserve, curve.virtualQuoteReserve);
+    function _sellV1(address to, address token, Curve storage curve, uint256 tokenIn)
+        internal
+        returns (uint256 quoteOutAfterFees)
+    {
+        uint256 quoteOutBeforeFees = BondingCurveLibrary.getAmountOut(
+            tokenIn, curve.k, curve.virtualTokenReserve, curve.virtualQuoteReserve
+        );
 
         (uint256 protocolFee,, uint256 quoteOutAfterFees_) = _calculateFees(token, quoteOutBeforeFees, curve, false);
         quoteOutAfterFees = quoteOutAfterFees_;
 
         _sendCurveFees(token, to, curve.quoteToken, protocolFee, 0);
 
-        IERC20(curve.quoteToken).safeTransfer(to, quoteOutAfterFees);
+        _pushExact(IERC20(curve.quoteToken), to, quoteOutAfterFees);
 
         _updateCurve(token, tokenIn, quoteOutBeforeFees, false);
 
@@ -347,9 +358,13 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
         if (isBuy) {
             curve.virtualQuoteReserve += amountIn;
             curve.virtualTokenReserve -= amountOut;
+            _totalQuoteReserved[curve.quoteToken] += amountIn;
+            _totalTokenReserved[token] -= amountOut;
         } else {
             curve.virtualQuoteReserve -= amountOut;
             curve.virtualTokenReserve += amountIn;
+            _totalQuoteReserved[curve.quoteToken] -= amountOut;
+            _totalTokenReserved[token] += amountIn;
         }
 
         if (curve.virtualQuoteReserve * curve.virtualTokenReserve < curve.k) revert InvalidKValue();
@@ -357,9 +372,6 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
         if (curve.virtualTokenReserve == curve.minTokenReserve) {
             _graduate(token);
         }
-
-        _totalQuoteReserved[curve.quoteToken] = IERC20(curve.quoteToken).balanceOf(address(this));
-        _totalTokenReserved[token] = IERC20(token).balanceOf(address(this));
 
         emit Sync(
             token,
@@ -389,6 +401,7 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
         require(lpManager != address(0), "LP_MANAGER not set");
 
         uint256 quoteBalanceBeforeGraduateFee = curve.virtualQuoteReserve - curve.initialQuoteReserve;
+        _totalQuoteReserved[curve.quoteToken] -= quoteBalanceBeforeGraduateFee;
 
         uint256 quoteBalanceAfterGraduateFee = quoteBalanceBeforeGraduateFee;
         {
@@ -396,22 +409,21 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
             if (graduateFee_ > 0) {
                 require(quoteBalanceBeforeGraduateFee > graduateFee_, "Insufficient for graduate fee");
                 quoteBalanceAfterGraduateFee = quoteBalanceBeforeGraduateFee - graduateFee_;
-                IERC20(curve.quoteToken).safeTransfer(_protocolManager.feeReceiver(), graduateFee_);
+                _pushExact(IERC20(curve.quoteToken), _protocolManager.feeReceiver(), graduateFee_);
             }
         }
 
         uint256 tokenForLiquidity = quoteBalanceAfterGraduateFee * curve.virtualTokenReserve / curve.virtualQuoteReserve;
+        uint256 trackedTokenReserve = _totalTokenReserved[token];
+        uint256 excessToken = trackedTokenReserve - tokenForLiquidity;
 
-        {
-            uint256 currentTokenBalance = IERC20(token).balanceOf(address(this));
-            uint256 excessToken = currentTokenBalance - tokenForLiquidity;
-            if (excessToken > 0) {
-                IERC20(token).safeTransfer(_protocolManager.feeReceiver(), excessToken);
-            }
+        if (excessToken > 0) {
+            _pushExact(IERC20(token), _protocolManager.feeReceiver(), excessToken);
         }
 
-        IERC20(token).safeTransfer(lpManager, tokenForLiquidity);
-        IERC20(curve.quoteToken).safeTransfer(lpManager, quoteBalanceAfterGraduateFee);
+        _pushExact(IERC20(token), lpManager, tokenForLiquidity);
+        _pushExact(IERC20(curve.quoteToken), lpManager, quoteBalanceAfterGraduateFee);
+        _totalTokenReserved[token] = 0;
 
         ILPManager(lpManager)
             .allocate(
@@ -457,7 +469,7 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
     {
         uint256 protocolAndSnipingFee = protocolFee + snipingFee;
         if (protocolAndSnipingFee > 0) {
-            IERC20(quoteToken).safeTransfer(_protocolManager.feeReceiver(), protocolAndSnipingFee);
+            _pushExact(IERC20(quoteToken), _protocolManager.feeReceiver(), protocolAndSnipingFee);
         }
 
         if (snipingFee > 0) emit SnipingPenalty(token, buyer, snipingFee, _getSnipingFeeRate(token));
@@ -470,6 +482,49 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
 
     function _getSnipingFeeRate(address token) internal view returns (uint256) {
         return _protocolManager.getSnipingPenalty(curves[token].createdAtBlock);
+    }
+
+    function _pullExact(IERC20 token, address from, uint256 amount) private {
+        if (amount == 0) return;
+        uint256 senderBalanceBefore = token.balanceOf(from);
+        uint256 curveBalanceBefore = token.balanceOf(address(this));
+        token.safeTransferFrom(from, address(this), amount);
+        _requireBalanceDecrease(token, from, senderBalanceBefore, amount);
+        _requireBalanceIncrease(token, address(this), curveBalanceBefore, amount);
+    }
+
+    function _pushExact(IERC20 token, address to, uint256 amount) private {
+        if (amount == 0) return;
+        uint256 curveBalanceBefore = token.balanceOf(address(this));
+        uint256 recipientBalanceBefore = token.balanceOf(to);
+        token.safeTransfer(to, amount);
+        _requireBalanceDecrease(token, address(this), curveBalanceBefore, amount);
+        _requireBalanceIncrease(token, to, recipientBalanceBefore, amount);
+    }
+
+    function _requireBalanceDecrease(IERC20 token, address account, uint256 balanceBefore, uint256 amount)
+        private
+        view
+    {
+        uint256 currentBalance = token.balanceOf(account);
+        uint256 requiredBalance = balanceBefore >= amount ? balanceBefore - amount : 0;
+        if (balanceBefore < amount || currentBalance != requiredBalance) {
+            revert InvalidBalanceDelta(address(token), account, requiredBalance, currentBalance);
+        }
+    }
+
+    function _requireBalanceIncrease(IERC20 token, address account, uint256 balanceBefore, uint256 amount)
+        private
+        view
+    {
+        if (amount > type(uint256).max - balanceBefore) {
+            revert InvalidBalanceDelta(address(token), account, type(uint256).max, token.balanceOf(account));
+        }
+        uint256 requiredBalance = balanceBefore + amount;
+        uint256 currentBalance = token.balanceOf(account);
+        if (currentBalance != requiredBalance) {
+            revert InvalidBalanceDelta(address(token), account, requiredBalance, currentBalance);
+        }
     }
 
     function getCurve(address token) external view returns (Curve memory) {

@@ -2,7 +2,6 @@
 pragma solidity ^0.8.24;
 
 import {IProtocolManager} from "../interfaces/IProtocolManager.sol";
-import {INadFunFactory} from "../dex/interfaces/INadFunFactory.sol";
 import {BPS, TOKEN_TOTAL_SUPPLY} from "../libraries/Constants.sol";
 import {UUPSUpgradeable} from "@openzeppelin-upgradeable/contracts/proxy/utils/UUPSUpgradeable.sol";
 import {OwnableUpgradeable} from "@openzeppelin-upgradeable/contracts/access/OwnableUpgradeable.sol";
@@ -303,14 +302,6 @@ contract ProtocolManager is IProtocolManager, UUPSUpgradeable, OwnableUpgradeabl
 
     function getDecimals(address quoteToken) external view returns (uint8) {
         return _configs[quoteToken].decimals;
-    }
-
-    function setFactoryFeeTo(address factory, address feeTo) external onlyOwner {
-        INadFunFactory(factory).setFeeTo(feeTo);
-    }
-
-    function setFactoryImplementation(address factory, address impl) external onlyOwner {
-        INadFunFactory(factory).setImplementation(impl);
     }
 
     function setOperatorPermission(address operator, address target, bytes4 selector, bool allowed) external onlyOwner {
