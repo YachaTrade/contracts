@@ -14,4 +14,10 @@ The pre-implementation RED run failed to compile because `AllocateParams`, V3 al
 
 ## Validation
 
-`forge build` passes. The focused `test/modules/LPManagerV3.t.sol` smoke tests compile and pass where fixtures are available. Full actor/integration coverage remains in the existing suites.
+`forge build` passes. The focused `test/modules/LPManagerV3.t.sol` suite now has 6 passing tests, including both quote-order reference parity, 256-run bounded fuzz parity, invalid graduate-fee/spacing validation, `getPositions` pre-allocation rejection, and legacy selector disabling. The full allocation/allowance/AccessManager lifecycle harness remains a follow-up limitation because the existing setup does not yet deploy and authorize the V3 factory/actor wiring; this must be completed before final protocol validation.
+
+## Follow-up fixes
+
+- Restored the legacy `_liquidities` mapping at storage slot 1 and appended the V3 fields after it; storage inspection now confirms `_tokenRegistry` slot 0 and the legacy mapping slot 1 remain unchanged.
+- `_settle` now checks exact call-scoped balance accounting and verifies the fee receiver's post-transfer balance delta, rejecting taxed or rebasing delivery.
+- `increaseLiquidity` now requires a prior allocation and reuses the stored pool metadata while refreshing only live slot0/tick fields.
