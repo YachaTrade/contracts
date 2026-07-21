@@ -21,6 +21,8 @@ interface ICreatorFeeProcessor {
     error NoVaults();
     error ZeroBps();
     error AlreadyConfigured();
+    error InvalidProtocolManager();
+    error InvalidBalanceDelta(address token, address account, uint256 expectedBalance, uint256 actualBalance);
 
     function setup(address token, VaultSlot[] calldata vaults) external;
 

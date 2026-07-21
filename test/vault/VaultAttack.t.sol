@@ -198,8 +198,16 @@ contract VaultAttackTest is SetUp {
     function test_attack_revertingVault_blocksDistribution() public {
         NoopVault goodVault = new NoopVault();
 
-        // Deploy a CreatorFeeProcessor where this test contract is bondingCurve (for setup) and feeCollector (for processCreatorFee)
-        CreatorFeeProcessor processor = new CreatorFeeProcessor(address(this), address(this));
+        // Deploy a processor and authorize this test for its setup and processing selectors.
+        CreatorFeeProcessor processor = new CreatorFeeProcessor(address(protocolManager));
+        vm.startPrank(admin);
+        protocolManager.setOperatorPermission(
+            address(this), address(processor), ICreatorFeeProcessor.setup.selector, true
+        );
+        protocolManager.setOperatorPermission(
+            address(this), address(processor), ICreatorFeeProcessor.processCreatorFee.selector, true
+        );
+        vm.stopPrank();
 
         ICreatorFeeProcessor.VaultSlot[] memory slots = new ICreatorFeeProcessor.VaultSlot[](2);
         slots[0] = ICreatorFeeProcessor.VaultSlot({vault: address(new RevertingVault()), bps: 5000});
@@ -217,6 +225,8 @@ contract VaultAttackTest is SetUp {
         processor.processCreatorFee(address(creatorFeeTokenMock), address(quoteToken), amount);
 
         assertEq(quoteToken.balanceOf(address(goodVault)), 0, "goodVault should not receive quote after revert");
+        assertEq(quoteToken.balanceOf(address(this)), amount, "sender quote should roll back");
+        assertEq(quoteToken.balanceOf(address(processor)), 0, "processor should retain no quote");
     }
 
     function test_attack_nonexistentVaultType_reverts() public {
