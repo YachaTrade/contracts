@@ -127,19 +127,18 @@ contract LPManager is ILPManager, UUPSUpgradeable, AccessManagedUpgradeable {
     }
 
     function _settle(address t, uint256 beforeBal, uint256 input, uint256 used) internal {
-        if (used > input || beforeBal > type(uint256).max - input + used) revert BalanceDelta();
-        uint256 expected = beforeBal + input - used;
-        uint256 afterBal = IERC20(t).balanceOf(address(this));
-        if (afterBal != expected) revert BalanceDelta();
-        uint256 rem = input - used;
-        if (rem > 0) {
-            address receiver = IProtocolManager(authority()).feeReceiver();
-            uint256 rb = IERC20(t).balanceOf(receiver);
-            IERC20(t).safeTransfer(receiver, rem);
-            if (IERC20(t).balanceOf(address(this)) != beforeBal || IERC20(t).balanceOf(receiver) != rb + rem) {
-                revert BalanceDelta();
-            }
-        }
+        if (used > input || used > beforeBal) revert BalanceDelta();
+        if (IERC20(t).balanceOf(address(this)) != beforeBal - used) revert BalanceDelta();
+
+        uint256 remainder = input - used;
+        if (remainder == 0) return;
+        address receiver = IProtocolManager(authority()).feeReceiver();
+        uint256 receiverBefore = IERC20(t).balanceOf(receiver);
+        IERC20(t).safeTransfer(receiver, remainder);
+        if (
+            IERC20(t).balanceOf(address(this)) != beforeBal - input
+                || IERC20(t).balanceOf(receiver) != receiverBefore + remainder
+        ) revert BalanceDelta();
     }
 
     function _loadPoolData(address token) internal view returns (ILPManager.PoolData memory d) {
