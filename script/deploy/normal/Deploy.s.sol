@@ -3,36 +3,39 @@ pragma solidity =0.8.24;
 
 import {Script, console} from "forge-std/Script.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {IUniswapV3Factory} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Factory.sol";
+import {IPeripheryImmutableState} from "@uniswap/v3-periphery/contracts/interfaces/IPeripheryImmutableState.sol";
+import {QuoterV2} from "@uniswap/v3-periphery/contracts/lens/QuoterV2.sol";
 
 import {Token} from "../../../src/token/Token.sol";
+import {WrappedEther} from "../../../src/token/WrappedEther.sol";
 import {CreatorFeeProcessor} from "../../../src/core/CreatorFeeProcessor.sol";
 import {FeeCollector} from "../../../src/core/FeeCollector.sol";
+import {V3PoolDeployer} from "../../../src/core/V3PoolDeployer.sol";
+import {V3LiquidityActor} from "../../../src/actors/V3LiquidityActor.sol";
 import {VaultRegistry} from "../../../src/vault/VaultRegistry.sol";
 import {BurnVault} from "../../../src/vault/BurnVault.sol";
 import {LPVault} from "../../../src/vault/LPVault.sol";
 import {CreatorFeeVault} from "../../../src/vault/CreatorFeeVault.sol";
 import {GiftVault} from "../../../src/vault/GiftVault.sol";
 import {TokenRegistry} from "../../../src/core/TokenRegistry.sol";
-import {ITokenRegistry} from "../../../src/interfaces/ITokenRegistry.sol";
 import {IProtocolManager} from "../../../src/interfaces/IProtocolManager.sol";
-import {ILvMonMinter} from "../../../src/interfaces/ILvMonMinter.sol";
+import {IV3SwapAdapter} from "../../../src/interfaces/IV3SwapAdapter.sol";
+import {IV3LiquidityActor} from "../../../src/interfaces/IV3LiquidityActor.sol";
 import {LPManager} from "../../../src/core/LPManager.sol";
-import {NadFunRouter} from "../../../src/router/NadFunRouter.sol";
+import {GiwaRouter} from "../../../src/router/GiwaRouter.sol";
 import {IVaultRegistry} from "../../../src/interfaces/IVaultRegistry.sol";
 import {ProtocolManager} from "../../../src/core/ProtocolManager.sol";
 import {BondingCurve} from "../../../src/core/BondingCurve.sol";
-import {NadFunFactory} from "../../../src/dex/NadFunFactory.sol";
-import {NadFunPair} from "../../../src/dex/NadFunPair.sol";
-import {NadSwapAdapter} from "../../../src/adapters/NadSwapAdapter.sol";
-import {IDexAdapter} from "../../../src/interfaces/IDexAdapter.sol";
+import {V3SwapAdapter} from "../../../src/adapters/V3SwapAdapter.sol";
 
-/// @title Deploy -- full v2 protocol deployment script
+/// @title Deploy -- full canonical Uniswap V3 protocol deployment script
 /// @notice Deploys all contracts in correct order, initializes and configures them.
-/// @dev Environment variables (required):  PRIVATE_KEY, DEPLOYER, WMON, LV_MON, LVMON_MINTER, FEE_RECEIVER, MULTISIG,
+/// @dev Environment variables (required):  PRIVATE_KEY, DEPLOYER, LV_MON, FEE_RECEIVER, MULTISIG, V3_FACTORY,
 ///      VIRTUAL_RESERVE, VIRTUAL_TOKEN_RESERVE, MIN_TOKEN_RESERVE, DEPLOY_FEE, GRADUATE_FEE,
-///      CURVE_PROTOCOL_FEE_RATE, DEX_PROTOCOL_FEE_RATE, SETTLEMENT_THRESHOLD, SNIPING_PENALTY_TABLE,
-///      CREATOR_FEE_RATES, GIFT_EXPIRY_DURATION, BURN_VAULT_METADATA_URI, LP_VAULT_METADATA_URI,
-///      CREATOR_FEE_VAULT_METADATA_URI, GIFT_VAULT_METADATA_URI
+///      CURVE_PROTOCOL_FEE_RATE, DEX_PROTOCOL_FEE_RATE, SETTLEMENT_THRESHOLD, V3_FEE_TIER,
+///      LP_FEE_PROTOCOL_SHARE_BPS, SNIPING_PENALTY_TABLE, CREATOR_FEE_RATES, GIFT_EXPIRY_DURATION,
+///      BURN_VAULT_METADATA_URI, LP_VAULT_METADATA_URI, CREATOR_FEE_VAULT_METADATA_URI, GIFT_VAULT_METADATA_URI
 ///      Environment variables (optional):  CREATOR_MANAGER, SETTLER, GIFT_RELAYER
 ///      DEPLOYER is the EOA address that PRIVATE_KEY derives to (sanity guard against env
 ///      mismatch). It holds admin authority only for the duration of the deploy and renounces /
@@ -45,11 +48,20 @@ contract Deploy is Script {
         uint256 deployFee;
         uint256 graduateFee;
         uint16 curveProtocolFeeRate;
-        uint16 dexProtocolFeeRate;
         uint256 settlementThreshold;
+        uint24 v3FeeTier;
+        uint16 lpFeeProtocolShareBps;
+    }
+
+    struct ProtocolDeploymentConfig {
+        QuoteTokenConfig quoteToken;
+        uint16 lvmonDexProtocolFeeRate;
+        uint256[] snipingPenaltyTable;
+        uint16[] creatorFeeRates;
     }
 
     struct Deployed {
+        address weth;
         address tokenImpl;
         address creatorFeeProcessor;
         address feeCollector;
@@ -57,21 +69,22 @@ contract Deploy is Script {
         address lpManager;
         address protocolManager;
         address bondingCurve;
-        address nadFunRouter;
+        address giwaRouter;
         address vaultRegistry;
-        address nadFunPairImpl;
-        address nadFunFactory;
-        address nadSwapAdapter;
         address burnVault;
         address lpVault;
         address creatorFeeVault;
         address giftVault;
+        address v3Factory;
+        address v3PoolDeployer;
+        address v3LiquidityActor;
+        address v3SwapAdapter;
+        address quoterV2;
     }
 
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         address deployerEnv = vm.envAddress("DEPLOYER");
-        address wmon = vm.envAddress("WMON");
         address lvmon = vm.envAddress("LV_MON");
         address feeReceiver = vm.envAddress("FEE_RECEIVER");
         address giftRelayer = vm.envOr("GIFT_RELAYER", address(0));
@@ -84,15 +97,24 @@ contract Deploy is Script {
         require(multisig != address(0), "Deploy: MULTISIG required");
         require(multisig != deployer, "Deploy: MULTISIG must differ from deployer");
 
+        address v3Factory = vm.envAddress("V3_FACTORY");
+        require(v3Factory.code.length > 0, "Deploy: invalid V3_FACTORY");
+        ProtocolDeploymentConfig memory protocolConfig = _protocolDeploymentConfig();
+        require(
+            IUniswapV3Factory(v3Factory).feeAmountTickSpacing(protocolConfig.quoteToken.v3FeeTier) != 0,
+            "Deploy: unsupported V3_FEE_TIER"
+        );
+
         vm.startBroadcast(deployerPrivateKey);
 
         Deployed memory d;
+        d.v3Factory = v3Factory;
 
-        // ── 1. Token implementation (clone template) ─────────────────
+        // ── 1. Deployment-owned WETH + ProtocolManager ──────────────
+        (d.weth, d.protocolManager) = _deployWethAndProtocolManager(deployer, feeReceiver, lvmon, protocolConfig);
+
+        // ── 2. Token implementation (clone template) ─────────────────
         d.tokenImpl = address(new Token());
-
-        // ── 2. ProtocolManager (UUPS proxy) ──────────────────────────
-        d.protocolManager = _deployProtocolManager(deployer, feeReceiver, wmon, lvmon);
 
         // ── 3. TokenRegistry (UUPS proxy) ────────────────────────────
         d.tokenRegistry = _deployTokenRegistry(d.protocolManager);
@@ -100,35 +122,36 @@ contract Deploy is Script {
         // ── 4. LPManager (UUPS proxy) ───────────────────────────────
         d.lpManager = _deployLPManager(d.protocolManager, d.tokenRegistry);
 
-        // ── 5. BondingCurve (UUPS proxy) ─────────────────────────────
+        // ── 5. Canonical V3 pool + permanent-liquidity infrastructure ─
+        d.v3PoolDeployer = _deployV3PoolDeployer(d.protocolManager, d.v3Factory);
+        d.v3LiquidityActor = address(new V3LiquidityActor(d.lpManager, d.v3Factory));
+        LPManager(d.lpManager).setV3LiquidityActor(d.v3LiquidityActor, d.v3Factory);
+
+        // ── 6. BondingCurve (UUPS proxy) ─────────────────────────────
         d.bondingCurve = _deployBondingCurve(deployer, d.tokenImpl, d.protocolManager);
 
-        // ── 6. NadFunRouter (before FeeCollector/vaults — both reference router quotes/trades) ──
-        d.nadFunRouter = _deployNadFunRouter(d.protocolManager, d.bondingCurve, d.tokenRegistry, wmon);
+        // ── 7. Canonical V3 swap/quote dependencies + GiwaRouter ─────
+        d.v3SwapAdapter = address(new V3SwapAdapter(d.v3Factory, d.tokenRegistry));
+        d.quoterV2 = _deployQuoterV2(d.v3Factory, d.weth);
+        d.giwaRouter =
+            _deployGiwaRouter(d.protocolManager, d.bondingCurve, d.tokenRegistry, d.weth, d.v3SwapAdapter, d.quoterV2);
 
-        // ── 7. CreatorFeeProcessor + FeeCollector (circular dependency via nonce prediction) ──
+        // ── 8. CreatorFeeProcessor + FeeCollector (circular dependency via nonce prediction) ──
         address predictedFeeCollector = _predictFeeCollectorAddress(deployerPrivateKey);
         d.creatorFeeProcessor = _deployCreatorFeeProcessor(d.bondingCurve, predictedFeeCollector);
-        d.feeCollector = _deployFeeCollector(d.protocolManager, d.creatorFeeProcessor, d.bondingCurve, d.nadFunRouter);
+        d.feeCollector = _deployFeeCollector(d.protocolManager, d.creatorFeeProcessor, d.bondingCurve, d.giwaRouter);
         require(d.feeCollector == predictedFeeCollector, "FeeCollector address prediction failed");
 
-        // ── 8. NadFunFactory ─────────────────────────────────────────
-        (d.nadFunPairImpl, d.nadFunFactory) = _deployNadFunFactory(d.protocolManager, d.feeCollector);
-        ProtocolManager(d.protocolManager).setFactoryFeeTo(d.nadFunFactory, feeReceiver);
-
-        // ── 9. NadSwapAdapter ────────────────────────────────────────
-        d.nadSwapAdapter = _deployNadSwapAdapter(d.tokenRegistry);
-
-        // ── 10. VaultRegistry ────────────────────────────────────────
+        // ── 9. VaultRegistry ─────────────────────────────────────────
         d.vaultRegistry = _deployVaultRegistry(d.protocolManager);
 
-        // ── 11. Vaults ───────────────────────────────────────────────
+        // ── 10. Vaults ───────────────────────────────────────────────
         d.burnVault = _deployBurnVault(
-            d.protocolManager, d.tokenRegistry, d.creatorFeeProcessor, d.bondingCurve, d.nadFunRouter, d.vaultRegistry
+            d.protocolManager, d.tokenRegistry, d.creatorFeeProcessor, d.bondingCurve, d.giwaRouter, d.vaultRegistry
         );
         d.lpVault = _deployLPVault(d.protocolManager, d.tokenRegistry, d.creatorFeeProcessor, d.vaultRegistry);
         d.creatorFeeVault = _deployCreatorFeeVault(
-            d.protocolManager, d.bondingCurve, d.creatorFeeProcessor, d.tokenRegistry, wmon, d.vaultRegistry
+            d.protocolManager, d.bondingCurve, d.creatorFeeProcessor, d.tokenRegistry, d.weth, d.vaultRegistry
         );
         if (giftRelayer != address(0)) {
             d.giftVault = _deployGiftVault(
@@ -136,29 +159,29 @@ contract Deploy is Script {
                 d.creatorFeeProcessor,
                 d.bondingCurve,
                 d.tokenRegistry,
-                d.nadFunRouter,
-                wmon,
+                d.giwaRouter,
+                d.weth,
                 d.vaultRegistry
             );
         }
 
-        // ── 12. BondingCurve module registration ─────────────────────
+        // ── 11. BondingCurve module registration ─────────────────────
         _registerModules(d);
 
-        // ── 13. Operator permissions ─────────────────────────────────
+        // ── 12. Operator permissions ─────────────────────────────────
         _setPermissions(d, creatorManager, settler, giftRelayer);
 
-        // ── 14. Grant ROUTER_ROLE to NadFunRouter ────────────────────
+        // ── 13. Grant ROUTER_ROLE to GiwaRouter ──────────────────────
         BondingCurve(payable(d.bondingCurve))
-            .grantRole(BondingCurve(payable(d.bondingCurve)).ROUTER_ROLE(), d.nadFunRouter);
+            .grantRole(BondingCurve(payable(d.bondingCurve)).ROUTER_ROLE(), d.giwaRouter);
 
-        // ── 15. Rotate admin to multisig ─────────────────────────────
+        // ── 14. Rotate admin to multisig ─────────────────────────────
         _transferAdminToMultisig(d, multisig, deployer);
 
         vm.stopBroadcast();
 
         _verify(d);
-        _logDeployment(d, wmon);
+        _logDeployment(d);
     }
 
     // ── Internal: Admin rotation ─────────────────────────────────────
@@ -187,26 +210,47 @@ contract Deploy is Script {
 
     // ── Internal: ProtocolManager ────────────────────────────────────
 
-    function _deployProtocolManager(address admin, address feeReceiver, address wmon, address lvmon)
-        internal
-        returns (address)
-    {
+    function _deployWethAndProtocolManager(
+        address admin,
+        address feeReceiver,
+        address lvmon,
+        ProtocolDeploymentConfig memory config
+    ) internal returns (address weth, address protocolManager) {
+        weth = address(new WrappedEther());
+        protocolManager = _deployProtocolManager(admin, feeReceiver, weth, lvmon, config);
+    }
+
+    function _deployProtocolManager(
+        address admin,
+        address feeReceiver,
+        address weth,
+        address lvmon,
+        ProtocolDeploymentConfig memory config
+    ) internal returns (address) {
         address proxy = _deployProxy(
             address(new ProtocolManager()), abi.encodeCall(ProtocolManager.initialize, (admin, feeReceiver))
         );
 
         ProtocolManager pm = ProtocolManager(proxy);
-        QuoteTokenConfig memory config = _quoteTokenConfig();
-        _addQuoteToken(pm, wmon, config);
-        _addQuoteToken(pm, lvmon, config);
-        pm.setSnipingPenaltyTable(_snipingPenaltyTable());
+        _addQuoteToken(pm, weth, config.quoteToken, 0);
+        pm.setV3QuoteConfig(weth, config.quoteToken.v3FeeTier, config.quoteToken.lpFeeProtocolShareBps);
 
-        pm.setAllowedCreatorFeeRates(_creatorFeeRates());
+        // LV_MON remains an independent quote registration. The WETH-only V3
+        // configuration must not be copied to it implicitly.
+        _addQuoteToken(pm, lvmon, config.quoteToken, config.lvmonDexProtocolFeeRate);
+        pm.setSnipingPenaltyTable(config.snipingPenaltyTable);
+
+        pm.setAllowedCreatorFeeRates(config.creatorFeeRates);
 
         return proxy;
     }
 
-    function _addQuoteToken(ProtocolManager pm, address quoteToken, QuoteTokenConfig memory config) internal {
+    function _addQuoteToken(
+        ProtocolManager pm,
+        address quoteToken,
+        QuoteTokenConfig memory config,
+        uint16 dexProtocolFeeRate
+    ) internal {
         pm.addQuoteToken(
             quoteToken,
             config.virtualReserve,
@@ -215,9 +259,16 @@ contract Deploy is Script {
             config.deployFee,
             config.graduateFee,
             config.curveProtocolFeeRate,
-            config.dexProtocolFeeRate,
+            dexProtocolFeeRate,
             config.settlementThreshold
         );
+    }
+
+    function _protocolDeploymentConfig() internal view returns (ProtocolDeploymentConfig memory config) {
+        config.quoteToken = _quoteTokenConfig();
+        config.lvmonDexProtocolFeeRate = _readUint16("DEX_PROTOCOL_FEE_RATE");
+        config.snipingPenaltyTable = _snipingPenaltyTable();
+        config.creatorFeeRates = _creatorFeeRates();
     }
 
     function _quoteTokenConfig() internal view returns (QuoteTokenConfig memory config) {
@@ -227,8 +278,9 @@ contract Deploy is Script {
         config.deployFee = vm.envUint("DEPLOY_FEE");
         config.graduateFee = vm.envUint("GRADUATE_FEE");
         config.curveProtocolFeeRate = _readUint16("CURVE_PROTOCOL_FEE_RATE");
-        config.dexProtocolFeeRate = _readUint16("DEX_PROTOCOL_FEE_RATE");
         config.settlementThreshold = vm.envUint("SETTLEMENT_THRESHOLD");
+        config.v3FeeTier = _readUint24("V3_FEE_TIER");
+        config.lpFeeProtocolShareBps = _readUint16("LP_FEE_PROTOCOL_SHARE_BPS");
     }
 
     function _snipingPenaltyTable() internal view returns (uint256[] memory table) {
@@ -253,6 +305,13 @@ contract Deploy is Script {
         require(rawValue <= type(uint16).max, "Deploy: uint16 env overflow");
         // forge-lint: disable-next-line(unsafe-typecast)
         value = uint16(rawValue);
+    }
+
+    function _readUint24(string memory key) internal view returns (uint24 value) {
+        uint256 rawValue = vm.envUint(key);
+        require(rawValue <= type(uint24).max, "Deploy: uint24 env overflow");
+        // forge-lint: disable-next-line(unsafe-typecast)
+        value = uint24(rawValue);
     }
 
     // ── Internal: TokenRegistry ─────────────────────────────────────
@@ -307,22 +366,19 @@ contract Deploy is Script {
         );
     }
 
-    // ── Internal: NadFunFactory ─────────────────────────────────────
+    // ── Internal: Canonical V3 dependencies ─────────────────────────
 
-    function _deployNadFunFactory(address protocolManager_, address feeCollector_)
-        internal
-        returns (address nadFunPairImpl, address)
-    {
-        nadFunPairImpl = address(new NadFunPair());
-        return (nadFunPairImpl, address(new NadFunFactory(protocolManager_, feeCollector_, nadFunPairImpl)));
+    function _deployV3PoolDeployer(address protocolManager_, address v3Factory_) internal returns (address) {
+        return _deployProxy(
+            address(new V3PoolDeployer()), abi.encodeCall(V3PoolDeployer.initialize, (protocolManager_, v3Factory_))
+        );
     }
 
-    // ── Internal: NadSwapAdapter ────────────────────────────────────
-
-    function _deployNadSwapAdapter(address tokenRegistry_) internal returns (address) {
-        address adapter = address(new NadSwapAdapter());
-        TokenRegistry(tokenRegistry_).setAdapter(ITokenRegistry.DexType.UniswapV2, IDexAdapter(adapter));
-        return adapter;
+    function _deployQuoterV2(address v3Factory_, address weth_) internal returns (address quoterV2) {
+        quoterV2 = address(new QuoterV2(v3Factory_, weth_));
+        IPeripheryImmutableState immutableState = IPeripheryImmutableState(quoterV2);
+        require(immutableState.factory() == v3Factory_, "Deploy: QuoterV2 factory mismatch");
+        require(immutableState.WETH9() == weth_, "Deploy: QuoterV2 WETH mismatch");
     }
 
     // ── Internal: VaultRegistry ─────────────────────────────────────
@@ -385,7 +441,7 @@ contract Deploy is Script {
         address bondingCurve_,
         address creatorFeeProcessor_,
         address tokenRegistry_,
-        address wmon_,
+        address weth_,
         address vaultRegistry_
     ) internal returns (address) {
         address vault = _deployProxy(
@@ -397,7 +453,7 @@ contract Deploy is Script {
                     bondingCurve_,
                     creatorFeeProcessor_,
                     tokenRegistry_,
-                    wmon_,
+                    weth_,
                     vm.envString("CREATOR_FEE_VAULT_METADATA_URI")
                 )
             )
@@ -415,7 +471,7 @@ contract Deploy is Script {
         address bondingCurve_,
         address tokenRegistry_,
         address router_,
-        address wmon_,
+        address weth_,
         address vaultRegistry_
     ) internal returns (address) {
         address vault = _deployProxy(
@@ -429,7 +485,7 @@ contract Deploy is Script {
                     tokenRegistry_,
                     vm.envUint("GIFT_EXPIRY_DURATION"),
                     router_,
-                    wmon_,
+                    weth_,
                     vm.envString("GIFT_VAULT_METADATA_URI")
                 )
             )
@@ -447,15 +503,16 @@ contract Deploy is Script {
         bc.setModule(keccak256("CREATOR_FEE_PROCESSOR"), d.creatorFeeProcessor);
         bc.setModule(keccak256("VAULT_REGISTRY"), d.vaultRegistry);
         bc.setModule(keccak256("FEE_COLLECTOR"), d.feeCollector);
-        bc.setModule(keccak256("FACTORY"), d.nadFunFactory);
+        bc.setModule(keccak256("V3_POOL_DEPLOYER"), d.v3PoolDeployer);
     }
 
     // ── Internal: Operator permissions ──────────────────────────────
 
     function _setPermissions(Deployed memory d, address creatorManager, address settler, address giftRelayer) internal {
         ProtocolManager pm = ProtocolManager(d.protocolManager);
-        pm.setOperatorPermission(d.bondingCurve, d.tokenRegistry, TokenRegistry.register.selector, true);
-        pm.setOperatorPermission(d.bondingCurve, d.lpManager, LPManager.addLiquidity.selector, true);
+        pm.setOperatorPermission(d.bondingCurve, d.v3PoolDeployer, V3PoolDeployer.createPool.selector, true);
+        pm.setOperatorPermission(d.bondingCurve, d.tokenRegistry, TokenRegistry.registerV3.selector, true);
+        pm.setOperatorPermission(d.bondingCurve, d.lpManager, LPManager.allocate.selector, true);
 
         if (creatorManager != address(0)) {
             pm.setOperatorPermission(creatorManager, d.creatorFeeVault, CreatorFeeVault.setCreator.selector, true);
@@ -470,17 +527,21 @@ contract Deploy is Script {
         }
     }
 
-    // ── Internal: NadFunRouter ──────────────────────────────────────
+    // ── Internal: GiwaRouter ────────────────────────────────────────
 
-    function _deployNadFunRouter(address protocolManager_, address bondingCurve_, address tokenRegistry_, address wmon)
-        internal
-        returns (address)
-    {
-        address lvmonMinter = vm.envAddress("LVMON_MINTER");
+    function _deployGiwaRouter(
+        address protocolManager_,
+        address bondingCurve_,
+        address tokenRegistry_,
+        address weth_,
+        address v3SwapAdapter_,
+        address quoterV2_
+    ) internal returns (address) {
         return _deployProxy(
-            address(new NadFunRouter()),
+            address(new GiwaRouter()),
             abi.encodeCall(
-                NadFunRouter.initialize, (protocolManager_, bondingCurve_, tokenRegistry_, wmon, lvmonMinter)
+                GiwaRouter.initialize,
+                (protocolManager_, bondingCurve_, tokenRegistry_, weth_, v3SwapAdapter_, quoterV2_)
             )
         );
     }
@@ -497,22 +558,31 @@ contract Deploy is Script {
     ///      ~16-slot local limit and `via_ir` is intentionally off).
     function _verify(Deployed memory d) internal view {
         _verifyProtocolConfig(d);
+        _verifyV3Wiring(d);
         _verifyPermissions(d);
         _verifyAdminRotation(d);
         console.log("All verifications passed!");
     }
 
     function _verifyProtocolConfig(Deployed memory d) internal view {
-        address wmon = vm.envAddress("WMON");
         address lvmon = vm.envAddress("LV_MON");
 
         ProtocolManager pm = ProtocolManager(d.protocolManager);
         QuoteTokenConfig memory expectedConfig = _quoteTokenConfig();
 
         require(pm.feeReceiver() != address(0), "Verify: feeReceiver not set");
-        _verifyQuoteTokenConfig(pm, wmon, expectedConfig);
-        _verifyQuoteTokenConfig(pm, lvmon, expectedConfig);
-        require(address(ILvMonMinter(vm.envAddress("LVMON_MINTER")).lvmon()) == lvmon, "Verify: LV_MON mismatch");
+        _verifyQuoteTokenConfig(pm, d.weth, expectedConfig, 0);
+        IProtocolManager.QuoteConfig memory wethConfig = pm.getConfig(d.weth);
+        require(wethConfig.v3FeeTier == expectedConfig.v3FeeTier, "Verify: WETH V3 fee tier mismatch");
+        require(
+            wethConfig.lpFeeProtocolShareBps == expectedConfig.lpFeeProtocolShareBps,
+            "Verify: WETH LP fee share mismatch"
+        );
+
+        _verifyQuoteTokenConfig(pm, lvmon, expectedConfig, _readUint16("DEX_PROTOCOL_FEE_RATE"));
+        IProtocolManager.QuoteConfig memory lvmonConfig = pm.getConfig(lvmon);
+        require(lvmonConfig.v3FeeTier == 0, "Verify: LV_MON V3 fee tier configured");
+        require(lvmonConfig.lpFeeProtocolShareBps == 0, "Verify: LV_MON LP fee share configured");
 
         uint256[] memory expectedTable = _snipingPenaltyTable();
         require(pm.snipingPenaltyTableLength() == expectedTable.length, "Verify: snipingPenaltyTable length mismatch");
@@ -524,13 +594,14 @@ contract Deploy is Script {
         for (uint256 i = 0; i < expectedCreatorFeeRates.length; i++) {
             require(pm.isCreatorFeeRateAllowed(expectedCreatorFeeRates[i]), "Verify: creatorFeeRate not allowed");
         }
-        require(NadFunFactory(d.nadFunFactory).feeTo() == pm.feeReceiver(), "Verify: factory feeTo mismatch");
     }
 
-    function _verifyQuoteTokenConfig(ProtocolManager pm, address quoteToken, QuoteTokenConfig memory expectedConfig)
-        internal
-        view
-    {
+    function _verifyQuoteTokenConfig(
+        ProtocolManager pm,
+        address quoteToken,
+        QuoteTokenConfig memory expectedConfig,
+        uint16 expectedDexProtocolFeeRate
+    ) internal view {
         IProtocolManager.QuoteConfig memory actualConfig = pm.getConfig(quoteToken);
 
         require(actualConfig.active, "Verify: quoteToken inactive");
@@ -546,25 +617,58 @@ contract Deploy is Script {
             actualConfig.curveProtocolFeeRate == expectedConfig.curveProtocolFeeRate,
             "Verify: curveProtocolFeeRate mismatch"
         );
-        require(
-            actualConfig.dexProtocolFeeRate == expectedConfig.dexProtocolFeeRate, "Verify: dexProtocolFeeRate mismatch"
-        );
+        require(actualConfig.dexProtocolFeeRate == expectedDexProtocolFeeRate, "Verify: dexProtocolFeeRate mismatch");
         require(
             actualConfig.settlementThreshold == expectedConfig.settlementThreshold,
             "Verify: settlementThreshold mismatch"
         );
     }
 
+    function _verifyV3Wiring(Deployed memory d) internal view {
+        require(d.weth.code.length > 0, "Verify: WETH not deployed");
+        require(d.v3Factory.code.length > 0, "Verify: V3 factory missing code");
+        require(
+            IUniswapV3Factory(d.v3Factory).feeAmountTickSpacing(_readUint24("V3_FEE_TIER")) != 0,
+            "Verify: unsupported V3 fee tier"
+        );
+        require(V3PoolDeployer(d.v3PoolDeployer).factory() == d.v3Factory, "Verify: pool deployer factory mismatch");
+
+        IV3LiquidityActor actor = IV3LiquidityActor(d.v3LiquidityActor);
+        require(actor.owner() == d.lpManager, "Verify: liquidity actor owner mismatch");
+        require(actor.factory() == d.v3Factory, "Verify: liquidity actor factory mismatch");
+        require(LPManager(d.lpManager).v3LiquidityActor() == d.v3LiquidityActor, "Verify: LPManager actor mismatch");
+        require(LPManager(d.lpManager).v3Factory() == d.v3Factory, "Verify: LPManager factory mismatch");
+
+        IV3SwapAdapter adapter = IV3SwapAdapter(d.v3SwapAdapter);
+        require(adapter.factory() == d.v3Factory, "Verify: swap adapter factory mismatch");
+        require(adapter.tokenRegistry() == d.tokenRegistry, "Verify: swap adapter registry mismatch");
+
+        IPeripheryImmutableState quoter = IPeripheryImmutableState(d.quoterV2);
+        require(quoter.factory() == d.v3Factory, "Verify: QuoterV2 factory mismatch");
+        require(quoter.WETH9() == d.weth, "Verify: QuoterV2 WETH mismatch");
+
+        GiwaRouter router = GiwaRouter(payable(d.giwaRouter));
+        require(router.authority() == d.protocolManager, "Verify: GiwaRouter authority mismatch");
+        require(router.bondingCurve() == d.bondingCurve, "Verify: GiwaRouter curve mismatch");
+        require(router.tokenRegistry() == d.tokenRegistry, "Verify: GiwaRouter registry mismatch");
+        require(router.wrappedNative() == d.weth, "Verify: GiwaRouter WETH mismatch");
+        require(router.v3SwapAdapter() == d.v3SwapAdapter, "Verify: GiwaRouter adapter mismatch");
+        require(router.quoterV2() == d.quoterV2, "Verify: GiwaRouter quoter mismatch");
+        require(FeeCollector(d.feeCollector).router() == d.giwaRouter, "Verify: FeeCollector router mismatch");
+    }
+
     function _verifyPermissions(Deployed memory d) internal view {
         ProtocolManager pm = ProtocolManager(d.protocolManager);
         BondingCurve bc = BondingCurve(payable(d.bondingCurve));
 
-        (bool canRegister,) = pm.canCall(d.bondingCurve, d.tokenRegistry, TokenRegistry.register.selector);
-        require(canRegister, "Verify: BondingCurve cannot call TokenRegistry.register");
-        (bool canAddLiq,) = pm.canCall(d.bondingCurve, d.lpManager, LPManager.addLiquidity.selector);
-        require(canAddLiq, "Verify: BondingCurve cannot call LPManager.addLiquidity");
+        (bool canCreatePool,) = pm.canCall(d.bondingCurve, d.v3PoolDeployer, V3PoolDeployer.createPool.selector);
+        require(canCreatePool, "Verify: BondingCurve cannot create V3 pool");
+        (bool canRegister,) = pm.canCall(d.bondingCurve, d.tokenRegistry, TokenRegistry.registerV3.selector);
+        require(canRegister, "Verify: BondingCurve cannot call TokenRegistry.registerV3");
+        (bool canAllocate,) = pm.canCall(d.bondingCurve, d.lpManager, LPManager.allocate.selector);
+        require(canAllocate, "Verify: BondingCurve cannot call LPManager.allocate");
 
-        require(bc.hasRole(bc.ROUTER_ROLE(), d.nadFunRouter), "Verify: NadFunRouter missing ROUTER_ROLE");
+        require(bc.hasRole(bc.ROUTER_ROLE(), d.giwaRouter), "Verify: GiwaRouter missing ROUTER_ROLE");
         require(bc.creatorFeeProcessor() == d.creatorFeeProcessor, "Verify: creatorFeeProcessor mismatch");
 
         address creatorManager = vm.envOr("CREATOR_MANAGER", address(0));
@@ -602,29 +706,30 @@ contract Deploy is Script {
 
     // ── Logging ─────────────────────────────────────────────────────
 
-    function _logDeployment(Deployed memory d, address wmon) internal view {
+    function _logDeployment(Deployed memory d) internal view {
         console.log("========================================");
         console.log("Deployment complete!");
         console.log("========================================");
-        _logEnvAddress("WMON", wmon);
+        _logEnvAddress("WETH_ADDRESS", d.weth);
         _logEnvAddress("LV_MON", vm.envAddress("LV_MON"));
-        _logEnvAddress("LVMON_MINTER", vm.envAddress("LVMON_MINTER"));
-        _logEnvAddress("V2_TOKEN_IMPL", d.tokenImpl);
-        _logEnvAddress("V2_PROTOCOL_MANAGER", d.protocolManager);
-        _logEnvAddress("V2_TOKEN_REGISTRY", d.tokenRegistry);
-        _logEnvAddress("V2_LP_MANAGER", d.lpManager);
-        _logEnvAddress("V2_BONDING_CURVE", d.bondingCurve);
-        _logEnvAddress("V2_CREATOR_FEE_PROCESSOR", d.creatorFeeProcessor);
-        _logEnvAddress("V2_FEE_COLLECTOR", d.feeCollector);
-        _logEnvAddress("V2_NAD_FUN_PAIR_IMPL", d.nadFunPairImpl);
-        _logEnvAddress("V2_NAD_FUN_FACTORY", d.nadFunFactory);
-        _logEnvAddress("V2_NAD_SWAP_ADAPTER", d.nadSwapAdapter);
-        _logEnvAddress("V2_VAULT_REGISTRY", d.vaultRegistry);
-        _logEnvAddress("V2_BURN_VAULT", d.burnVault);
-        _logEnvAddress("V2_LP_VAULT", d.lpVault);
-        _logEnvAddress("V2_CREATOR_FEE_VAULT", d.creatorFeeVault);
-        _logEnvAddress("V2_GIFT_VAULT", d.giftVault);
-        _logEnvAddress("V2_NAD_FUN_ROUTER", d.nadFunRouter);
+        _logEnvAddress("TOKEN_IMPL", d.tokenImpl);
+        _logEnvAddress("PROTOCOL_MANAGER", d.protocolManager);
+        _logEnvAddress("TOKEN_REGISTRY", d.tokenRegistry);
+        _logEnvAddress("LP_MANAGER", d.lpManager);
+        _logEnvAddress("BONDING_CURVE", d.bondingCurve);
+        _logEnvAddress("CREATOR_FEE_PROCESSOR", d.creatorFeeProcessor);
+        _logEnvAddress("FEE_COLLECTOR", d.feeCollector);
+        _logEnvAddress("V3_FACTORY", d.v3Factory);
+        _logEnvAddress("V3_POOL_DEPLOYER", d.v3PoolDeployer);
+        _logEnvAddress("V3_LIQUIDITY_ACTOR", d.v3LiquidityActor);
+        _logEnvAddress("V3_SWAP_ADAPTER", d.v3SwapAdapter);
+        _logEnvAddress("QUOTER_V2", d.quoterV2);
+        _logEnvAddress("VAULT_REGISTRY", d.vaultRegistry);
+        _logEnvAddress("BURN_VAULT", d.burnVault);
+        _logEnvAddress("LP_VAULT", d.lpVault);
+        _logEnvAddress("CREATOR_FEE_VAULT", d.creatorFeeVault);
+        _logEnvAddress("GIFT_VAULT", d.giftVault);
+        _logEnvAddress("GIWA_ROUTER", d.giwaRouter);
         console.log("========================================");
     }
 
