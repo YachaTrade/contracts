@@ -47,6 +47,15 @@ contract V3LiquidityActor is IV3LiquidityActor, IUniswapV3MintCallback {
         uint128 liquidity;
     }
 
+    struct CollectSnapshot {
+        address token0;
+        address token1;
+        uint256 actorBalance0;
+        uint256 actorBalance1;
+        uint256 ownerBalance0;
+        uint256 ownerBalance1;
+    }
+
     address public immutable override owner;
     address public immutable override factory;
 
@@ -178,15 +187,23 @@ contract V3LiquidityActor is IV3LiquidityActor, IUniswapV3MintCallback {
         Position storage quotePosition = quoteLiquidityPositions[pool];
         Position storage tokenPosition = tokenLiquidityPositions[pool];
         _requirePositions(pool, quotePosition, tokenPosition);
+        CollectSnapshot memory snapshot = _collectSnapshot(pool);
 
         (amount0, amount1) = _collectForPosition(pool, quotePosition);
         (uint256 collected0, uint256 collected1) = _collectForPosition(pool, tokenPosition);
         amount0 += collected0;
         amount1 += collected1;
 
-        IUniswapV3Pool v3Pool = IUniswapV3Pool(pool);
-        if (amount0 != 0) IERC20(v3Pool.token0()).safeTransfer(owner, amount0);
-        if (amount1 != 0) IERC20(v3Pool.token1()).safeTransfer(owner, amount1);
+        _requireBalanceIncrease(snapshot.token0, address(this), snapshot.actorBalance0, amount0);
+        _requireBalanceIncrease(snapshot.token1, address(this), snapshot.actorBalance1, amount1);
+
+        if (amount0 != 0) IERC20(snapshot.token0).safeTransfer(owner, amount0);
+        if (amount1 != 0) IERC20(snapshot.token1).safeTransfer(owner, amount1);
+
+        _requireExactBalance(snapshot.token0, address(this), snapshot.actorBalance0);
+        _requireExactBalance(snapshot.token1, address(this), snapshot.actorBalance1);
+        _requireBalanceIncrease(snapshot.token0, owner, snapshot.ownerBalance0, amount0);
+        _requireBalanceIncrease(snapshot.token1, owner, snapshot.ownerBalance1, amount1);
     }
 
     /// @inheritdoc IV3LiquidityActor
@@ -362,6 +379,46 @@ contract V3LiquidityActor is IV3LiquidityActor, IUniswapV3MintCallback {
         IUniswapV3Pool(pool).burn(position.lowerTick, position.upperTick, 0);
         (amount0, amount1) = IUniswapV3Pool(pool)
             .collect(address(this), position.lowerTick, position.upperTick, type(uint128).max, type(uint128).max);
+    }
+
+    function _collectSnapshot(address pool) private view returns (CollectSnapshot memory snapshot) {
+        if (pool == address(0) || pool.code.length == 0) revert InvalidPool(pool);
+        IUniswapV3Pool v3Pool = IUniswapV3Pool(pool);
+        snapshot.token0 = v3Pool.token0();
+        snapshot.token1 = v3Pool.token1();
+        uint24 poolFee = v3Pool.fee();
+        if (
+            v3Pool.factory() != factory || snapshot.token0 == address(0) || snapshot.token1 == address(0)
+                || snapshot.token0 >= snapshot.token1 || snapshot.token0.code.length == 0
+                || snapshot.token1.code.length == 0
+                || IUniswapV3Factory(factory).getPool(snapshot.token0, snapshot.token1, poolFee) != pool
+        ) revert InvalidPool(pool);
+
+        snapshot.actorBalance0 = IERC20(snapshot.token0).balanceOf(address(this));
+        snapshot.actorBalance1 = IERC20(snapshot.token1).balanceOf(address(this));
+        snapshot.ownerBalance0 = IERC20(snapshot.token0).balanceOf(owner);
+        snapshot.ownerBalance1 = IERC20(snapshot.token1).balanceOf(owner);
+    }
+
+    function _requireBalanceIncrease(address token, address account, uint256 balanceBefore, uint256 expectedIncrease)
+        private
+        view
+    {
+        uint256 actualBalance = IERC20(token).balanceOf(account);
+        if (expectedIncrease > type(uint256).max - balanceBefore) {
+            revert InvalidBalanceDelta(token, account, type(uint256).max, actualBalance);
+        }
+        uint256 expectedBalance = balanceBefore + expectedIncrease;
+        if (actualBalance != expectedBalance) {
+            revert InvalidBalanceDelta(token, account, expectedBalance, actualBalance);
+        }
+    }
+
+    function _requireExactBalance(address token, address account, uint256 expectedBalance) private view {
+        uint256 actualBalance = IERC20(token).balanceOf(account);
+        if (actualBalance != expectedBalance) {
+            revert InvalidBalanceDelta(token, account, expectedBalance, actualBalance);
+        }
     }
 
     function _viewForPosition(address pool, Position storage position) private view returns (uint256, uint256) {

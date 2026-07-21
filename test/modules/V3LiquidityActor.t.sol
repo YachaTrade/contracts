@@ -56,6 +56,32 @@ contract RevertingTransferFromToken is ERC20 {
     }
 }
 
+contract SelectiveTaxToken is ERC20 {
+    address public taxedSender;
+    uint16 public taxBps;
+
+    constructor() ERC20("Selective Tax", "TAX") {}
+
+    function configureTax(address taxedSender_, uint16 taxBps_) external {
+        taxedSender = taxedSender_;
+        taxBps = taxBps_;
+    }
+
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+
+    function _update(address from, address to, uint256 amount) internal override {
+        if (from == taxedSender && from != address(0) && to != address(0) && taxBps != 0) {
+            uint256 tax = amount * taxBps / 10_000;
+            super._update(from, to, amount - tax);
+            super._update(from, address(0xdead), tax);
+        } else {
+            super._update(from, to, amount);
+        }
+    }
+}
+
 interface IActorOwnerReentrant {
     function reenter() external;
 }
@@ -245,6 +271,96 @@ contract V3LiquidityActorTest is Test {
         assertEq(MockERC20(poolData.token1).balanceOf(address(this)) - balance1Before, amount1);
         assertEq(MockERC20(poolData.token0).balanceOf(address(actor)), 101);
         assertEq(MockERC20(poolData.token1).balanceOf(address(actor)), 103);
+    }
+
+    function test_collectFees_revertsAndRollsBackWhenPoolShortCreditsActor() public {
+        (V3LiquidityActor actor, ILPManager.PoolData memory poolData, MockV3Pool pool, SelectiveTaxToken taxToken) =
+            _selectiveTaxPoolData();
+        _setTaxCollection(actor, poolData, pool, address(taxToken), 100);
+        taxToken.mint(address(pool), 100);
+        taxToken.mint(address(actor), 200);
+        taxToken.configureTax(address(pool), 1_000);
+        uint256 ownerBalanceBefore = taxToken.balanceOf(address(this));
+        uint256 poolBalanceBefore = taxToken.balanceOf(address(pool));
+
+        (bool success, bytes memory revertData) =
+            address(actor).call(abi.encodeWithSelector(actor.collectFees.selector, poolData.pool));
+
+        assertFalse(success);
+        assertEq(
+            revertData,
+            abi.encodeWithSelector(
+                IV3LiquidityActor.InvalidBalanceDelta.selector,
+                address(taxToken),
+                address(actor),
+                uint256(300),
+                uint256(290)
+            )
+        );
+        assertEq(taxToken.balanceOf(address(actor)), 200);
+        assertEq(taxToken.balanceOf(address(this)), ownerBalanceBefore);
+        assertEq(taxToken.balanceOf(address(pool)), poolBalanceBefore);
+        assertEq(pool.burnCalls(), 0);
+        assertEq(pool.collectCalls(), 0);
+
+        taxToken.configureTax(address(0), 0);
+        (uint256 amount0, uint256 amount1) = actor.collectFees(poolData.pool);
+        assertEq(address(taxToken) == poolData.token0 ? amount0 : amount1, 100);
+    }
+
+    function test_collectFees_revertsAndRollsBackWhenOwnerReceivesTaxedAmount() public {
+        (V3LiquidityActor actor, ILPManager.PoolData memory poolData, MockV3Pool pool, SelectiveTaxToken taxToken) =
+            _selectiveTaxPoolData();
+        _setTaxCollection(actor, poolData, pool, address(taxToken), 100);
+        taxToken.mint(address(pool), 100);
+        taxToken.mint(address(actor), 200);
+        taxToken.configureTax(address(actor), 1_000);
+        uint256 ownerBalanceBefore = taxToken.balanceOf(address(this));
+        uint256 poolBalanceBefore = taxToken.balanceOf(address(pool));
+
+        (bool success, bytes memory revertData) =
+            address(actor).call(abi.encodeWithSelector(actor.collectFees.selector, poolData.pool));
+
+        assertFalse(success);
+        assertEq(
+            revertData,
+            abi.encodeWithSelector(
+                IV3LiquidityActor.InvalidBalanceDelta.selector,
+                address(taxToken),
+                address(this),
+                ownerBalanceBefore + 100,
+                ownerBalanceBefore + 90
+            )
+        );
+        assertEq(taxToken.balanceOf(address(actor)), 200);
+        assertEq(taxToken.balanceOf(address(this)), ownerBalanceBefore);
+        assertEq(taxToken.balanceOf(address(pool)), poolBalanceBefore);
+        assertEq(pool.burnCalls(), 0);
+        assertEq(pool.collectCalls(), 0);
+
+        taxToken.configureTax(address(0), 0);
+        (uint256 amount0, uint256 amount1) = actor.collectFees(poolData.pool);
+        assertEq(address(taxToken) == poolData.token0 ? amount0 : amount1, 100);
+    }
+
+    function test_collectFees_zeroFeesPreservesBalances() public {
+        (V3LiquidityActor actor, ILPManager.PoolData memory poolData, MockV3Pool pool,) = _mockPoolData(true);
+        actor.mint(poolData, AMOUNT, AMOUNT);
+        MockERC20(poolData.token0).mint(address(actor), 101);
+        MockERC20(poolData.token1).mint(address(actor), 103);
+        uint256 ownerBalance0Before = MockERC20(poolData.token0).balanceOf(address(this));
+        uint256 ownerBalance1Before = MockERC20(poolData.token1).balanceOf(address(this));
+
+        (uint256 amount0, uint256 amount1) = actor.collectFees(poolData.pool);
+
+        assertEq(amount0, 0);
+        assertEq(amount1, 0);
+        assertEq(MockERC20(poolData.token0).balanceOf(address(actor)), 101);
+        assertEq(MockERC20(poolData.token1).balanceOf(address(actor)), 103);
+        assertEq(MockERC20(poolData.token0).balanceOf(address(this)), ownerBalance0Before);
+        assertEq(MockERC20(poolData.token1).balanceOf(address(this)), ownerBalance1Before);
+        assertEq(pool.burnCalls(), 2);
+        assertEq(pool.collectCalls(), 2);
     }
 
     function test_increase_addsLiquidityWithoutChangingRanges() public {
@@ -534,6 +650,49 @@ contract V3LiquidityActorTest is Test {
         address quoteToken = quoteIsToken0 ? token0 : token1;
         poolData = _poolData(
             address(pool), token0, token1, quoteToken, quoteIsToken0, quoteIsToken0 ? int24(600) : int24(-600)
+        );
+    }
+
+    function _selectiveTaxPoolData()
+        internal
+        returns (
+            V3LiquidityActor actor,
+            ILPManager.PoolData memory poolData,
+            MockV3Pool pool,
+            SelectiveTaxToken taxToken
+        )
+    {
+        MockV3Factory mockFactory = new MockV3Factory();
+        taxToken = new SelectiveTaxToken();
+        MockERC20 other = new MockERC20("Other", "OTHER", 18);
+        (address token0, address token1) = address(taxToken) < address(other)
+            ? (address(taxToken), address(other))
+            : (address(other), address(taxToken));
+        pool = new MockV3Pool(address(mockFactory), token0, token1, FEE, SPACING, SQRT_PRICE_X96, 0);
+        mockFactory.setPool(token0, token1, FEE, address(pool));
+        actor = new V3LiquidityActor(address(this), address(mockFactory));
+        taxToken.mint(address(this), AMOUNT);
+        other.mint(address(this), AMOUNT);
+        taxToken.approve(address(actor), type(uint256).max);
+        other.approve(address(actor), type(uint256).max);
+        poolData = _poolData(address(pool), token0, token1, token0, true, 600);
+        actor.mint(poolData, AMOUNT, AMOUNT);
+    }
+
+    function _setTaxCollection(
+        V3LiquidityActor actor,
+        ILPManager.PoolData memory poolData,
+        MockV3Pool pool,
+        address taxToken,
+        uint128 amount
+    ) internal {
+        (, int24 quoteLower, int24 quoteUpper,) = actor.quoteLiquidityPositions(poolData.pool);
+        pool.setActorCollection(
+            address(actor),
+            quoteLower,
+            quoteUpper,
+            taxToken == poolData.token0 ? amount : 0,
+            taxToken == poolData.token1 ? amount : 0
         );
     }
 
