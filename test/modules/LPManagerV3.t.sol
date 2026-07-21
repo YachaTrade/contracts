@@ -202,8 +202,16 @@ contract MockActor is IV3LiquidityActor {
             m.allocate(p);
             assertEq(token.allowance(address(m), address(actor)), 0);
             assertEq(quote.allowance(address(m), address(actor)), 0);
+            assertEq(token.balanceOf(address(0xBEEF)), 150);
+            assertEq(quote.balanceOf(address(0xBEEF)), 30);
+            assertEq(token.balanceOf(address(m)), 800);
+            assertEq(quote.balanceOf(address(m)), 900);
             actor.setUsage(10, 5, false);
             m.increaseLiquidity(address(token), 20, 30);
+            assertEq(token.balanceOf(address(0xBEEF)), 165);
+            assertEq(quote.balanceOf(address(0xBEEF)), 50);
+            assertEq(token.balanceOf(address(m)), 780);
+            assertEq(quote.balanceOf(address(m)), 870);
             (bytes32 q,,,,,,,) = m.getPositions(address(token));
             assertEq(q, bytes32(uint256(1)));
         }
