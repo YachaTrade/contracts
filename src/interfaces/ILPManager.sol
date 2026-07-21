@@ -50,6 +50,15 @@ interface ILPManager {
     event ClaimFee(
         address indexed token, address indexed to, ITokenRegistry.DexType dexType, uint256 amount0, uint256 amount1
     );
+    event V3FeesCollected(
+        address indexed token,
+        address indexed quoteToken,
+        uint256 tokenFee,
+        uint256 directQuoteFee,
+        uint256 swappedQuote,
+        uint256 protocolQuote,
+        uint256 creatorQuote
+    );
 
     function addLiquidity(
         address token,
@@ -61,6 +70,8 @@ interface ILPManager {
     ) external returns (uint256 liquidity);
 
     function claimFees(address token) external returns (uint256 amount0, uint256 amount1);
+
+    function collect(address[] calldata tokens) external;
 
     /// @notice Get pair address for a token
     function getPair(address token) external view returns (address);

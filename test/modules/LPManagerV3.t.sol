@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {LPManager} from "../../src/core/LPManager.sol";
+import {V3SwapAdapter} from "../../src/adapters/V3SwapAdapter.sol";
 import {ILPManager} from "../../src/interfaces/ILPManager.sol";
 import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
 import {FullMath} from "@uniswap/v3-core/contracts/libraries/FullMath.sol";
@@ -54,6 +55,14 @@ contract MockFactory {
 
     function getPool(address, address, uint24) external view returns (address) {
         return pool;
+    }
+}
+
+contract MockLPManagerDependency {
+    address public immutable protocolManager;
+
+    constructor(address protocolManager_) {
+        protocolManager = protocolManager_;
     }
 }
 
@@ -159,6 +168,25 @@ contract MockActor is IV3LiquidityActor {
     contract LPManagerV3Test is Test {
         MockFactory internal fixtureFactory;
 
+        function _deployManager(MockAuthority authority, MockRegistry registry, MockFactory factory)
+            internal
+            returns (LPManager manager)
+        {
+            MockLPManagerDependency creatorFeeProcessor = new MockLPManagerDependency(address(authority));
+            V3SwapAdapter swapAdapter = new V3SwapAdapter(address(factory), address(registry));
+            manager = LPManager(
+                address(
+                    new ERC1967Proxy(
+                        address(new LPManager()),
+                        abi.encodeCall(
+                            LPManager.initialize,
+                            (address(authority), address(registry), address(creatorFeeProcessor), address(swapAdapter))
+                        )
+                    )
+                )
+            );
+        }
+
         function _fixture(bool quote0) internal returns (LPManager, MockERC20, MockERC20, MockActor) {
             MockAuthority a = new MockAuthority();
             MockRegistry r = new MockRegistry();
@@ -178,13 +206,7 @@ contract MockActor is IV3LiquidityActor {
             c.v3FeeTier = 3000;
             a.setConfig(address(quote), c);
             a.setReceiver(address(0xBEEF));
-            LPManager m = LPManager(
-                address(
-                    new ERC1967Proxy(
-                        address(new LPManager()), abi.encodeCall(LPManager.initialize, (address(a), address(r)))
-                    )
-                )
-            );
+            LPManager m = _deployManager(a, r, f);
             MockActor actor = new MockActor(address(m), address(f));
             a.set(address(this), address(m), m.setV3LiquidityActor.selector, true);
             m.setV3LiquidityActor(address(actor), address(f));
@@ -248,15 +270,9 @@ contract MockActor is IV3LiquidityActor {
 
         function test_setV3LiquidityActor_wiresOnceAndValidates() public {
             MockAuthority authority = new MockAuthority();
-            LPManager implementation = new LPManager();
-            LPManager manager = LPManager(
-                address(
-                    new ERC1967Proxy(
-                        address(implementation), abi.encodeCall(LPManager.initialize, (address(authority), address(1)))
-                    )
-                )
-            );
+            MockRegistry registry = new MockRegistry();
             MockFactory factory = new MockFactory();
+            LPManager manager = _deployManager(authority, registry, factory);
             MockActor actor = new MockActor(address(manager), address(factory));
             authority.set(address(this), address(manager), manager.setV3LiquidityActor.selector, true);
             manager.setV3LiquidityActor(address(actor), address(factory));
@@ -267,15 +283,9 @@ contract MockActor is IV3LiquidityActor {
 
         function test_setV3LiquidityActor_rejectsWrongOwnerFactoryAndZero() public {
             MockAuthority authority = new MockAuthority();
-            LPManager implementation = new LPManager();
-            LPManager manager = LPManager(
-                address(
-                    new ERC1967Proxy(
-                        address(implementation), abi.encodeCall(LPManager.initialize, (address(authority), address(1)))
-                    )
-                )
-            );
+            MockRegistry registry = new MockRegistry();
             MockFactory factory = new MockFactory();
+            LPManager manager = _deployManager(authority, registry, factory);
             authority.set(address(this), address(manager), manager.setV3LiquidityActor.selector, true);
             MockActor wrongOwner = new MockActor(address(this), address(factory));
             vm.expectRevert(LPManager.InvalidFactory.selector);
