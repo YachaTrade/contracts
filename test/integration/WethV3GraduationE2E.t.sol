@@ -23,26 +23,22 @@ contract WethV3GraduationDeployHarness is Deploy {
     function deployCanonicalFixture(address v3Factory, address feeReceiver) external returns (Deployed memory d) {
         d.v3Factory = v3Factory;
         (d.weth, d.protocolManager) = _deployCanonicalWethAndProtocolManager(address(this), feeReceiver, _testConfig());
-        d.tokenImpl = address(new Token());
         d.tokenRegistry = _deployTokenRegistry(d.protocolManager);
-        d.lpManager = _deployLPManager(d.protocolManager, d.tokenRegistry);
+        d.creatorFeeProcessor = _deployCreatorFeeProcessor(d.protocolManager);
+        d.v3SwapAdapter = _deployV3SwapAdapter(d.v3Factory, d.tokenRegistry);
+        d.lpManager = _deployLPManager(d.protocolManager, d.tokenRegistry, d.creatorFeeProcessor, d.v3SwapAdapter);
         d.v3PoolDeployer = _deployV3PoolDeployer(d.protocolManager, d.v3Factory);
         d.v3LiquidityActor = address(new V3LiquidityActor(d.lpManager, d.v3Factory));
         LPManager(d.lpManager).setV3LiquidityActor(d.v3LiquidityActor, d.v3Factory);
+        d.tokenImpl = address(new Token());
         d.bondingCurve = _deployBondingCurve(address(this), d.tokenImpl, d.protocolManager);
-        (d.v3SwapAdapter, d.quoterV2, d.giwaRouter) =
-            _deployV3Routing(d.protocolManager, d.bondingCurve, d.tokenRegistry, d.weth, d.v3Factory);
-
-        uint64 nonce = vm.getNonce(address(this));
-        address predictedFeeCollector = vm.computeCreateAddress(address(this), nonce + 2);
-        d.creatorFeeProcessor = _deployCreatorFeeProcessor(d.bondingCurve, predictedFeeCollector);
-        d.feeCollector = _deployFeeCollector(d.protocolManager, d.creatorFeeProcessor, d.bondingCurve, d.giwaRouter);
-        require(d.feeCollector == predictedFeeCollector, "fee collector prediction");
+        (d.quoterV2, d.giwaRouter) =
+            _deployV3Routing(d.protocolManager, d.bondingCurve, d.tokenRegistry, d.weth, d.v3SwapAdapter, d.v3Factory);
 
         d.vaultRegistry = _deployVaultRegistry(d.protocolManager);
         _deployVaults(d, "ipfs://creator-fee-vault");
         _registerModules(d);
-        _setPermissions(d, address(0), address(0));
+        _setPermissions(d, address(0), address(this));
 
         BondingCurve bondingCurve = BondingCurve(payable(d.bondingCurve));
         bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), d.giwaRouter);
@@ -56,13 +52,10 @@ contract WethV3GraduationDeployHarness is Deploy {
             deployFee: 10 ether,
             graduateFee: 1_000 ether,
             curveProtocolFeeRate: 100,
-            settlementThreshold: 1_000 ether,
             v3FeeTier: 3_000,
             lpFeeProtocolShareBps: 5_000
         });
         config.snipingPenaltyTable = new uint256[](1);
-        config.creatorFeeRates = new uint16[](1);
-        config.creatorFeeRates[0] = 100;
     }
 }
 
@@ -247,7 +240,6 @@ contract WethV3GraduationE2ETest is Test {
                 symbol: "CWETH",
                 tokenURI: "",
                 quoteToken: deployed.weth,
-                creatorFeeRate: 100,
                 vaults: vaults,
                 salt: keccak256("canonical-weth-graduation-e2e"),
                 dexType: ITokenRegistry.DexType.UniswapV3,

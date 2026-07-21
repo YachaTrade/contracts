@@ -58,9 +58,7 @@ contract QuoteTokenScriptsTest is Test {
         ProtocolManager protocolManager = _deployProtocolManager(address(this));
         MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
 
-        protocolManager.addQuoteToken(
-            address(usdc), 30_000e6, 1_000_000_000 ether, 200_000_000 ether, 1e6, 5e6, 100, 0, 0
-        );
+        protocolManager.addQuoteToken(address(usdc), 30_000e6, 1_000_000_000 ether, 200_000_000 ether, 1e6, 5e6, 100, 0);
         protocolManager.setV3QuoteConfig(address(usdc), 500, 1_000);
         protocolManager.transferOwnership(address(harness));
 
@@ -72,7 +70,6 @@ contract QuoteTokenScriptsTest is Test {
             graduateFee: 6e6,
             curveProtocolFeeRate: 200,
             dexProtocolFeeRate: 25,
-            settlementThreshold: 10e6,
             v3FeeTier: 3_000,
             lpFeeProtocolShareBps: 6_000
         });
@@ -108,7 +105,6 @@ contract QuoteTokenScriptsTest is Test {
             graduateFee: 5e6,
             curveProtocolFeeRate: 100,
             dexProtocolFeeRate: 0,
-            settlementThreshold: 10e6,
             v3FeeTier: feeTier,
             lpFeeProtocolShareBps: protocolShare
         });
