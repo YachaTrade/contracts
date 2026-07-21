@@ -65,6 +65,7 @@ interface IProtocolManager {
     function setFactoryImplementation(address factory, address implementation) external;
     function setOperatorPermission(address operator, address target, bytes4 selector, bool allowed) external;
     function isOperatorAllowed(address operator, address target, bytes4 selector) external view returns (bool);
+    function canCall(address caller, address target, bytes4 selector) external view returns (bool, uint32);
 
     function feeReceiver() external view returns (address);
     function curveProtocolFeeRate(address quoteToken) external view returns (uint16);

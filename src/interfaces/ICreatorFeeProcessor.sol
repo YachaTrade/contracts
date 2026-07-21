@@ -22,7 +22,7 @@ interface ICreatorFeeProcessor {
     error ZeroBps();
     error AlreadyConfigured();
     error InvalidProtocolManager();
-    error InvalidBalanceDelta(address token, address account, uint256 expectedBalance, uint256 actualBalance);
+    error InvalidBalanceDelta(address token, address account, uint256 expectedBalance, uint256 currentBalance);
 
     function setup(address token, VaultSlot[] calldata vaults) external;
 

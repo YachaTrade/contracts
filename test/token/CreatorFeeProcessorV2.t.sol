@@ -7,6 +7,7 @@ import {Test} from "forge-std/Test.sol";
 import {CreatorFeeProcessor} from "../../src/core/CreatorFeeProcessor.sol";
 import {ProtocolManager} from "../../src/core/ProtocolManager.sol";
 import {ICreatorFeeProcessor} from "../../src/interfaces/ICreatorFeeProcessor.sol";
+import {IProtocolManager} from "../../src/interfaces/IProtocolManager.sol";
 import {IVault} from "../../src/interfaces/IVault.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -140,10 +141,23 @@ contract CreatorFeeProcessorV2Test is Test {
         assertEq(vaults[2].bps, 4000);
     }
 
+    function test_protocolManagerInterface_exposesCanCall() public view {
+        (bool allowed, uint32 delay) = IProtocolManager(address(protocolManager))
+            .canCall(bondingCurve, address(processor), ICreatorFeeProcessor.setup.selector);
+
+        assertTrue(allowed);
+        assertEq(delay, 0);
+    }
+
     function test_setup_onlyBondingCurvePermission() public {
         CreatorFeeProcessor p = new CreatorFeeProcessor(address(protocolManager));
         ICreatorFeeProcessor.VaultSlot[] memory vaults = new ICreatorFeeProcessor.VaultSlot[](1);
         vaults[0] = ICreatorFeeProcessor.VaultSlot({vault: address(vault1), bps: 10000});
+
+        vm.prank(admin);
+        protocolManager.setOperatorPermission(
+            lpManager, address(p), ICreatorFeeProcessor.processCreatorFee.selector, true
+        );
 
         vm.prank(lpManager);
         vm.expectRevert(ICreatorFeeProcessor.NotAuthorized.selector);
