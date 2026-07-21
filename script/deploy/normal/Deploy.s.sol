@@ -8,16 +8,12 @@ import {IPeripheryImmutableState} from "@uniswap/v3-periphery/contracts/interfac
 import {QuoterV2} from "@uniswap/v3-periphery/contracts/lens/QuoterV2.sol";
 
 import {Token} from "../../../src/token/Token.sol";
-import {WrappedEther} from "../../../src/token/WrappedEther.sol";
 import {CreatorFeeProcessor} from "../../../src/core/CreatorFeeProcessor.sol";
 import {FeeCollector} from "../../../src/core/FeeCollector.sol";
 import {V3PoolDeployer} from "../../../src/core/V3PoolDeployer.sol";
 import {V3LiquidityActor} from "../../../src/actors/V3LiquidityActor.sol";
 import {VaultRegistry} from "../../../src/vault/VaultRegistry.sol";
-import {BurnVault} from "../../../src/vault/BurnVault.sol";
-import {LPVault} from "../../../src/vault/LPVault.sol";
 import {CreatorFeeVault} from "../../../src/vault/CreatorFeeVault.sol";
-import {GiftVault} from "../../../src/vault/GiftVault.sol";
 import {TokenRegistry} from "../../../src/core/TokenRegistry.sol";
 import {IProtocolManager} from "../../../src/interfaces/IProtocolManager.sol";
 import {IV3SwapAdapter} from "../../../src/interfaces/IV3SwapAdapter.sol";
@@ -29,14 +25,16 @@ import {ProtocolManager} from "../../../src/core/ProtocolManager.sol";
 import {BondingCurve} from "../../../src/core/BondingCurve.sol";
 import {V3SwapAdapter} from "../../../src/adapters/V3SwapAdapter.sol";
 
+address constant GIWA_WETH = 0x4200000000000000000000000000000000000006;
+
 /// @title Deploy -- full canonical Uniswap V3 protocol deployment script
 /// @notice Deploys all contracts in correct order, initializes and configures them.
 /// @dev Environment variables (required):  PRIVATE_KEY, DEPLOYER, LV_MON, FEE_RECEIVER, MULTISIG, V3_FACTORY,
 ///      VIRTUAL_RESERVE, VIRTUAL_TOKEN_RESERVE, MIN_TOKEN_RESERVE, DEPLOY_FEE, GRADUATE_FEE,
 ///      CURVE_PROTOCOL_FEE_RATE, DEX_PROTOCOL_FEE_RATE, SETTLEMENT_THRESHOLD, V3_FEE_TIER,
-///      LP_FEE_PROTOCOL_SHARE_BPS, SNIPING_PENALTY_TABLE, CREATOR_FEE_RATES, GIFT_EXPIRY_DURATION,
-///      BURN_VAULT_METADATA_URI, LP_VAULT_METADATA_URI, CREATOR_FEE_VAULT_METADATA_URI, GIFT_VAULT_METADATA_URI
-///      Environment variables (optional):  CREATOR_MANAGER, SETTLER, GIFT_RELAYER
+///      LP_FEE_PROTOCOL_SHARE_BPS, SNIPING_PENALTY_TABLE, CREATOR_FEE_RATES,
+///      CREATOR_FEE_VAULT_METADATA_URI
+///      Environment variables (optional):  CREATOR_MANAGER, SETTLER
 ///      DEPLOYER is the EOA address that PRIVATE_KEY derives to (sanity guard against env
 ///      mismatch). It holds admin authority only for the duration of the deploy and renounces /
 ///      transfers everything to MULTISIG in the final step.
@@ -71,10 +69,7 @@ contract Deploy is Script {
         address bondingCurve;
         address giwaRouter;
         address vaultRegistry;
-        address burnVault;
-        address lpVault;
         address creatorFeeVault;
-        address giftVault;
         address v3Factory;
         address v3PoolDeployer;
         address v3LiquidityActor;
@@ -87,7 +82,6 @@ contract Deploy is Script {
         address deployerEnv = vm.envAddress("DEPLOYER");
         address lvmon = vm.envAddress("LV_MON");
         address feeReceiver = vm.envAddress("FEE_RECEIVER");
-        address giftRelayer = vm.envOr("GIFT_RELAYER", address(0));
         address creatorManager = vm.envOr("CREATOR_MANAGER", address(0));
         address settler = vm.envOr("SETTLER", address(0));
         address multisig = vm.envAddress("MULTISIG");
@@ -110,8 +104,9 @@ contract Deploy is Script {
         Deployed memory d;
         d.v3Factory = v3Factory;
 
-        // ── 1. Deployment-owned WETH + ProtocolManager ──────────────
-        (d.weth, d.protocolManager) = _deployWethAndProtocolManager(deployer, feeReceiver, lvmon, protocolConfig);
+        // ── 1. Canonical WETH predeploy + ProtocolManager ───────────
+        (d.weth, d.protocolManager) =
+            _deployCanonicalWethAndProtocolManager(deployer, feeReceiver, lvmon, protocolConfig);
 
         // ── 2. Token implementation (clone template) ─────────────────
         d.tokenImpl = address(new Token());
@@ -131,10 +126,8 @@ contract Deploy is Script {
         d.bondingCurve = _deployBondingCurve(deployer, d.tokenImpl, d.protocolManager);
 
         // ── 7. Canonical V3 swap/quote dependencies + GiwaRouter ─────
-        d.v3SwapAdapter = address(new V3SwapAdapter(d.v3Factory, d.tokenRegistry));
-        d.quoterV2 = _deployQuoterV2(d.v3Factory, d.weth);
-        d.giwaRouter =
-            _deployGiwaRouter(d.protocolManager, d.bondingCurve, d.tokenRegistry, d.weth, d.v3SwapAdapter, d.quoterV2);
+        (d.v3SwapAdapter, d.quoterV2, d.giwaRouter) =
+            _deployV3Routing(d.protocolManager, d.bondingCurve, d.tokenRegistry, d.weth, d.v3Factory);
 
         // ── 8. CreatorFeeProcessor + FeeCollector (circular dependency via nonce prediction) ──
         address predictedFeeCollector = _predictFeeCollectorAddress(deployerPrivateKey);
@@ -145,31 +138,14 @@ contract Deploy is Script {
         // ── 9. VaultRegistry ─────────────────────────────────────────
         d.vaultRegistry = _deployVaultRegistry(d.protocolManager);
 
-        // ── 10. Vaults ───────────────────────────────────────────────
-        d.burnVault = _deployBurnVault(
-            d.protocolManager, d.tokenRegistry, d.creatorFeeProcessor, d.bondingCurve, d.giwaRouter, d.vaultRegistry
-        );
-        d.lpVault = _deployLPVault(d.protocolManager, d.tokenRegistry, d.creatorFeeProcessor, d.vaultRegistry);
-        d.creatorFeeVault = _deployCreatorFeeVault(
-            d.protocolManager, d.bondingCurve, d.creatorFeeProcessor, d.tokenRegistry, d.weth, d.vaultRegistry
-        );
-        if (giftRelayer != address(0)) {
-            d.giftVault = _deployGiftVault(
-                d.protocolManager,
-                d.creatorFeeProcessor,
-                d.bondingCurve,
-                d.tokenRegistry,
-                d.giwaRouter,
-                d.weth,
-                d.vaultRegistry
-            );
-        }
+        // ── 10. Creator fee vault (the only registered vault) ────────
+        _deployVaults(d, vm.envString("CREATOR_FEE_VAULT_METADATA_URI"));
 
         // ── 11. BondingCurve module registration ─────────────────────
         _registerModules(d);
 
         // ── 12. Operator permissions ─────────────────────────────────
-        _setPermissions(d, creatorManager, settler, giftRelayer);
+        _setPermissions(d, creatorManager, settler);
 
         // ── 13. Grant ROUTER_ROLE to GiwaRouter ──────────────────────
         BondingCurve(payable(d.bondingCurve))
@@ -210,13 +186,18 @@ contract Deploy is Script {
 
     // ── Internal: ProtocolManager ────────────────────────────────────
 
-    function _deployWethAndProtocolManager(
+    function _canonicalWeth() internal view returns (address weth) {
+        weth = GIWA_WETH;
+        require(weth.code.length > 0, "Deploy: canonical WETH missing code");
+    }
+
+    function _deployCanonicalWethAndProtocolManager(
         address admin,
         address feeReceiver,
         address lvmon,
         ProtocolDeploymentConfig memory config
     ) internal returns (address weth, address protocolManager) {
-        weth = address(new WrappedEther());
+        weth = _canonicalWeth();
         protocolManager = _deployProtocolManager(admin, feeReceiver, weth, lvmon, config);
     }
 
@@ -381,57 +362,23 @@ contract Deploy is Script {
         require(immutableState.WETH9() == weth_, "Deploy: QuoterV2 WETH mismatch");
     }
 
+    function _deployV3Routing(
+        address protocolManager_,
+        address bondingCurve_,
+        address tokenRegistry_,
+        address weth_,
+        address v3Factory_
+    ) internal returns (address v3SwapAdapter, address quoterV2, address giwaRouter) {
+        require(weth_ == _canonicalWeth(), "Deploy: non-canonical WETH");
+        v3SwapAdapter = address(new V3SwapAdapter(v3Factory_, tokenRegistry_));
+        quoterV2 = _deployQuoterV2(v3Factory_, weth_);
+        giwaRouter = _deployGiwaRouter(protocolManager_, bondingCurve_, tokenRegistry_, weth_, v3SwapAdapter, quoterV2);
+    }
+
     // ── Internal: VaultRegistry ─────────────────────────────────────
 
     function _deployVaultRegistry(address protocolManager_) internal returns (address) {
         return _deployProxy(address(new VaultRegistry()), abi.encodeCall(VaultRegistry.initialize, (protocolManager_)));
-    }
-
-    // ── Internal: BurnVault ─────────────────────────────────────────
-
-    function _deployBurnVault(
-        address protocolManager_,
-        address tokenRegistry_,
-        address creatorFeeProcessor_,
-        address bondingCurve_,
-        address router_,
-        address vaultRegistry_
-    ) internal returns (address) {
-        address vault = _deployProxy(
-            address(new BurnVault()),
-            abi.encodeCall(
-                BurnVault.initialize,
-                (
-                    protocolManager_,
-                    tokenRegistry_,
-                    creatorFeeProcessor_,
-                    bondingCurve_,
-                    router_,
-                    vm.envString("BURN_VAULT_METADATA_URI")
-                )
-            )
-        );
-        VaultRegistry(vaultRegistry_).register(vault, "BurnVault", "Buyback and burn", IVaultRegistry.VaultType.Burn);
-        return vault;
-    }
-
-    // ── Internal: LPVault ───────────────────────────────────────────
-
-    function _deployLPVault(
-        address protocolManager_,
-        address tokenRegistry_,
-        address creatorFeeProcessor_,
-        address vaultRegistry_
-    ) internal returns (address) {
-        address vault = _deployProxy(
-            address(new LPVault()),
-            abi.encodeCall(
-                LPVault.initialize,
-                (protocolManager_, tokenRegistry_, creatorFeeProcessor_, vm.envString("LP_VAULT_METADATA_URI"))
-            )
-        );
-        VaultRegistry(vaultRegistry_).register(vault, "LPVault", "LP injection", IVaultRegistry.VaultType.LP);
-        return vault;
     }
 
     // ── Internal: CreatorFeeVault ───────────────────────────────────
@@ -442,20 +389,14 @@ contract Deploy is Script {
         address creatorFeeProcessor_,
         address tokenRegistry_,
         address weth_,
-        address vaultRegistry_
+        address vaultRegistry_,
+        string memory metadataURI_
     ) internal returns (address) {
         address vault = _deployProxy(
             address(new CreatorFeeVault()),
             abi.encodeCall(
                 CreatorFeeVault.initialize,
-                (
-                    protocolManager_,
-                    bondingCurve_,
-                    creatorFeeProcessor_,
-                    tokenRegistry_,
-                    weth_,
-                    vm.envString("CREATOR_FEE_VAULT_METADATA_URI")
-                )
+                (protocolManager_, bondingCurve_, creatorFeeProcessor_, tokenRegistry_, weth_, metadataURI_)
             )
         );
         VaultRegistry(vaultRegistry_)
@@ -463,35 +404,16 @@ contract Deploy is Script {
         return vault;
     }
 
-    // ── Internal: GiftVault ─────────────────────────────────────────
-
-    function _deployGiftVault(
-        address protocolManager_,
-        address creatorFeeProcessor_,
-        address bondingCurve_,
-        address tokenRegistry_,
-        address router_,
-        address weth_,
-        address vaultRegistry_
-    ) internal returns (address) {
-        address vault = _deployProxy(
-            address(new GiftVault()),
-            abi.encodeCall(
-                GiftVault.initialize,
-                (
-                    protocolManager_,
-                    creatorFeeProcessor_,
-                    bondingCurve_,
-                    tokenRegistry_,
-                    vm.envUint("GIFT_EXPIRY_DURATION"),
-                    router_,
-                    weth_,
-                    vm.envString("GIFT_VAULT_METADATA_URI")
-                )
-            )
+    function _deployVaults(Deployed memory d, string memory creatorFeeVaultMetadataURI) internal {
+        d.creatorFeeVault = _deployCreatorFeeVault(
+            d.protocolManager,
+            d.bondingCurve,
+            d.creatorFeeProcessor,
+            d.tokenRegistry,
+            d.weth,
+            d.vaultRegistry,
+            creatorFeeVaultMetadataURI
         );
-        VaultRegistry(vaultRegistry_).register(vault, "GiftVault", "Gift with expiry", IVaultRegistry.VaultType.Gift);
-        return vault;
     }
 
     // ── Internal: BondingCurve modules ──────────────────────────────
@@ -508,7 +430,7 @@ contract Deploy is Script {
 
     // ── Internal: Operator permissions ──────────────────────────────
 
-    function _setPermissions(Deployed memory d, address creatorManager, address settler, address giftRelayer) internal {
+    function _setPermissions(Deployed memory d, address creatorManager, address settler) internal {
         ProtocolManager pm = ProtocolManager(d.protocolManager);
         pm.setOperatorPermission(d.bondingCurve, d.v3PoolDeployer, V3PoolDeployer.createPool.selector, true);
         pm.setOperatorPermission(d.bondingCurve, d.tokenRegistry, TokenRegistry.registerV3.selector, true);
@@ -520,10 +442,6 @@ contract Deploy is Script {
 
         if (settler != address(0)) {
             pm.setOperatorPermission(settler, d.feeCollector, FeeCollector.settle.selector, true);
-        }
-
-        if (giftRelayer != address(0) && d.giftVault != address(0)) {
-            pm.setOperatorPermission(giftRelayer, d.giftVault, GiftVault.setReceiver.selector, true);
         }
     }
 
@@ -625,7 +543,7 @@ contract Deploy is Script {
     }
 
     function _verifyV3Wiring(Deployed memory d) internal view {
-        require(d.weth.code.length > 0, "Verify: WETH not deployed");
+        require(d.weth == _canonicalWeth(), "Verify: non-canonical WETH");
         require(d.v3Factory.code.length > 0, "Verify: V3 factory missing code");
         require(
             IUniswapV3Factory(d.v3Factory).feeAmountTickSpacing(_readUint24("V3_FEE_TIER")) != 0,
@@ -682,12 +600,6 @@ contract Deploy is Script {
             (bool canSettle,) = pm.canCall(settler, d.feeCollector, FeeCollector.settle.selector);
             require(canSettle, "Verify: settler missing settle permission");
         }
-
-        address giftRelayer = vm.envOr("GIFT_RELAYER", address(0));
-        if (giftRelayer != address(0) && d.giftVault != address(0)) {
-            (bool canSetReceiver,) = pm.canCall(giftRelayer, d.giftVault, GiftVault.setReceiver.selector);
-            require(canSetReceiver, "Verify: giftRelayer missing setReceiver permission");
-        }
     }
 
     function _verifyAdminRotation(Deployed memory d) internal view {
@@ -725,10 +637,7 @@ contract Deploy is Script {
         _logEnvAddress("V3_SWAP_ADAPTER", d.v3SwapAdapter);
         _logEnvAddress("QUOTER_V2", d.quoterV2);
         _logEnvAddress("VAULT_REGISTRY", d.vaultRegistry);
-        _logEnvAddress("BURN_VAULT", d.burnVault);
-        _logEnvAddress("LP_VAULT", d.lpVault);
         _logEnvAddress("CREATOR_FEE_VAULT", d.creatorFeeVault);
-        _logEnvAddress("GIFT_VAULT", d.giftVault);
         _logEnvAddress("GIWA_ROUTER", d.giwaRouter);
         console.log("========================================");
     }
