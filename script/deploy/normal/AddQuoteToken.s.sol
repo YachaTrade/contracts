@@ -15,7 +15,7 @@ import {BPS} from "../../../src/libraries/Constants.sol";
 /// @dev Required env: CHAIN_ID, MULTISIG_PRIVATE_KEY, PROTOCOL_MANAGER, QUOTE_TOKEN, V3_POOL_DEPLOYER,
 ///      VIRTUAL_RESERVE, VIRTUAL_TOKEN_RESERVE, MIN_TOKEN_RESERVE, DEPLOY_FEE,
 ///      GRADUATE_FEE, CURVE_PROTOCOL_FEE_RATE, DEX_PROTOCOL_FEE_RATE,
-///      SETTLEMENT_THRESHOLD, V3_FEE_TIER, LP_FEE_PROTOCOL_SHARE_BPS.
+///      V3_FEE_TIER, LP_FEE_PROTOCOL_SHARE_BPS.
 contract AddQuoteToken is Script {
     struct QuoteTokenConfig {
         uint256 virtualReserve;
@@ -25,7 +25,6 @@ contract AddQuoteToken is Script {
         uint256 graduateFee;
         uint16 curveProtocolFeeRate;
         uint16 dexProtocolFeeRate;
-        uint256 settlementThreshold;
         uint24 v3FeeTier;
         uint16 lpFeeProtocolShareBps;
     }
@@ -81,7 +80,6 @@ contract AddQuoteToken is Script {
             config.graduateFee,
             config.curveProtocolFeeRate,
             config.dexProtocolFeeRate,
-            config.settlementThreshold,
             config.v3FeeTier,
             config.lpFeeProtocolShareBps
         );
@@ -95,7 +93,6 @@ contract AddQuoteToken is Script {
         config.graduateFee = vm.envUint("GRADUATE_FEE");
         config.curveProtocolFeeRate = _readUint16("CURVE_PROTOCOL_FEE_RATE");
         config.dexProtocolFeeRate = _readUint16("DEX_PROTOCOL_FEE_RATE");
-        config.settlementThreshold = vm.envUint("SETTLEMENT_THRESHOLD");
         config.v3FeeTier = _readUint24("V3_FEE_TIER");
         config.lpFeeProtocolShareBps = _readUint16("LP_FEE_PROTOCOL_SHARE_BPS");
     }
@@ -113,7 +110,6 @@ contract AddQuoteToken is Script {
         require(actual.graduateFee == expected.graduateFee, "Verify: graduateFee mismatch");
         require(actual.curveProtocolFeeRate == expected.curveProtocolFeeRate, "Verify: curve fee mismatch");
         require(actual.dexProtocolFeeRate == expected.dexProtocolFeeRate, "Verify: DEX fee mismatch");
-        require(actual.settlementThreshold == expected.settlementThreshold, "Verify: threshold mismatch");
         require(actual.v3FeeTier == expected.v3FeeTier, "Verify: V3 fee tier mismatch");
         require(actual.lpFeeProtocolShareBps == expected.lpFeeProtocolShareBps, "Verify: LP fee share mismatch");
     }

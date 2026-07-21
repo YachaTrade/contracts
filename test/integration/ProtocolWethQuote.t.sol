@@ -10,6 +10,7 @@ import {WETH} from "solady/tokens/WETH.sol";
 import {Deploy, GIWA_WETH} from "../../script/deploy/normal/Deploy.s.sol";
 import {V3LiquidityActor} from "../../src/actors/V3LiquidityActor.sol";
 import {BondingCurve} from "../../src/core/BondingCurve.sol";
+import {CreatorFeeProcessor} from "../../src/core/CreatorFeeProcessor.sol";
 import {LPManager} from "../../src/core/LPManager.sol";
 import {ProtocolManager} from "../../src/core/ProtocolManager.sol";
 import {TokenRegistry} from "../../src/core/TokenRegistry.sol";
@@ -41,26 +42,29 @@ contract DeployHarness is Deploy {
         _transferAdminToMultisig(deployed, newAdmin, address(this));
     }
 
-    function deployCanonicalV3Graph(address v3Factory, address creatorManager) external returns (Deployed memory d) {
+    function deployCanonicalV3Graph(address v3Factory, address creatorManager, address collector)
+        external
+        returns (Deployed memory d)
+    {
         d.v3Factory = v3Factory;
         (d.weth, d.protocolManager) =
             _deployCanonicalWethAndProtocolManager(address(this), address(0xFEE), _testConfig());
-        d.tokenImpl = address(this);
         d.tokenRegistry = _deployTokenRegistry(d.protocolManager);
-        d.lpManager = _deployLPManager(d.protocolManager, d.tokenRegistry);
+        d.creatorFeeProcessor = _deployCreatorFeeProcessor(d.protocolManager);
+        d.v3SwapAdapter = _deployV3SwapAdapter(d.v3Factory, d.tokenRegistry);
+        d.lpManager = _deployLPManager(d.protocolManager, d.tokenRegistry, d.creatorFeeProcessor, d.v3SwapAdapter);
         d.v3PoolDeployer = _deployV3PoolDeployer(d.protocolManager, d.v3Factory);
         d.v3LiquidityActor = address(new V3LiquidityActor(d.lpManager, d.v3Factory));
         LPManager(d.lpManager).setV3LiquidityActor(d.v3LiquidityActor, d.v3Factory);
+        d.tokenImpl = address(this);
         d.bondingCurve = _deployBondingCurve(address(this), d.tokenImpl, d.protocolManager);
-        (d.v3SwapAdapter, d.quoterV2, d.giwaRouter) =
-            _deployV3Routing(d.protocolManager, d.bondingCurve, d.tokenRegistry, d.weth, d.v3Factory);
+        (d.quoterV2, d.giwaRouter) =
+            _deployV3Routing(d.protocolManager, d.bondingCurve, d.tokenRegistry, d.weth, d.v3SwapAdapter, d.v3Factory);
 
-        d.creatorFeeProcessor = address(this);
-        d.feeCollector = address(this);
         d.vaultRegistry = _deployVaultRegistry(d.protocolManager);
         _deployVaults(d, "ipfs://creator-fee-vault");
         _registerModules(d);
-        _setPermissions(d, creatorManager, address(0));
+        _setPermissions(d, creatorManager, collector);
 
         BondingCurve bondingCurve = BondingCurve(payable(d.bondingCurve));
         bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), d.giwaRouter);
@@ -74,13 +78,10 @@ contract DeployHarness is Deploy {
             deployFee: 10 ether,
             graduateFee: 1_000 ether,
             curveProtocolFeeRate: 100,
-            settlementThreshold: 1_000 ether,
             v3FeeTier: 3000,
             lpFeeProtocolShareBps: 5000
         });
         config.snipingPenaltyTable = new uint256[](1);
-        config.creatorFeeRates = new uint16[](1);
-        config.creatorFeeRates[0] = 100;
     }
 }
 
@@ -130,16 +131,22 @@ contract ProtocolWethQuoteTest is Test {
         UniswapV3Factory factory = new UniswapV3Factory();
         DeployHarness harness = new DeployHarness();
         address creatorManager = address(0xC0FFEE);
+        address collector = address(0xC011EC70);
 
         vm.recordLogs();
-        Deploy.Deployed memory deployed = harness.deployCanonicalV3Graph(address(factory), creatorManager);
+        Deploy.Deployed memory deployed = harness.deployCanonicalV3Graph(address(factory), creatorManager, collector);
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         _assertRouting(deployed, address(factory));
-        _assertPermissions(deployed, creatorManager);
+        _assertPermissions(deployed, creatorManager, collector);
 
         BondingCurve bondingCurve = BondingCurve(payable(deployed.bondingCurve));
         assertTrue(bondingCurve.hasRole(bondingCurve.ROUTER_ROLE(), deployed.giwaRouter));
+        assertEq(
+            address(CreatorFeeProcessor(deployed.creatorFeeProcessor).protocolManager()),
+            deployed.protocolManager,
+            "Processor authority"
+        );
         assertEq(CreatorFeeVault(payable(deployed.creatorFeeVault)).wmon(), GIWA_WETH);
         assertTrue(VaultRegistry(deployed.vaultRegistry).isActive(deployed.creatorFeeVault));
         _assertRegistrationLogs(logs, deployed);
@@ -152,7 +159,8 @@ contract ProtocolWethQuoteTest is Test {
     function test_deploymentHarnessTransfersAllAdminAuthority() public {
         UniswapV3Factory factory = new UniswapV3Factory();
         DeployHarness harness = new DeployHarness();
-        Deploy.Deployed memory deployed = harness.deployCanonicalV3Graph(address(factory), address(0));
+        Deploy.Deployed memory deployed =
+            harness.deployCanonicalV3Graph(address(factory), address(0), address(0xC011EC70));
         address newAdmin = makeAddr("testnetMultisigEoa");
 
         harness.transferAdmin(deployed, newAdmin);
@@ -169,7 +177,8 @@ contract ProtocolWethQuoteTest is Test {
     function test_deploymentHarnessKeepsRolesForSingleTestnetAdmin() public {
         UniswapV3Factory factory = new UniswapV3Factory();
         DeployHarness harness = new DeployHarness();
-        Deploy.Deployed memory deployed = harness.deployCanonicalV3Graph(address(factory), address(0));
+        Deploy.Deployed memory deployed =
+            harness.deployCanonicalV3Graph(address(factory), address(0), address(0xC011EC70));
 
         harness.transferAdmin(deployed, address(harness));
 
@@ -198,9 +207,14 @@ contract ProtocolWethQuoteTest is Test {
         assertEq(V3PoolDeployer(deployed.v3PoolDeployer).factory(), address(factory));
         assertEq(LPManager(deployed.lpManager).v3Factory(), address(factory));
         assertEq(LPManager(deployed.lpManager).v3LiquidityActor(), deployed.v3LiquidityActor);
+        assertEq(LPManager(deployed.lpManager).creatorFeeProcessor(), deployed.creatorFeeProcessor);
+        assertEq(LPManager(deployed.lpManager).v3SwapAdapter(), deployed.v3SwapAdapter);
     }
 
-    function _assertPermissions(Deploy.Deployed memory deployed, address creatorManager) private view {
+    function _assertPermissions(Deploy.Deployed memory deployed, address creatorManager, address collector)
+        private
+        view
+    {
         ProtocolManager protocolManager = ProtocolManager(deployed.protocolManager);
         (bool canCreatePool,) =
             protocolManager.canCall(deployed.bondingCurve, deployed.v3PoolDeployer, V3PoolDeployer.createPool.selector);
@@ -208,11 +222,24 @@ contract ProtocolWethQuoteTest is Test {
             protocolManager.canCall(deployed.bondingCurve, deployed.tokenRegistry, TokenRegistry.registerV3.selector);
         (bool canAllocate,) =
             protocolManager.canCall(deployed.bondingCurve, deployed.lpManager, LPManager.allocate.selector);
+        (bool canSetup,) = protocolManager.canCall(
+            deployed.bondingCurve, deployed.creatorFeeProcessor, CreatorFeeProcessor.setup.selector
+        );
+        (bool canProcessCreatorFee,) = protocolManager.canCall(
+            deployed.lpManager, deployed.creatorFeeProcessor, CreatorFeeProcessor.processCreatorFee.selector
+        );
+        bool canCollect = protocolManager.isOperatorAllowed(collector, deployed.lpManager, LPManager.collect.selector);
+        bool canCollectorAllocate =
+            protocolManager.isOperatorAllowed(collector, deployed.lpManager, LPManager.allocate.selector);
         (bool canSetCreator,) =
             protocolManager.canCall(creatorManager, deployed.creatorFeeVault, CreatorFeeVault.setCreator.selector);
         assertTrue(canCreatePool);
         assertTrue(canRegisterV3);
         assertTrue(canAllocate);
+        assertTrue(canSetup);
+        assertTrue(canProcessCreatorFee);
+        assertTrue(canCollect);
+        assertFalse(canCollectorAllocate, "collector permission must be selector-scoped");
         assertTrue(canSetCreator);
     }
 
@@ -220,9 +247,11 @@ contract ProtocolWethQuoteTest is Test {
         bytes32 vaultRegisterSignature = keccak256("Register(address,string,address,uint8)");
         bytes32 moduleUpdateSignature = keccak256("ModuleUpdate(bytes32,address)");
         bytes32 legacyFactoryModule = keccak256("FACTORY");
+        bytes32 feeCollectorModule = keccak256("FEE_COLLECTOR");
         uint256 vaultRegistrations;
         uint256 moduleRegistrations;
         bool legacyFactoryRegistered;
+        bool feeCollectorRegistered;
 
         for (uint256 i = 0; i < logs.length; i++) {
             if (logs[i].emitter == deployed.vaultRegistry && logs[i].topics[0] == vaultRegisterSignature) {
@@ -232,11 +261,13 @@ contract ProtocolWethQuoteTest is Test {
             if (logs[i].emitter == deployed.bondingCurve && logs[i].topics[0] == moduleUpdateSignature) {
                 moduleRegistrations++;
                 if (logs[i].topics[1] == legacyFactoryModule) legacyFactoryRegistered = true;
+                if (logs[i].topics[1] == feeCollectorModule) feeCollectorRegistered = true;
             }
         }
 
         assertEq(vaultRegistrations, 1, "only CreatorFeeVault should be registered");
-        assertEq(moduleRegistrations, 6, "only canonical lifecycle modules should be registered");
+        assertEq(moduleRegistrations, 5, "only active V3 lifecycle modules should be registered");
         assertFalse(legacyFactoryRegistered, "legacy Nad factory module must not be registered");
+        assertFalse(feeCollectorRegistered, "FeeCollector module must not be registered");
     }
 }

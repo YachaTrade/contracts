@@ -18,13 +18,8 @@ import {IGiwaRouter} from "../src/interfaces/IGiwaRouter.sol";
 import {IBondingCurve} from "../src/interfaces/IBondingCurve.sol";
 
 // DEX
-import {NadFunFactory} from "../src/dex/NadFunFactory.sol";
-import {NadFunPair} from "../src/dex/NadFunPair.sol";
 import {UniswapV3Factory} from "@uniswap/v3-core/contracts/UniswapV3Factory.sol";
 import {QuoterV2} from "@uniswap/v3-periphery/contracts/lens/QuoterV2.sol";
-
-// Fee
-import {FeeCollector} from "../src/core/FeeCollector.sol";
 
 // Token
 import {Token} from "../src/token/Token.sol";
@@ -35,10 +30,7 @@ import {VaultRegistry} from "../src/vault/VaultRegistry.sol";
 import {IVaultRegistry} from "../src/interfaces/IVaultRegistry.sol";
 import {CreatorFeeVault} from "../src/vault/CreatorFeeVault.sol";
 
-// Adapter
-import {NadSwapAdapter} from "../src/adapters/NadSwapAdapter.sol";
 import {V3SwapAdapter} from "../src/adapters/V3SwapAdapter.sol";
-import {IDexAdapter} from "../src/interfaces/IDexAdapter.sol";
 
 // Mocks
 import {MockERC20} from "./mocks/MockERC20.sol";
@@ -46,7 +38,7 @@ import {MockWMON} from "./mocks/MockWMON.sol";
 
 /// @title SetUp -- Shared base test contract for GIWA
 /// @notice Deploys the full protocol stack with real contracts (no mocks except MockERC20/MockWMON).
-/// @dev Deployment order: ProtocolManager -> TokenRegistry -> BondingCurve -> FeeCollector ->
+/// @dev Deployment order mirrors the fresh V3-only deployment graph.
 contract SetUp is Test {
     // -- Addresses ------------------------------------------------
     address public admin;
@@ -75,16 +67,11 @@ contract SetUp is Test {
     Token public tokenImpl;
     CreatorFeeProcessor public creatorFeeProcessor;
 
-    // -- Fee ------------------------------------------------------
-    FeeCollector public feeCollector;
-
     // -- DEX ------------------------------------------------------
-    NadFunFactory public nadFunFactory;
     UniswapV3Factory public v3Factory;
     QuoterV2 public quoterV2;
 
     // -- Adapter --------------------------------------------------
-    NadSwapAdapter public nadSwapAdapter;
     V3SwapAdapter public v3SwapAdapter;
 
     // -- Vault ----------------------------------------------------
@@ -95,12 +82,10 @@ contract SetUp is Test {
     uint256 public constant VIRTUAL_RESERVE = 70_000 ether;
     uint256 public constant VIRTUAL_TOKEN_RESERVE = 1_060_569_000 ether;
     uint256 public constant MIN_TOKEN_RESERVE = 251_660_440_677_966_101_694_915_255;
-    uint16 public constant DEFAULT_CREATOR_FEE_RATE = 100; // 1%
     uint16 public constant DEFAULT_CURVE_PROTOCOL_FEE = 100; // 1%
     uint16 public constant DEFAULT_DEX_PROTOCOL_FEE = 35; // 0.35%
     uint256 public constant DEFAULT_DEPLOY_FEE = 10 ether;
     uint256 public constant DEFAULT_GRADUATE_FEE = 1_000 ether;
-    uint256 public constant SETTLEMENT_THRESHOLD = 1_000 ether;
     uint24 public constant DEFAULT_V3_FEE_TIER = 3_000;
     uint16 public constant DEFAULT_LP_FEE_PROTOCOL_SHARE_BPS = 5_000;
 
@@ -108,12 +93,10 @@ contract SetUp is Test {
     uint256 public virtualReserve;
     uint256 public virtualTokenReserve;
     uint256 public minTokenReserve;
-    uint16 public defaultCreatorFeeRate;
     uint16 public defaultCurveProtocolFee;
     uint16 public defaultDexProtocolFee;
     uint256 public defaultDeployFee;
     uint256 public defaultGraduateFee;
-    uint256 public settlementThreshold;
 
     // -- setUp ----------------------------------------------------
 
@@ -147,12 +130,10 @@ contract SetUp is Test {
             defaultDeployFee,
             defaultGraduateFee,
             defaultCurveProtocolFee,
-            defaultDexProtocolFee,
-            settlementThreshold
+            defaultDexProtocolFee
         );
         protocolManager.setV3QuoteConfig(address(quoteToken), DEFAULT_V3_FEE_TIER, DEFAULT_LP_FEE_PROTOCOL_SHARE_BPS);
         protocolManager.setSnipingPenaltyTable(_testSnipingPenaltyTable());
-        protocolManager.setAllowedCreatorFeeRates(_testCreatorFeeRates());
 
         // 4. TokenRegistry (UUPS proxy)
         TokenRegistry trImpl = new TokenRegistry();
@@ -162,18 +143,26 @@ contract SetUp is Test {
             )
         );
 
-        // 4.5. Canonical V3 dependencies used by GiwaRouter.
+        // 5. Creator fee and canonical V3 swap dependencies.
+        creatorFeeProcessor = new CreatorFeeProcessor(address(protocolManager));
         v3Factory = new UniswapV3Factory();
         v3SwapAdapter = new V3SwapAdapter(address(v3Factory), address(tokenRegistry));
-        quoterV2 = new QuoterV2(address(v3Factory), address(wmon));
 
-        // 5. LPManager (UUPS proxy)
+        // 6. LPManager (UUPS proxy)
         LPManager lmImpl = new LPManager();
         lpManager = LPManager(
             address(
                 new ERC1967Proxy(
                     address(lmImpl),
-                    abi.encodeCall(LPManager.initialize, (address(protocolManager), address(tokenRegistry)))
+                    abi.encodeCall(
+                        LPManager.initialize,
+                        (
+                            address(protocolManager),
+                            address(tokenRegistry),
+                            address(creatorFeeProcessor),
+                            address(v3SwapAdapter)
+                        )
+                    )
                 )
             )
         );
@@ -190,10 +179,10 @@ contract SetUp is Test {
         v3LiquidityActor = new V3LiquidityActor(address(lpManager), address(v3Factory));
         lpManager.setV3LiquidityActor(address(v3LiquidityActor), address(v3Factory));
 
-        // 6. Token implementation (clone template) -- plain ERC20, no creator-fee-on-transfer
+        // 7. Token implementation (clone template) -- plain ERC20, no creator-fee-on-transfer
         tokenImpl = new Token();
 
-        // 7. BondingCurve (UUPS proxy)
+        // 8. BondingCurve (UUPS proxy)
         BondingCurve bcImpl = new BondingCurve();
         bondingCurve = BondingCurve(
             payable(address(
@@ -204,7 +193,8 @@ contract SetUp is Test {
                 ))
         );
 
-        // 7.5. GiwaRouter (UUPS proxy) — FeeCollector and vaults reference it for lifecycle-aware quotes/trades.
+        // 9. GiwaRouter (UUPS proxy)
+        quoterV2 = new QuoterV2(address(v3Factory), address(wmon));
         GiwaRouter giwaRouterImpl = new GiwaRouter();
         giwaRouter = GiwaRouter(
             payable(address(
@@ -224,37 +214,6 @@ contract SetUp is Test {
                     )
                 ))
         );
-
-        // 8. FeeCollector + CreatorFeeProcessor (circular dependency resolved via address prediction)
-        FeeCollector fcImpl = new FeeCollector();
-
-        uint64 nonce = vm.getNonce(admin);
-        // Next deploy: CreatorFeeProcessor (nonce), then FeeCollector proxy (nonce+1)
-        address predictedFeeCollector = vm.computeCreateAddress(admin, nonce + 1);
-
-        creatorFeeProcessor = new CreatorFeeProcessor(address(bondingCurve), predictedFeeCollector);
-
-        feeCollector = FeeCollector(
-            address(
-                new ERC1967Proxy(
-                    address(fcImpl),
-                    abi.encodeCall(
-                        FeeCollector.initialize,
-                        (
-                            address(protocolManager),
-                            address(creatorFeeProcessor),
-                            address(bondingCurve),
-                            address(giwaRouter)
-                        )
-                    )
-                )
-            )
-        );
-        require(address(feeCollector) == predictedFeeCollector, "FeeCollector address prediction failed");
-
-        // 9. NadFunFactory
-        NadFunPair pairImpl = new NadFunPair();
-        nadFunFactory = new NadFunFactory(address(protocolManager), address(feeCollector), address(pairImpl));
 
         // 10. VaultRegistry (UUPS proxy)
         VaultRegistry vrImpl = new VaultRegistry();
@@ -294,14 +253,9 @@ contract SetUp is Test {
         bondingCurve.setModule(keccak256("LP_MANAGER"), address(lpManager));
         bondingCurve.setModule(keccak256("CREATOR_FEE_PROCESSOR"), address(creatorFeeProcessor));
         bondingCurve.setModule(keccak256("VAULT_REGISTRY"), address(vaultRegistry));
-        bondingCurve.setModule(keccak256("FEE_COLLECTOR"), address(feeCollector));
         bondingCurve.setModule(keccak256("V3_POOL_DEPLOYER"), address(v3PoolDeployer));
 
-        // 14. NadSwapAdapter — register V2 adapter in TokenRegistry
-        nadSwapAdapter = new NadSwapAdapter();
-        tokenRegistry.setAdapter(ITokenRegistry.DexType.UniswapV2, IDexAdapter(address(nadSwapAdapter)));
-
-        // 15. Authorize BondingCurve as operator for TokenRegistry and LPManager
+        // 14. Authorize the active V3 lifecycle graph.
         protocolManager.setOperatorPermission(
             address(bondingCurve), address(v3PoolDeployer), V3PoolDeployer.createPool.selector, true
         );
@@ -311,8 +265,14 @@ contract SetUp is Test {
         protocolManager.setOperatorPermission(
             address(bondingCurve), address(lpManager), LPManager.allocate.selector, true
         );
-        // Tests act as the settler keeper so they can trigger FeeCollector.settle directly.
-        protocolManager.setOperatorPermission(address(this), address(feeCollector), FeeCollector.settle.selector, true);
+        protocolManager.setOperatorPermission(
+            address(bondingCurve), address(creatorFeeProcessor), CreatorFeeProcessor.setup.selector, true
+        );
+        protocolManager.setOperatorPermission(
+            address(lpManager), address(creatorFeeProcessor), CreatorFeeProcessor.processCreatorFee.selector, true
+        );
+        // Tests act as the V3 fee collector keeper.
+        protocolManager.setOperatorPermission(address(this), address(lpManager), LPManager.collect.selector, true);
 
         // 16. Grant ROUTER_ROLE to GiwaRouter.
         bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), address(giwaRouter));
@@ -335,15 +295,6 @@ contract SetUp is Test {
             _envOrUint16("TEST_CURVE_PROTOCOL_FEE_RATE", "CURVE_PROTOCOL_FEE_RATE", DEFAULT_CURVE_PROTOCOL_FEE);
         defaultDexProtocolFee =
             _envOrUint16("TEST_DEX_PROTOCOL_FEE_RATE", "DEX_PROTOCOL_FEE_RATE", DEFAULT_DEX_PROTOCOL_FEE);
-        settlementThreshold = _envOrUint("TEST_SETTLEMENT_THRESHOLD", "SETTLEMENT_THRESHOLD", SETTLEMENT_THRESHOLD);
-
-        uint16[] memory creatorRates = _testCreatorFeeRates();
-        uint16 fallbackCreatorFeeRate = _containsCreatorFeeRate(creatorRates, DEFAULT_CREATOR_FEE_RATE)
-            ? DEFAULT_CREATOR_FEE_RATE
-            : creatorRates[0];
-        defaultCreatorFeeRate =
-            _envOrUint16("TEST_DEFAULT_CREATOR_FEE_RATE", "DEFAULT_CREATOR_FEE_RATE", fallbackCreatorFeeRate);
-        require(_containsCreatorFeeRate(creatorRates, defaultCreatorFeeRate), "SetUp: default creator fee not allowed");
     }
 
     function _envOrUint(string memory testKey, string memory deployKey, uint256 fallbackValue)
@@ -369,18 +320,6 @@ contract SetUp is Test {
         require(table.length > 0, "SetUp: empty sniping penalty table");
     }
 
-    function _testCreatorFeeRates() internal view returns (uint16[] memory rates) {
-        uint256[] memory defaultRates = _defaultCreatorFeeRates();
-        uint256[] memory deployRates = vm.envOr("CREATOR_FEE_RATES", ",", defaultRates);
-        uint256[] memory rawRates = vm.envOr("TEST_CREATOR_FEE_RATES", ",", deployRates);
-        require(rawRates.length > 0, "SetUp: empty creator fee rates");
-
-        rates = new uint16[](rawRates.length);
-        for (uint256 i = 0; i < rawRates.length; i++) {
-            rates[i] = _toUint16(rawRates[i]);
-        }
-    }
-
     function _defaultSnipingPenaltyTable() internal pure returns (uint256[] memory table) {
         // Production sniping penalty table (BPS). index = block.number - createdAtBlock.
         // 8000/4000/2000/1500/1000/1000/500 for blocks 0..6, 0 for block 7+.
@@ -392,20 +331,6 @@ contract SetUp is Test {
         table[4] = 1000;
         table[5] = 1000;
         table[6] = 500;
-    }
-
-    function _defaultCreatorFeeRates() internal pure returns (uint256[] memory rates) {
-        rates = new uint256[](3);
-        rates[0] = 100;
-        rates[1] = 300;
-        rates[2] = 500;
-    }
-
-    function _containsCreatorFeeRate(uint16[] memory rates, uint16 rate) internal pure returns (bool) {
-        for (uint256 i = 0; i < rates.length; i++) {
-            if (rates[i] == rate) return true;
-        }
-        return false;
     }
 
     function _toUint16(uint256 value) internal pure returns (uint16) {
@@ -428,7 +353,6 @@ contract SetUp is Test {
             symbol: "TT",
             tokenURI: "",
             quoteToken: address(quoteToken),
-            creatorFeeRate: defaultCreatorFeeRate,
             vaults: vaults,
             salt: keccak256("default-test-token"),
             dexType: ITokenRegistry.DexType.UniswapV3,
@@ -437,8 +361,8 @@ contract SetUp is Test {
         });
     }
 
-    /// @notice Returns CreateTokenParams with custom name, symbol, creatorFeeRate, and salt
-    function _createTokenParams(string memory name, string memory symbol, uint16 creatorFeeRate, bytes32 salt)
+    /// @notice Returns CreateTokenParams with custom name, symbol, and salt.
+    function _createTokenParams(string memory name, string memory symbol, bytes32 salt)
         internal
         view
         returns (IBondingCurve.CreateTokenParams memory params)
@@ -453,7 +377,6 @@ contract SetUp is Test {
             symbol: symbol,
             tokenURI: "",
             quoteToken: address(quoteToken),
-            creatorFeeRate: creatorFeeRate,
             vaults: vaults,
             salt: salt,
             dexType: ITokenRegistry.DexType.UniswapV3,
@@ -470,11 +393,8 @@ contract SetUp is Test {
     }
 
     /// @notice Creates a token with custom params via GiwaRouter
-    function _createTokenWith(string memory name, string memory symbol, uint16 creatorFeeRate, bytes32 salt)
-        internal
-        returns (address token)
-    {
-        token = _createViaRouter(_createTokenParams(name, symbol, creatorFeeRate, salt), creator);
+    function _createTokenWith(string memory name, string memory symbol, bytes32 salt) internal returns (address token) {
+        token = _createViaRouter(_createTokenParams(name, symbol, salt), creator);
     }
 
     /// @notice Creates a token via GiwaRouter.create() -- deployFee approve + call
@@ -495,7 +415,6 @@ contract SetUp is Test {
                 symbol: bcParams.symbol,
                 tokenURI: "",
                 quoteToken: bcParams.quoteToken,
-                creatorFeeRate: bcParams.creatorFeeRate,
                 vaults: bcParams.vaults,
                 salt: bcParams.salt,
                 dexType: bcParams.dexType,
@@ -523,20 +442,28 @@ contract SetUp is Test {
 
     // -- Helper: Buy & Sell on Curve --------------------------------
 
-    /// @notice Buys tokens on the bonding curve: mint quote -> transfer to BC -> call buy
+    /// @notice Buys tokens on the bonding curve through the Router.
     /// @return tokenOut Amount of tokens received by buyer
     function _buyOnCurve(address buyer, address token, uint256 quote) internal returns (uint256 tokenOut) {
-        _mintAndTransfer(buyer, quote);
+        _mintAndApprove(buyer, address(giwaRouter), quote);
         vm.prank(buyer);
-        tokenOut = bondingCurve.buy(buyer, token);
+        tokenOut = giwaRouter.buy(
+            IGiwaRouter.BuyParams({
+                amountIn: quote, amountOutMin: 1, token: token, to: buyer, deadline: block.timestamp
+            })
+        );
     }
 
-    /// @notice Sells tokens on the bonding curve: user transfers token to BC -> call sell
+    /// @notice Sells tokens on the bonding curve through the Router.
     /// @return quoteOut Amount of quoteToken received by seller
     function _sellOnCurve(address seller, address token, uint256 tokenAmount) internal returns (uint256 quoteOut) {
         vm.startPrank(seller);
-        IERC20(token).transfer(address(bondingCurve), tokenAmount);
-        quoteOut = bondingCurve.sell(seller, token);
+        IERC20(token).approve(address(giwaRouter), tokenAmount);
+        quoteOut = giwaRouter.sell(
+            IGiwaRouter.SellParams({
+                amountIn: tokenAmount, amountOutMin: 1, token: token, to: seller, deadline: block.timestamp
+            })
+        );
         vm.stopPrank();
     }
 
@@ -546,9 +473,13 @@ contract SetUp is Test {
     /// @dev With creator fees (5% + 0.5% protocolFee), need more than base ~637,540.
     function _graduateToken(address token) internal {
         uint256 graduationAmount = 800_000 ether;
-        _mintAndTransfer(user1, graduationAmount);
+        _mintAndApprove(user1, address(giwaRouter), graduationAmount);
         vm.prank(user1);
-        bondingCurve.buy(user1, token);
+        giwaRouter.buy(
+            IGiwaRouter.BuyParams({
+                amountIn: graduationAmount, amountOutMin: 1, token: token, to: user1, deadline: block.timestamp
+            })
+        );
         IBondingCurve.Curve memory curve = bondingCurve.getCurve(token);
         require(curve.graduated, "Token should be graduated");
     }

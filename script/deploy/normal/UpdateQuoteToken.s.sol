@@ -34,7 +34,6 @@ contract UpdateQuoteToken is Script {
         uint256 graduateFee;
         uint16 curveProtocolFeeRate;
         uint16 dexProtocolFeeRate;
-        uint256 settlementThreshold;
         uint24 v3FeeTier;
         uint16 lpFeeProtocolShareBps;
     }
@@ -98,7 +97,6 @@ contract UpdateQuoteToken is Script {
         config.graduateFee = vm.envUint("GRADUATE_FEE");
         config.curveProtocolFeeRate = _readUint16("CURVE_PROTOCOL_FEE_RATE");
         config.dexProtocolFeeRate = _readUint16("DEX_PROTOCOL_FEE_RATE");
-        config.settlementThreshold = vm.envUint("SETTLEMENT_THRESHOLD");
         config.v3FeeTier = _readUint24("V3_FEE_TIER");
         config.lpFeeProtocolShareBps = _readUint16("LP_FEE_PROTOCOL_SHARE_BPS");
     }
@@ -113,7 +111,6 @@ contract UpdateQuoteToken is Script {
             config.graduateFee,
             config.curveProtocolFeeRate,
             config.dexProtocolFeeRate,
-            config.settlementThreshold,
             config.v3FeeTier,
             config.lpFeeProtocolShareBps
         );
@@ -145,7 +142,6 @@ contract UpdateQuoteToken is Script {
         require(config.graduateFee == expected.graduateFee, "Verify: graduateFee mismatch");
         require(config.curveProtocolFeeRate == expected.curveProtocolFeeRate, "Verify: curveProtocolFeeRate mismatch");
         require(config.dexProtocolFeeRate == expected.dexProtocolFeeRate, "Verify: dexProtocolFeeRate mismatch");
-        require(config.settlementThreshold == expected.settlementThreshold, "Verify: settlementThreshold mismatch");
         require(config.v3FeeTier == expected.v3FeeTier, "Verify: v3FeeTier mismatch");
         require(config.lpFeeProtocolShareBps == expected.lpFeeProtocolShareBps, "Verify: LP fee share mismatch");
         require(config.active, "Verify: active mismatch");
@@ -163,7 +159,6 @@ contract UpdateQuoteToken is Script {
         console.log("graduateFee:          ", config.graduateFee);
         console.log("curveProtocolFeeRate: ", config.curveProtocolFeeRate);
         console.log("dexProtocolFeeRate:   ", config.dexProtocolFeeRate);
-        console.log("settlementThreshold:  ", config.settlementThreshold);
         console.log("v3FeeTier:             ", config.v3FeeTier);
         console.log("lpFeeProtocolShareBps:", config.lpFeeProtocolShareBps);
         console.log("active:               ", config.active);
