@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {SetUp} from "../SetUp.t.sol";
 import {IProtocolManager} from "../../src/interfaces/IProtocolManager.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
+import {OwnableUpgradeable} from "@openzeppelin-upgradeable/contracts/access/OwnableUpgradeable.sol";
 
 contract ProtocolManagerV3Test is SetUp {
     event V3QuoteConfigUpdate(address indexed quoteToken, uint24 v3FeeTier, uint16 lpFeeProtocolShareBps);
@@ -47,7 +48,7 @@ contract ProtocolManagerV3Test is SetUp {
 
     function test_setV3QuoteConfig_onlyOwner() public {
         vm.prank(user1);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, user1));
         protocolManager.setV3QuoteConfig(address(quoteToken), 3_000, 5_000);
     }
 

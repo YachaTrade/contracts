@@ -261,7 +261,7 @@ Expected: both files pass with no warnings.
 
 - [ ] **Step 5: Local review checkpoint**
 
-Inspect that addQuoteToken and updateQuoteToken perform the same validation and emit the V3 fee tier and LP share in their events.
+Inspect that setV3QuoteConfig performs the V3 validation and emits the configured fee tier and LP protocol share. Folding these values into addQuoteToken and updateQuoteToken is deferred to Task 13.
 
 ### Task 3: Introduce V3 Registry Metadata and Pool Deployment
 
