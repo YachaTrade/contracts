@@ -10,7 +10,6 @@ import {IV3PoolDeployer} from "../interfaces/IV3PoolDeployer.sol";
 import {IToken} from "../interfaces/IToken.sol";
 import {ICreatorFeeProcessor} from "../interfaces/ICreatorFeeProcessor.sol";
 import {IFeeCollector} from "../interfaces/IFeeCollector.sol";
-import {INadFunFactory} from "../dex/interfaces/INadFunFactory.sol";
 import {BPS} from "../libraries/Constants.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
@@ -27,7 +26,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 /// @title BondingCurve
 /// @notice Core state machine for token creation, curve trading, graduation, and anti-sniping.
 /// @dev Stores per-token curve state and coordinates TokenRegistry, LPManager, vault setup,
-///      FeeCollector setup, and graduation into the NadFun pair.
+///      FeeCollector setup, and graduation into canonical Uniswap V3 liquidity.
 contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeable, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using Clones for address;
@@ -138,25 +137,18 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
         IProtocolManager.QuoteConfig memory quoteConfig = _protocolManager.getConfig(params.quoteToken);
         _validateGraduateFee(quoteConfig);
 
-        address registry = _modules[MODULE_TOKEN_REGISTRY];
-        require(registry != address(0), "TOKEN_REGISTRY not set");
-        // Reject dexTypes that have no adapter registered. Without this, a token created with
-        // an unsupported dexType would deploy fine but get stuck at graduation, when LPManager
-        // reverts on the unsupported adapter lookup — permanently locking the token.
-        require(address(ITokenRegistry(registry).getAdapter(params.dexType)) != address(0), "Unsupported dexType");
-
-        token = _tokenImplementation.cloneDeterministic(params.salt);
-
         address pair;
-        if (params.dexType == ITokenRegistry.DexType.UniswapV3) {
+        {
+            address registry = _modules[MODULE_TOKEN_REGISTRY];
+            require(registry != address(0), "TOKEN_REGISTRY not set");
+            require(params.dexType == ITokenRegistry.DexType.UniswapV3, "Unsupported dexType");
+
+            token = _tokenImplementation.cloneDeterministic(params.salt);
+
             address deployer = _modules[MODULE_V3_POOL_DEPLOYER];
             require(deployer != address(0), "V3_POOL_DEPLOYER not set");
             pair = IV3PoolDeployer(deployer).createPool(token, params.quoteToken);
-            IProtocolManager.QuoteConfig memory v3Config = _protocolManager.getConfig(params.quoteToken);
-            ITokenRegistry(registry).registerV3(token, pair, params.quoteToken, v3Config.v3FeeTier);
-        } else {
-            pair = _deployPairViaFactory(token, params.quoteToken);
-            ITokenRegistry(registry).register(token, pair, params.quoteToken, params.dexType);
+            ITokenRegistry(registry).registerV3(token, pair, params.quoteToken, quoteConfig.v3FeeTier);
         }
 
         address feeCollector_ = _modules[MODULE_FEE_COLLECTOR];
@@ -185,12 +177,6 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
 
     function _validateCreatorFeeRate(uint16 creatorFeeRate) internal view {
         require(_protocolManager.isCreatorFeeRateAllowed(creatorFeeRate), "Creator fee rate not allowed");
-    }
-
-    function _deployPairViaFactory(address token, address quoteToken) internal returns (address) {
-        address factory = _modules[MODULE_FACTORY];
-        require(factory != address(0), "FACTORY not set");
-        return INadFunFactory(factory).createPair(token, quoteToken);
     }
 
     function _setupVaults(address token, VaultAllocation[] calldata allocations)
@@ -458,24 +444,17 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
         IERC20(token).safeTransfer(lpManager, tokenForLiquidity);
         IERC20(curve.quoteToken).safeTransfer(lpManager, quoteBalanceAfterGraduateFee);
 
-        if (curve.dexType == ITokenRegistry.DexType.UniswapV3) {
-            ILPManager(lpManager)
-                .allocate(
-                    ILPManager.AllocateParams({
-                        token: token,
-                        quoteAmount: quoteBalanceAfterGraduateFee,
-                        tokenAmount: tokenForLiquidity,
-                        virtualQuoteReserve: curve.virtualQuoteReserve,
-                        virtualTokenReserve: curve.virtualTokenReserve,
-                        graduateFee: curve.graduateFee
-                    })
-                );
-        } else {
-            ILPManager(lpManager)
-                .addLiquidity(
-                    token, curve.quoteToken, tokenForLiquidity, quoteBalanceAfterGraduateFee, curve.dexType, curve.pair
-                );
-        }
+        ILPManager(lpManager)
+            .allocate(
+                ILPManager.AllocateParams({
+                    token: token,
+                    quoteAmount: quoteBalanceAfterGraduateFee,
+                    tokenAmount: tokenForLiquidity,
+                    virtualQuoteReserve: curve.initialQuoteReserve,
+                    virtualTokenReserve: curve.initialTokenReserve,
+                    graduateFee: curve.graduateFee
+                })
+            );
 
         emit Graduate(token, curve.pair);
     }

@@ -22,6 +22,7 @@ contract GiwaRouterNativeQuoteGuardTest is SetUp {
 
         vm.startPrank(admin);
         protocolManager.addQuoteToken(address(usdc), 15_000e6, 1_000_000_000 ether, 800_000_000 ether, 0, 0, 0, 0, 0);
+        protocolManager.setV3QuoteConfig(address(usdc), DEFAULT_V3_FEE_TIER, DEFAULT_LP_FEE_PROTOCOL_SHARE_BPS);
         bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), address(this));
 
         GiwaRouter routerImpl = new GiwaRouter();
@@ -126,7 +127,7 @@ contract GiwaRouterNativeQuoteGuardTest is SetUp {
             creatorFeeRate: 100,
             vaults: vaults,
             salt: keccak256("foreign-quote-native-buy-guard"),
-            dexType: ITokenRegistry.DexType.UniswapV2,
+            dexType: ITokenRegistry.DexType.UniswapV3,
             creator: creator,
             buyQuoteAmount: 0
         });

@@ -37,6 +37,7 @@ contract GiwaRouterCreateTest is SetUp {
             defaultDexProtocolFee,
             0
         );
+        protocolManager.setV3QuoteConfig(address(wmon), DEFAULT_V3_FEE_TIER, DEFAULT_LP_FEE_PROTOCOL_SHARE_BPS);
         protocolManager.addQuoteToken(
             address(lvmon),
             virtualReserve,
@@ -48,6 +49,7 @@ contract GiwaRouterCreateTest is SetUp {
             defaultDexProtocolFee,
             0
         );
+        protocolManager.setV3QuoteConfig(address(lvmon), DEFAULT_V3_FEE_TIER, DEFAULT_LP_FEE_PROTOCOL_SHARE_BPS);
 
         // Deploy GiwaRouter (UUPS proxy)
         GiwaRouter routerImpl = new GiwaRouter();
@@ -229,7 +231,7 @@ contract GiwaRouterCreateTest is SetUp {
             creatorFeeRate: 500,
             vaults: vaults,
             salt: keccak256("giwaRouterCreate"),
-            dexType: ITokenRegistry.DexType.UniswapV2,
+            dexType: ITokenRegistry.DexType.UniswapV3,
             buyQuoteAmount: buyQuoteAmount,
             deadline: block.timestamp + 1
         });

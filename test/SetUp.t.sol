@@ -11,6 +11,8 @@ import {ProtocolManager} from "../src/core/ProtocolManager.sol";
 import {TokenRegistry} from "../src/core/TokenRegistry.sol";
 import {ITokenRegistry} from "../src/interfaces/ITokenRegistry.sol";
 import {LPManager} from "../src/core/LPManager.sol";
+import {V3PoolDeployer} from "../src/core/V3PoolDeployer.sol";
+import {V3LiquidityActor} from "../src/actors/V3LiquidityActor.sol";
 import {GiwaRouter} from "../src/router/GiwaRouter.sol";
 import {IGiwaRouter} from "../src/interfaces/IGiwaRouter.sol";
 import {IBondingCurve} from "../src/interfaces/IBondingCurve.sol";
@@ -65,6 +67,8 @@ contract SetUp is Test {
     BondingCurve public bondingCurve;
     TokenRegistry public tokenRegistry;
     LPManager public lpManager;
+    V3PoolDeployer public v3PoolDeployer;
+    V3LiquidityActor public v3LiquidityActor;
 
     // -- Router ---------------------------------------------------
     GiwaRouter public giwaRouter;
@@ -101,6 +105,8 @@ contract SetUp is Test {
     uint256 public constant DEFAULT_DEPLOY_FEE = 10 ether;
     uint256 public constant DEFAULT_GRADUATE_FEE = 1_000 ether;
     uint256 public constant SETTLEMENT_THRESHOLD = 1_000 ether;
+    uint24 public constant DEFAULT_V3_FEE_TIER = 3_000;
+    uint16 public constant DEFAULT_LP_FEE_PROTOCOL_SHARE_BPS = 5_000;
 
     // -- Runtime config ------------------------------------------
     uint256 public virtualReserve;
@@ -148,6 +154,7 @@ contract SetUp is Test {
             defaultDexProtocolFee,
             settlementThreshold
         );
+        protocolManager.setV3QuoteConfig(address(quoteToken), DEFAULT_V3_FEE_TIER, DEFAULT_LP_FEE_PROTOCOL_SHARE_BPS);
         protocolManager.setSnipingPenaltyTable(_testSnipingPenaltyTable());
         protocolManager.setAllowedCreatorFeeRates(_testCreatorFeeRates());
 
@@ -174,6 +181,18 @@ contract SetUp is Test {
                 )
             )
         );
+
+        V3PoolDeployer v3PoolDeployerImpl = new V3PoolDeployer();
+        v3PoolDeployer = V3PoolDeployer(
+            address(
+                new ERC1967Proxy(
+                    address(v3PoolDeployerImpl),
+                    abi.encodeCall(V3PoolDeployer.initialize, (address(protocolManager), address(v3Factory)))
+                )
+            )
+        );
+        v3LiquidityActor = new V3LiquidityActor(address(lpManager), address(v3Factory));
+        lpManager.setV3LiquidityActor(address(v3LiquidityActor), address(v3Factory));
 
         // 6. Token implementation (clone template) -- plain ERC20, no creator-fee-on-transfer
         tokenImpl = new Token();
@@ -311,7 +330,7 @@ contract SetUp is Test {
         bondingCurve.setModule(keccak256("CREATOR_FEE_PROCESSOR"), address(creatorFeeProcessor));
         bondingCurve.setModule(keccak256("VAULT_REGISTRY"), address(vaultRegistry));
         bondingCurve.setModule(keccak256("FEE_COLLECTOR"), address(feeCollector));
-        bondingCurve.setModule(keccak256("FACTORY"), address(nadFunFactory));
+        bondingCurve.setModule(keccak256("V3_POOL_DEPLOYER"), address(v3PoolDeployer));
 
         // 14. NadSwapAdapter — register V2 adapter in TokenRegistry
         nadSwapAdapter = new NadSwapAdapter();
@@ -319,10 +338,13 @@ contract SetUp is Test {
 
         // 15. Authorize BondingCurve as operator for TokenRegistry and LPManager
         protocolManager.setOperatorPermission(
-            address(bondingCurve), address(tokenRegistry), TokenRegistry.register.selector, true
+            address(bondingCurve), address(v3PoolDeployer), V3PoolDeployer.createPool.selector, true
         );
         protocolManager.setOperatorPermission(
-            address(bondingCurve), address(lpManager), LPManager.addLiquidity.selector, true
+            address(bondingCurve), address(tokenRegistry), TokenRegistry.registerV3.selector, true
+        );
+        protocolManager.setOperatorPermission(
+            address(bondingCurve), address(lpManager), LPManager.allocate.selector, true
         );
         // Tests act as the settler keeper so they can trigger FeeCollector.settle directly.
         protocolManager.setOperatorPermission(address(this), address(feeCollector), FeeCollector.settle.selector, true);
@@ -444,7 +466,7 @@ contract SetUp is Test {
             creatorFeeRate: defaultCreatorFeeRate,
             vaults: vaults,
             salt: keccak256("default-test-token"),
-            dexType: ITokenRegistry.DexType.UniswapV2,
+            dexType: ITokenRegistry.DexType.UniswapV3,
             creator: address(this),
             buyQuoteAmount: 0
         });
@@ -469,7 +491,7 @@ contract SetUp is Test {
             creatorFeeRate: creatorFeeRate,
             vaults: vaults,
             salt: salt,
-            dexType: ITokenRegistry.DexType.UniswapV2,
+            dexType: ITokenRegistry.DexType.UniswapV3,
             creator: address(this),
             buyQuoteAmount: 0
         });
