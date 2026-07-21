@@ -6,22 +6,23 @@ import {IWrappedNative} from "../../../src/interfaces/IWrappedNative.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// @title WrapMon
-/// @notice Wraps native MON to WMON using the claim bot's signer.
+/// @notice Wraps native MON to the protocol deployment's WETH using the claim bot's signer.
 ///
 /// Required env:
 ///   CLAIM_BOT_PRIVATE_KEY - signer key for the claim bot EOA
 ///   CLAIM_BOT             - expected bot address (sanity guard vs CLAIM_BOT_PRIVATE_KEY)
-///   WMON                  - wrapped native (WMON) address
+///   WETH_ADDRESS          - WETH address emitted by Deploy.s.sol
 ///   WRAP_AMOUNT           - amount in wei to wrap (e.g. 1000000000000000000 for 1 MON)
 ///
 /// Run:
-///   source .env.testnet && WRAP_AMOUNT=$(cast to-wei 1) forge script script/WrapMon.s.sol:WrapMon \
+///   source .env.testnet && WRAP_AMOUNT=$(cast to-wei 1) \
+///       forge script script/deploy/normal/WrapMon.s.sol:WrapMon \
 ///       --rpc-url $RPC_URL --broadcast
 contract WrapMon is Script {
     function run() external {
         uint256 key = vm.envUint("CLAIM_BOT_PRIVATE_KEY");
         address botEnv = vm.envAddress("CLAIM_BOT");
-        address wmon = vm.envAddress("WMON");
+        address weth = vm.envAddress("WETH_ADDRESS");
         uint256 amount = vm.envUint("WRAP_AMOUNT");
 
         address signer = vm.addr(key);
@@ -29,23 +30,23 @@ contract WrapMon is Script {
         require(amount > 0, "Wrap: WRAP_AMOUNT must be > 0");
         require(signer.balance >= amount, "Wrap: signer native balance < WRAP_AMOUNT");
 
-        uint256 wmonBefore = IERC20(wmon).balanceOf(signer);
+        uint256 wethBefore = IERC20(weth).balanceOf(signer);
 
         vm.startBroadcast(key);
-        IWrappedNative(wmon).deposit{value: amount}();
+        IWrappedNative(weth).deposit{value: amount}();
         vm.stopBroadcast();
 
-        uint256 wmonAfter = IERC20(wmon).balanceOf(signer);
-        require(wmonAfter - wmonBefore == amount, "Wrap: WMON delta mismatch");
+        uint256 wethAfter = IERC20(weth).balanceOf(signer);
+        require(wethAfter - wethBefore == amount, "Wrap: WETH delta mismatch");
 
         console.log("========================================");
-        console.log("Wrapped MON -> WMON");
+        console.log("Wrapped MON -> WETH");
         console.log("========================================");
         console.log("Bot:           ", signer);
-        console.log("WMON:          ", wmon);
+        console.log("WETH:          ", weth);
         console.log("Amount (wei):  ", amount);
-        console.log("WMON before:   ", wmonBefore);
-        console.log("WMON after:    ", wmonAfter);
+        console.log("WETH before:   ", wethBefore);
+        console.log("WETH after:    ", wethAfter);
         console.log("========================================");
     }
 }
