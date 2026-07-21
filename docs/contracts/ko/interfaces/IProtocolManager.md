@@ -22,6 +22,8 @@ struct QuoteConfig {
     uint16 curveProtocolFeeRate; // 본딩커브 프로토콜 수수료 (BPS, quote 토큰별)
     uint16 dexProtocolFeeRate;   // DEX 프로토콜 수수료 (BPS, quote 토큰별)
     uint256 settlementThreshold;  // quote 토큰별 크리에이터 수수료 정산 임계값
+    uint24 v3FeeTier;             // canonical Uniswap V3 fee tier
+    uint16 lpFeeProtocolShareBps; // 수집 V3 LP fee의 protocol share
     bool active;                 // 이 quote로 토큰 생성 허용 여부
 }
 ```
@@ -39,6 +41,8 @@ struct QuoteConfig {
 | `dexProtocolFeeRate(quoteToken)` | `uint16` | DEX 프로토콜 수수료 (BPS, quote 토큰별) |
 | `deployFee(quoteToken)` | `uint256` | 토큰 배포 수수료 (quote 토큰별) |
 | `graduateFee(quoteToken)` | `uint256` | 졸업 수수료 (quote 토큰별) |
+| `v3FeeTier(quoteToken)` | `uint24` | quote 토큰별 canonical V3 fee tier |
+| `lpFeeProtocolShareBps(quoteToken)` | `uint16` | 수집 V3 LP fee의 protocol share |
 
 ### 수수료 설정 (관리자 전용)
 
@@ -51,9 +55,10 @@ struct QuoteConfig {
 |------|--------|------|
 | `isCreatorFeeRateAllowed(rate)` | `bool` | 크리에이터 수수료율이 허용 목록에 있는지 확인 |
 | `settlementThreshold(quoteToken)` | `uint256` | quote 토큰별 크리에이터 수수료 정산 임계값 |
-| `setAllowedCreatorFeeRates(rates)` | — | 허용 크리에이터 수수료율 목록 설정 (기존 교체) |
-| `removeCreatorFeeRate(rate)` | — | 허용 목록에서 크리에이터 수수료율 제거 |
+| `setAllowedCreatorFeeRates(rates)` | — | 기존 목록을 교체하지 않고 허용 크리에이터 수수료율을 누적 추가 |
+| `removeCreatorFeeRate(rate)` | — | 허용 목록에서 크리에이터 수수료율 하나를 제거 |
 | `setSettlementThreshold(quoteToken, threshold)` | — | quote 토큰별 정산 임계값 설정 |
+| `setV3QuoteConfig(quoteToken, v3FeeTier, lpFeeProtocolShareBps)` | — | canonical V3 fee tier와 LP-fee protocol share 설정 |
 
 ### operator 권한 관리
 
@@ -61,6 +66,13 @@ struct QuoteConfig {
 |------|--------|------|
 | `setOperatorPermission(operator, target, selector, allowed)` | — | AccessManaged 대상에 selector 단위 operator 권한 부여/회수 |
 | `isOperatorAllowed(operator, target, selector)` | `bool` | selector 단위 operator 권한 조회 |
+
+### Factory 관리
+
+| 함수 | 설명 |
+|------|------|
+| `setFactoryFeeTo(factory, feeTo)` | 유지 중인 NadFunFactory fee receiver 설정 |
+| `setFactoryImplementation(factory, implementation)` | 유지 중인 NadFunPair implementation 설정 |
 
 ### 안티스나이핑 설정
 
@@ -95,11 +107,11 @@ struct QuoteConfig {
 | `FeeReceiverUpdate(address)` | 수수료 수신자 변경 |
 | `CreatorFeeRatesUpdate(uint16[])` | 크리에이터 수수료율 화이트리스트 변경 |
 | `SettlementThresholdUpdate(address, uint256)` | quote 토큰별 정산 임계값 변경 |
+| `V3QuoteConfigUpdate(address, uint24, uint16)` | quote 토큰 V3 fee tier / LP-fee share 변경 |
 | `SnipingPenaltyTableUpdate(uint256[] penaltyTable)` | 블록 단위 스나이핑 패널티 테이블 교체 |
 | `QuoteTokenAdd(address, uint256, uint256, uint256, uint256, uint256, uint16, uint16, uint256)` | 새 quote 토큰 등록 |
 | `QuoteTokenRemove(address)` | quote 토큰 비활성화 |
 | `QuoteTokenUpdate(address, uint256, uint256, uint256, uint256, uint256, uint16, uint16, uint256)` | quote 토큰 설정 업데이트 |
-| `GiftSignerUpdate(address, address)` | GiftVault signer 변경 |
 | `OperatorPermissionUpdated(address, address, bytes4, bool)` | selector 단위 operator 권한 변경 |
 
 ## 에러
@@ -108,4 +120,6 @@ struct QuoteConfig {
 |------|------|
 | `QuoteTokenNotAllowed()` | 미등록 quote 토큰 사용 |
 | `QuoteTokenAlreadyAdded()` | 중복 quote 토큰 등록 |
+| `InvalidFeeTier()` | 유효하지 않은 V3 fee tier |
+| `InvalidLpFeeShare()` | V3 LP-fee protocol share가 BPS 초과 |
 | `ZeroAddress()` | zero address 전달 |

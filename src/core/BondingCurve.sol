@@ -245,7 +245,7 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
     //   else if (curve.version == CurveVersion.V2) _buyV2(...)
     /// @notice Buys tokens from the bonding curve using quote tokens already transferred to this contract.
     /// @dev This low-level entrypoint performs no slippage or deadline checks. User-facing buys should
-    ///      go through NadFunRouter, which enforces caller-provided execution protection.
+    ///      go through GiwaRouter, which enforces caller-provided execution protection.
     function buy(address to, address token) external notHalted nonReentrant returns (uint256 tokenOut) {
         Curve storage curve = curves[token];
         if (curve.token == address(0)) revert TokenNotFound();
@@ -343,7 +343,7 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
 
     /// @notice Sells tokens into the bonding curve using base tokens already transferred to this contract.
     /// @dev This low-level entrypoint performs no slippage or deadline checks. User-facing sells should
-    ///      go through NadFunRouter, which enforces caller-provided execution protection.
+    ///      go through GiwaRouter, which enforces caller-provided execution protection.
     function sell(address to, address token) external notHalted nonReentrant returns (uint256 quoteOut) {
         Curve storage curve = curves[token];
         if (curve.token == address(0)) revert TokenNotFound();

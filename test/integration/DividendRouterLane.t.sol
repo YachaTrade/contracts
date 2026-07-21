@@ -11,14 +11,12 @@ import {MockERC20} from "../mocks/MockERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-/// @title DividendRouterLane — DividendVault conversions through the REAL NadFunRouter
-/// @notice Covers what the unit suite's MockNadFunRouter cannot (docs/plans/
+/// @title DividendRouterLane — DividendVault conversions through the REAL GiwaRouter
+/// @notice Covers what the unit suite's MockGiwaRouter cannot (docs/plans/
 ///         2026-06-13-dividend-router-lane-design.md §4): real exact-in fee economics on the
-///         bonding curve, the graduated path through router._dexSwap → real NadFunPair (which
-///         depends on TokenRegistry's DexType.UniswapV2 == NadSwapAdapter), the real full-pull-
+///         bonding curve, the explicit NadSwapAdapter lane for legacy V2 pools, the real full-pull-
 ///         then-refund at the graduation cap, and the real revert for tokens the router cannot
-///         resolve — replacing the deleted executeBondingBuy admission-guard tests. The vault
-///         calls the REAL router directly via executeConversion's router hop branch.
+///         resolve. Canonical V3 execution is covered by the GiwaRouter V3 suites.
 contract DividendRouterLaneTest is SetUp {
     DividendVault public vault;
     MockBondingCurveV1 public bondingCurveV1;
@@ -42,7 +40,7 @@ contract DividendRouterLaneTest is SetUp {
                                 address(tokenRegistry),
                                 address(this), // creatorFeeProcessor: tests drive afterDeposit directly
                                 address(bondingCurve), // the REAL curve gates setup()
-                                address(nadFunRouter), // V2 conversion target (executeConversion router hop)
+                                address(giwaRouter), // lifecycle conversion target (executeConversion router hop)
                                 address(bondingCurveV1),
                                 ""
                             )
@@ -59,12 +57,30 @@ contract DividendRouterLaneTest is SetUp {
         protocolManager.setOperatorPermission(operator, address(vault), DividendVault.executeConversion.selector, true);
         vm.stopPrank();
 
-        // Wire the protocol's nadSwapAdapter (general NadFunPair lane); uni lanes unused here. The
-        // router hop needs no lane wiring. These tests exercise router-hop V2 buys.
+        // Wire the protocol's NadSwapAdapter for legacy V2 pools; external lanes are unused here.
         vault.setAdapters(address(nadSwapAdapter), address(0), address(0));
 
         // The dividend-enabled source token — a real V2 token so getQuoteToken resolves on-chain.
         sourceToken = _createToken();
+    }
+
+    function _nadSwapOrder(address dividendToken, address pair, uint256 quoteIn, uint256 amountOutMin)
+        internal
+        view
+        returns (IDividendVault.ConversionOrder[] memory orders)
+    {
+        IDividendVault.ConversionHop[] memory path = new IDividendVault.ConversionHop[](1);
+        path[0] = IDividendVault.ConversionHop({
+            adapter: IDexAdapter(address(nadSwapAdapter)), pair: pair, tokenOut: dividendToken
+        });
+        orders = new IDividendVault.ConversionOrder[](1);
+        orders[0] = IDividendVault.ConversionOrder({
+            sourceToken: sourceToken,
+            dividendToken: dividendToken,
+            path: path,
+            quoteIn: quoteIn,
+            amountOutMin: amountOutMin
+        });
     }
 
     function _setupDividend(address dividendToken) internal {
@@ -81,8 +97,9 @@ contract DividendRouterLaneTest is SetUp {
         vault.afterDeposit(sourceToken, address(quoteToken), amount);
     }
 
-    /// @dev Single router hop: adapter == the router (the executeConversion branch sentinel),
-    ///      tokenOut == the V2 token to buy. `pair` is unused by the router branch.
+    /// @dev Single GiwaRouter hop: adapter == the router (the executeConversion branch sentinel),
+    ///      tokenOut == the curve/canonical-V3 launch token to buy. Legacy V2 pools use
+    ///      `_nadSwapOrder`; `pair` is unused by the router branch.
     function _routerOrder(address dividendToken, uint256 quoteIn, uint256 amountOutMin)
         internal
         view
@@ -90,7 +107,7 @@ contract DividendRouterLaneTest is SetUp {
     {
         IDividendVault.ConversionHop[] memory path = new IDividendVault.ConversionHop[](1);
         path[0] = IDividendVault.ConversionHop({
-            adapter: IDexAdapter(address(nadFunRouter)), pair: address(0), tokenOut: dividendToken
+            adapter: IDexAdapter(address(giwaRouter)), pair: address(0), tokenOut: dividendToken
         });
         orders = new IDividendVault.ConversionOrder[](1);
         orders[0] = IDividendVault.ConversionOrder({
@@ -110,7 +127,7 @@ contract DividendRouterLaneTest is SetUp {
         _setupDividend(dividendToken);
         _deposit(10 ether);
 
-        uint256 expectedOut = nadFunRouter.getAmountOut(dividendToken, 10 ether, true);
+        uint256 expectedOut = giwaRouter.getAmountOut(dividendToken, 10 ether, true);
         assertGt(expectedOut, 0, "live curve must quote a positive buy");
 
         vm.prank(operator);
@@ -119,12 +136,12 @@ contract DividendRouterLaneTest is SetUp {
         assertEq(vault.pendingSwap(sourceToken, dividendToken), 0, "full consume far from the graduation cap");
         assertEq(vault.dividendBalance(sourceToken, dividendToken), expectedOut, "credited the real curve output");
         assertEq(IERC20(dividendToken).balanceOf(address(vault)), expectedOut, "vault holds the bought tokens");
-        assertEq(quoteToken.balanceOf(address(nadFunRouter)), 0, "router is non-custodial - no quote stranded");
+        assertEq(quoteToken.balanceOf(address(giwaRouter)), 0, "router is non-custodial - no quote stranded");
     }
 
-    // ── graduated buy through the SAME lane (router._dexSwap → real NadFunPair) ──
+    // ── graduated legacy V2 buy through the explicit NadSwapAdapter lane ─────────
 
-    function test_routerLane_graduatedToken_buysThroughDex() public {
+    function test_nadSwapLane_graduatedToken_buysThroughV2() public {
         address dividendToken = _createTokenWith("Graduated", "GRAD", defaultCreatorFeeRate, keccak256("div-grad"));
         _skipAntiSniping(); // fresh token — the graduating buy must not pay the sniping penalty
         _graduateToken(dividendToken);
@@ -132,18 +149,16 @@ contract DividendRouterLaneTest is SetUp {
         _setupDividend(dividendToken);
         _deposit(10 ether);
 
-        // Same hop shape as the bonding case — graduation dispatch is the router's concern.
-        // This path exercises router._dexSwap, which resolves TokenRegistry's DexType.UniswapV2
-        // adapter (NadSwapAdapter) and swaps on the real NadFunPair.
-        uint256 expectedOut = nadFunRouter.getAmountOut(dividendToken, 10 ether, true);
+        address pair = tokenRegistry.getPair(dividendToken);
+        uint256 expectedOut = nadSwapAdapter.getAmountOut(pair, address(quoteToken), 10 ether);
         vm.prank(operator);
-        vault.executeConversion(_routerOrder(dividendToken, 10 ether, expectedOut));
+        vault.executeConversion(_nadSwapOrder(dividendToken, pair, 10 ether, expectedOut));
 
         uint256 received = IERC20(dividendToken).balanceOf(address(vault));
         assertGe(received, expectedOut, "DEX output meets the quoted minimum");
         assertEq(vault.dividendBalance(sourceToken, dividendToken), received, "credited the real balance delta");
         assertEq(vault.pendingSwap(sourceToken, dividendToken), 0, "DEX swaps consume the full quoteIn");
-        assertEq(quoteToken.balanceOf(address(nadFunRouter)), 0, "router is non-custodial - no quote stranded");
+        assertEq(quoteToken.balanceOf(address(nadSwapAdapter)), 0, "adapter is non-custodial - no quote stranded");
     }
 
     // ── graduation-cap crossing: the real full-pull-then-refund path ─────
@@ -172,7 +187,7 @@ contract DividendRouterLaneTest is SetUp {
             vault.dividendBalance(sourceToken, dividendToken),
             "credited == actually held"
         );
-        assertEq(quoteToken.balanceOf(address(nadFunRouter)), 0, "router is non-custodial - no quote stranded");
+        assertEq(quoteToken.balanceOf(address(giwaRouter)), 0, "router is non-custodial - no quote stranded");
     }
 
     // ── tokens the router cannot resolve: revert + rollback (replaces the vault-level guards) ──

@@ -8,9 +8,9 @@
 
 | 영역 | 관리 항목 |
 |------|----------|
-| **수수료** | curveProtocolFeeRate, dexProtocolFeeRate, feeReceiver, giftSigner |
-| **Quote별 수수료** | deployFee, graduateFee (quote 토큰별, QuoteConfig에 저장) |
-| **크리에이터 수수료 설정** | allowedCreatorFeeRates (1%/3%/5%), settlementThreshold |
+| **수수료** | curveProtocolFeeRate, dexProtocolFeeRate, feeReceiver |
+| **Quote별 수수료** | deployFee, graduateFee, v3FeeTier, lpFeeProtocolShareBps |
+| **크리에이터 수수료 설정** | owner-configured allowedCreatorFeeRates, settlementThreshold |
 | **기축 토큰** | 토큰별 설정: virtualReserve, virtualTokenReserve, minTokenReserve, decimals |
 | **Authority 정책** | target + selector 단위 operator 권한 |
 
@@ -18,7 +18,6 @@
 
 ```
 수수료:
-  _giftSigner           address    (Legacy) 구 EIP-712 claim 플로우용 백엔드 signer. 현재 GiftVault는 이 값을 사용하지 않음 (claim은 AccessManaged `restricted`로 변경). 하위호환을 위해 남아있으며 추후 제거 예정
   _feeReceiver          address    수수료 수취인
   (deployFee와 graduateFee는 이제 quote 토큰별로 관리 — QuoteConfig 참조)
 
@@ -50,6 +49,8 @@ struct QuoteConfig {
     uint16 curveProtocolFeeRate; // 본딩커브 프로토콜 수수료율 (BPS)
     uint16 dexProtocolFeeRate;   // DEX 프로토콜 수수료율 (BPS)
     uint256 settlementThreshold;  // 정산 트리거 최소 크리에이터 수수료
+    uint24 v3FeeTier;             // canonical Uniswap V3 fee tier
+    uint16 lpFeeProtocolShareBps; // 수집 V3 LP fee의 protocol share
     bool active;                 // 이 기축 토큰의 활성 여부
 }
 ```
@@ -65,8 +66,8 @@ struct QuoteConfig {
 | `dexProtocolFeeRate(address)` | view | 특정 quote 토큰의 DEX 프로토콜 수수료율 (BPS) |
 | `deployFee(address quoteToken)` | view | 특정 quote 토큰의 배포 수수료 |
 | `graduateFee(address quoteToken)` | view | 특정 quote 토큰의 졸업 수수료 |
-| `giftSigner()` | view | (Legacy) 구 EIP-712 claim 플로우용 signer. 현재 GiftVault는 참조하지 않음. 추후 제거 예정 |
-| `setGiftSigner(address)` | onlyOwner | (Legacy) 현재 GiftVault claim 권한과 무관 |
+| `v3FeeTier(address quoteToken)` | view | quote 토큰 canonical V3 fee tier |
+| `lpFeeProtocolShareBps(address quoteToken)` | view | 수집 V3 LP fee의 protocol share |
 | `setFeeReceiver(address)` | onlyOwner | 수수료 수취인 설정 |
 ### 크리에이터 수수료 설정
 
@@ -77,6 +78,7 @@ struct QuoteConfig {
 | `setAllowedCreatorFeeRates(uint16[])` | onlyOwner | 허용 크리에이터 수수료율 추가 (누적) |
 | `removeCreatorFeeRate(uint16)` | onlyOwner | 허용 크리에이터 수수료율 제거 |
 | `setSettlementThreshold(address quoteToken, uint256 threshold)` | onlyOwner | quote 토큰별 정산 임계값 설정 |
+| `setV3QuoteConfig(address quoteToken, uint24 feeTier, uint16 lpFeeProtocolShareBps)` | onlyOwner | V3 fee tier와 LP-fee protocol share 설정 |
 
 ### 스나이핑 페널티 설정
 
@@ -116,10 +118,12 @@ struct QuoteConfig {
 | `getMinTokenReserve(address)` | view | 졸업 임계값 조회 |
 | `getDecimals(address)` | view | 토큰 소수점 조회 |
 
-## 초기화 기본값
+## 배포 설정
 
 ```
-allowedCreatorFeeRates: 100 (1%), 300 (3%), 500 (5%)
+initialize(): owner + feeReceiver만 설정
+Deploy.s.sol이 이후 allowedCreatorFeeRates(현재 100/300/500 BPS),
+quote token, sniping penalty table을 구성
 settlementThreshold: quote 토큰별 설정
 snipingPenaltyTable (BPS, index = block.number - createdAtBlock):
   block 0: 8000 (80%)
@@ -140,7 +144,7 @@ quote별 수수료율: quote token 설정 시 함께 지정
 | `BondingCurve` | 모든 수수료, 크리에이터 수수료율 검증, 기축 토큰 설정, feeReceiver |
 | `TokenRegistry` | `setOperatorPermission()` / `canCall()` 기반 authority 정책 |
 | `LPManager` | `setOperatorPermission()` / `canCall()` 기반 authority 정책 |
-| `NadFunRouter` | `feeReceiver()` |
+| `GiwaRouter` | `dexProtocolFeeRate(quoteToken)`, `feeReceiver()`, AccessManaged 권한 |
 | `FeeCollector` | AccessManaged authority, feeReceiver 조회, quote 토큰별 settlementThreshold 조회 |
 | `GiftVault` | `AccessManaged` authority (admin이 신뢰된 오프체인 relayer에게 `setReceiver(token, receiver)` selector의 operator 권한을 부여) |
 | `NadFunFactory` | `setFactoryFeeTo()`, `setFactoryImplementation()` — ProtocolManager를 통한 팩토리 관리 |
@@ -151,10 +155,12 @@ quote별 수수료율: quote token 설정 시 함께 지정
 |------|----------|
 | `ZeroAddress()` | address(0)으로 기축 토큰 추가 시 |
 | `QuoteTokenAlreadyAdded()` | 이미 활성인 기축 토큰 재추가 시 |
+| `InvalidFeeTier()` | 유효하지 않은 V3 fee tier |
+| `InvalidLpFeeShare()` | V3 LP-fee protocol share가 BPS 초과 |
 
 ## 이벤트
 
-수수료: `FeeReceiverUpdate`, `GiftSignerUpdate`
+수수료: `FeeReceiverUpdate`, `V3QuoteConfigUpdate`
 
 크리에이터 수수료: `CreatorFeeRatesUpdate`, `SettlementThresholdUpdate`
 

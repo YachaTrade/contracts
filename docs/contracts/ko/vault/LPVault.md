@@ -41,7 +41,7 @@
 
 ```
 CreatorFeeProcessor -> transfer(quoteToken, vault, amount)
-CreatorFeeProcessor -> try vault.afterDeposit(token, quoteToken, amount)
+CreatorFeeProcessor -> vault.afterDeposit(token, quoteToken, amount)
   |-- isGraduated() 체크:
   |   |-- false (본딩 phase):
   |   |   +-- _accumulatedQuote[token] += amount → return (누적만, 처리 지연)
@@ -61,7 +61,7 @@ CreatorFeeProcessor -> try vault.afterDeposit(token, quoteToken, amount)
 
 본딩 phase에서는 DEX pair에 유동성이 없으므로 스왑이 불가능 — quoteToken을 토큰별 `_accumulatedQuote` 매핑에 누적만 한다. 졸업 후 첫 afterDeposit 호출 시 누적분 + 현재 입금을 합쳐서 한번에 처리.
 
-스왑/유동성 추가 실패 시 revert. CreatorFeeProcessor의 try/catch가 afterDeposit을 감싸므로 파이프라인은 보호됨.
+zap은 self-call `try/catch`로 실행된다. swap/addLiquidity 실패는 self-call을 롤백해 누적 quote를 재시도용으로 보존하고 상위 settlement가 완료되도록 한다.
 
 ---
 

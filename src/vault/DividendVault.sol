@@ -6,7 +6,7 @@ import {IVault} from "../interfaces/IVault.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {ITokenRegistry} from "../interfaces/ITokenRegistry.sol";
 import {IDexAdapter} from "../interfaces/IDexAdapter.sol";
-import {INadFunRouter} from "../interfaces/INadFunRouter.sol";
+import {IGiwaRouter} from "../interfaces/IGiwaRouter.sol";
 import {IProtocolManager} from "../interfaces/IProtocolManager.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -35,7 +35,8 @@ contract DividendVault is IDividendVault, UUPSUpgradeable, AccessManagedUpgradea
     address public bondingCurve;
     address public router;
     IBondingCurveV1 public bondingCurveV1;
-    // External adapter lanes. V2 nad.fun tokens use the router branch in executeConversion.
+    // External adapter lanes. Legacy V2 pools use nadSwapAdapter; GiwaRouter handles
+    // pre-graduation curve hops and graduated tokens registered with canonical V3 metadata.
     IDexAdapter public nadSwapAdapter;
     IDexAdapter public uniswapV2Adapter;
     IDexAdapter public uniswapV3Adapter;
@@ -216,10 +217,10 @@ contract DividendVault is IDividendVault, UUPSUpgradeable, AccessManagedUpgradea
                 uint256 tokenOutBalanceBefore = IERC20(tokenOut).balanceOf(address(this));
 
                 if (address(hop.adapter) == router) {
-                    INadFunRouter routerCached = INadFunRouter(router);
+                    IGiwaRouter routerCached = IGiwaRouter(router);
                     IERC20(currentToken).forceApprove(router, currentAmount);
                     routerCached.buy(
-                        INadFunRouter.BuyParams({
+                        IGiwaRouter.BuyParams({
                             amountIn: currentAmount,
                             amountOutMin: 0,
                             token: tokenOut,

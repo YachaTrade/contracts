@@ -73,7 +73,7 @@ Transitions: `Accumulating → Active` (on `setReceiver`), `Accumulating → Bur
 | `bondingCurve` | `address` | initialize | Authorized caller for `setup`; also used for pre-graduation buybacks |
 | `tokenRegistry` | `ITokenRegistry` | initialize | Pair / adapter lookup + quoteToken lookup |
 | `expiryDuration` | `uint256` | initialize / `setExpiryDuration` | Bind window length from `createdAt` |
-| `router` | `address` | initialize | `NadFunRouter` used for pre-graduation buyback-burn |
+| `router` | `address` | initialize | `GiwaRouter` used for pre-graduation buyback-burn |
 | `wmon` | `address` | initialize | Wrapped-native singleton. When `claim`'s registered quote == `wmon`, the vault unwraps and forwards native MON. `address(0)` disables the unwrap branch (claims always do an ERC20 transfer) |
 | `_gifts` | `mapping(address => GiftInfo)` | setup / afterDeposit / setReceiver / claim | Per-token gift record. Single source for state + receiver + balance |
 
@@ -195,14 +195,14 @@ _buybackAndBurn(token, quoteToken, amount)
   |     tokenReceived = adapter.swap(pair, quoteToken, token, amount, this, "")
   |-- else (bonding phase):
   |     forceApprove(router, amount)
-  |     tokenReceived = NadFunRouter.buy({ amountIn: amount, amountOutMin: 1 })
+  |     tokenReceived = GiwaRouter.buy({ amountIn: amount, amountOutMin: 1 })
   |     # Unspent quote is tracked in _pendingQuote[token] and consumed on the next call.
   |-- if tokenReceived > 0:
   |     safeTransfer(token → 0xdead, tokenReceived)
   |     emit Burn(token, pair, spent, tokenReceived)
 ```
 
-Same dual-path pattern as `BurnVault`. Pre-graduation routes through `NadFunRouter.buy` so clamped buys can partial-fill via `_pendingQuote`. Post-graduation uses the registered DEX adapter. Swap failures revert; `CreatorFeeProcessor`'s `try/catch` protects the overall `afterDeposit` pipeline.
+Same dual-path pattern as `BurnVault`. Pre-graduation routes through `GiwaRouter.buy` so clamped buys can partial-fill via `_pendingQuote`. Post-graduation uses the registered DEX adapter. The pending buyback runs through a self-call inside `try/catch`; failure preserves pending quote for retry and does not revert the outer gift/settlement operation.
 
 ---
 

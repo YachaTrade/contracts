@@ -73,7 +73,7 @@
 | `bondingCurve` | `address` | initialize | `setup` 권한 + 본딩 phase 바이백에 쓰임 |
 | `tokenRegistry` | `ITokenRegistry` | initialize | pair / adapter 조회, quoteToken 조회 |
 | `expiryDuration` | `uint256` | initialize / `setExpiryDuration` | `createdAt` 이후 bind 가능한 기간 |
-| `router` | `address` | initialize | 본딩 phase 바이백에 쓰는 `NadFunRouter` |
+| `router` | `address` | initialize | 본딩 phase 바이백에 쓰는 `GiwaRouter` |
 | `wmon` | `address` | initialize | 래핑 네이티브 싱글톤. `claim` 시점의 등록 quote == `wmon`이면 unwrap해서 native MON으로 전송. `address(0)`이면 unwrap 비활성 (모든 quote에 대해 ERC20 transfer) |
 | `_gifts` | `mapping(address => GiftInfo)` | setup / afterDeposit / setReceiver / claim | 토큰별 gift 레코드. state + receiver + balance의 단일 source |
 
@@ -195,14 +195,14 @@ _buybackAndBurn(token, quoteToken, amount)
   |     tokenReceived = adapter.swap(pair, quoteToken, token, amount, this, "")
   |-- else (본딩 phase):
   |     forceApprove(router, amount)
-  |     tokenReceived = NadFunRouter.buy({ amountIn: amount, amountOutMin: 1 })
+  |     tokenReceived = GiwaRouter.buy({ amountIn: amount, amountOutMin: 1 })
   |     # clamped buy 시 남은 quote는 _pendingQuote[token]에 쌓여 다음 호출에 합산
   |-- if tokenReceived > 0:
   |     safeTransfer(token → 0xdead, tokenReceived)
   |     emit Burn(token, pair, spent, tokenReceived)
 ```
 
-`BurnVault`와 동일한 dual-path 패턴. 본딩 phase는 `NadFunRouter.buy`로 clamped buy 부분체결을 처리하고, 졸업 이후는 등록된 DEX adapter swap. swap 실패는 revert이며, `CreatorFeeProcessor`의 `try/catch`가 전체 afterDeposit 호출을 감싸 한 토큰의 고장이 다른 토큰의 수수료 분배를 막지 않도록 한다.
+`BurnVault`와 동일한 dual-path 패턴. 본딩 phase는 `GiwaRouter.buy`로 clamped buy 부분체결을 처리하고, 졸업 이후는 등록된 DEX adapter swap. pending buyback은 self-call `try/catch`로 실행되어 실패 시 pending quote를 재시도용으로 보존하고 상위 gift/settlement 작업을 revert하지 않는다.
 
 ---
 

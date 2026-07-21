@@ -12,7 +12,7 @@ NadFunPair(V2 AMM) 전용 어댑터. IDexAdapter 인터페이스를 구현하는
 
 | 함수 | 접근 | 설명 |
 |------|------|------|
-| `swap(pair, tokenIn, tokenOut, amountIn, to, data)` | external | tokenIn을 pair로 전송 → pair.getAmountOut으로 출력량 계산 → pair.swap 실행. `data`는 flash swap 지원용으로 pair에 전달. |
+| `swap(pair, tokenIn, tokenOut, amountIn, to, data)` | external | 자금 전송 전에 tokenIn/tokenOut이 pair token0/token1의 반대 방향과 정확히 일치하는지 검증한 뒤 transfer/quote/swap 실행 |
 | `getAmountOut(pair, tokenIn, amountIn)` | view | pair.getAmountOut에 위임 (fee-aware) |
 | `getAmountIn(pair, tokenOut, amountOut)` | view | pair.getAmountIn에 위임 (fee-aware) |
 | `addLiquidity(pair, tokenA, tokenB, amountA, amountB, to)` | external | 두 토큰을 pair로 전송 → pair.mint(to)로 LP 발행 |
@@ -27,6 +27,7 @@ NadFunPair(V2 AMM) 전용 어댑터. IDexAdapter 인터페이스를 구현하는
 | 에러 | 설명 |
 |------|------|
 | `NoClaims()` | claimableFees/claimFees 호출 시 revert (V2에 해당 기능 없음) |
+| `TokenMismatch()` | tokenIn/tokenOut이 pair의 두 token과 정확히 일치하지 않음 |
 
 ---
 
@@ -41,6 +42,7 @@ NadFunPair(V2 AMM) 전용 어댑터. IDexAdapter 인터페이스를 구현하는
 ```
 호출자 → tokenIn을 NadSwapAdapter로 전송
 NadSwapAdapter.swap(pair, tokenIn, tokenOut, amountIn, to, data)
+  ├─ pair token0/token1과 tokenIn/tokenOut 방향 검증
   ├─ tokenIn을 pair로 safeTransfer
   ├─ pair.getAmountOut(tokenIn, amountIn) → amountOut (fee 반영)
   ├─ tokenIn == token0 이면 pair.swap(0, amountOut, to, data)

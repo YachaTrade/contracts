@@ -4,7 +4,7 @@
 **Pattern:** UUPS Proxy
 **Inheritance:** `IVaultRegistry`, `UUPSUpgradeable`, `AccessManagedUpgradeable`
 
-Admin-only vault registry. Restricted callers defined by the current authority can register vault singleton addresses with a designated VaultType. Admin can also deactivate vulnerable vault types. Keyed by vault address (no duplicate registrations).
+Authority-restricted vault registry. The ProtocolManager owner or selector-authorized operators can register vault singleton addresses with a designated VaultType and activate/deactivate entries. Keyed by vault address (no duplicate registrations).
 
 ---
 
@@ -30,7 +30,7 @@ struct VaultInfo {
 ### VaultType (Enum)
 
 ```solidity
-enum VaultType { Custom, Burn, LP, Creator, Gift }
+enum VaultType { Custom, Burn, LP, Creator, Gift, Dividend }
 ```
 
 ---
@@ -52,22 +52,22 @@ enum VaultType { Custom, Burn, LP, Creator, Gift }
 ## Key Logic: Registration
 
 ```
-Owner -> VaultRegistry.register(vault, name, description, vaultType)
+Authorized caller -> VaultRegistry.register(vault, name, description, vaultType)
   |-- require(vault != address(0))        // InvalidImplementation
   |-- require(name is not empty)           // InvalidMetadata
   |-- require(!_registered[vault])         // AlreadyRegistered
   |-- _registered[vault] = true
   |-- store VaultInfo { name, description, creator=msg.sender, active=true, vaultType }
-  +-- emit VaultRegistered(vault, name, msg.sender, vaultType)
+  +-- emit Register(vault, name, msg.sender, vaultType)
 ```
 
-### Deactivation (Admin)
+### Activation / Deactivation
 
 ```
-Admin -> VaultRegistry.setActive(vault, false)
+Authorized caller -> VaultRegistry.setActive(vault, false)
   |-- require(_registered[vault])  // VaultNotFound
   |-- _vaults[vault].active = false
-  +-- emit VaultDeactivated(vault, false)
+  +-- emit Deactivate(vault, false)
 ```
 
 ---
@@ -85,5 +85,5 @@ Admin -> VaultRegistry.setActive(vault, false)
 
 | Event | Parameters |
 |-------|------------|
-| `VaultRegistered` | `address indexed vault, string name, address creator, VaultType vaultType` |
-| `VaultDeactivated` | `address indexed vault, bool active` |
+| `Register` | `address indexed vault, string name, address creator, VaultType vaultType` |
+| `Deactivate` | `address indexed vault, bool active` |

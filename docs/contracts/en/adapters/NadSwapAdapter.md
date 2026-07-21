@@ -12,7 +12,7 @@ Thin wrapper around `NadFunPair` (V2 AMM). Delegates all AMM math (`getAmountOut
 
 | Function | Access | Description |
 |----------|--------|-------------|
-| `swap(pair, tokenIn, tokenOut, amountIn, to, data)` | external | Transfer tokenIn to pair, query pair for amountOut, execute swap. `data` passed to pair for flash swap support. |
+| `swap(pair, tokenIn, tokenOut, amountIn, to, data)` | external | Before transferring funds, require tokenIn/tokenOut to exactly match pair token0/token1 in opposite directions; then transfer tokenIn, quote, and swap. |
 | `getAmountOut(pair, tokenIn, amountIn)` | view | Delegates to `NadFunPair.getAmountOut` |
 | `getAmountIn(pair, tokenOut, amountOut)` | view | Delegates to `NadFunPair.getAmountIn` |
 | `addLiquidity(pair, tokenA, tokenB, amountA, amountB, to)` | external | Transfer both tokens to pair, call `pair.mint(to)` |
@@ -37,3 +37,4 @@ Unlike a generic V2 adapter that implements constant-product math internally, Na
 | Error | Description |
 |-------|-------------|
 | `NoClaims()` | Reverted by `claimableFees` and `claimFees` — V2 has no separate fee claiming |
+| `TokenMismatch()` | tokenIn/tokenOut do not exactly match the pair's two tokens |

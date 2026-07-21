@@ -46,7 +46,7 @@ Liquidity injection vault. Deployed once as a singleton and shared across all to
 
 ```
 CreatorFeeProcessor -> transfer(quoteToken, vault, amount)
-CreatorFeeProcessor -> try vault.afterDeposit(token, quoteToken, amount)
+CreatorFeeProcessor -> vault.afterDeposit(token, quoteToken, amount)
 
 Pre-graduation (bonding phase):
   |-- _accumulatedQuote[token] += amount
@@ -67,7 +67,7 @@ Post-graduation:
   +-- emit Inject
 ```
 
-LPVault is a singleton shared by many tokens. It tracks per-token accumulated balances (not `balanceOf(this)`) to avoid comingling funds across tokens. Swap and addLiquidity failures cause revert. CreatorFeeProcessor's try/catch around afterDeposit protects the pipeline.
+LPVault is a singleton shared by many tokens. It tracks per-token accumulated balances (not `balanceOf(this)`) to avoid comingling funds across tokens. Its zap runs as a self-call inside `try/catch`; swap or add-liquidity failure rolls back the self-call, preserves accumulated quote for retry, and lets the outer settlement complete.
 
 ---
 

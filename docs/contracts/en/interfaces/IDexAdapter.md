@@ -11,7 +11,6 @@ Pluggable DEX adapter interface. Each DEX version (V2, V3, V4) implements this i
 
 | Function | Returns | Description |
 |----------|---------|-------------|
-| `deployPair(tokenA, tokenB)` | `address pair` | Deploy a new trading pair/pool |
 | `swap(pair, tokenIn, tokenOut, amountIn, to, data)` | `uint256 amountOut` | Execute swap (caller must pre-transfer tokenIn). `data` enables flash swaps via INadFunCallee callback. |
 | `getAmountOut(pair, tokenIn, amountIn)` | `uint256 amountOut` | Expected output for given input (view) |
 | `getAmountIn(pair, tokenOut, amountOut)` | `uint256 amountIn` | Required input for desired output (view) |
@@ -32,4 +31,4 @@ Pluggable DEX adapter interface. Each DEX version (V2, V3, V4) implements this i
 
 ## Consumers
 
-Used by: BondingCurve (pair deployment), NadFunRouter (post-graduation swaps), LPManager (graduation liquidity), and vaults such as BurnVault/LPVault/GiftVault.
+Used by retained legacy paths: BondingCurve/LPManager graduation and vaults such as BurnVault/LPVault/GiftVault. GiwaRouter's canonical V3 user path uses the separate `IV3SwapAdapter` interface instead.
