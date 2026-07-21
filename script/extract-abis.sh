@@ -16,8 +16,16 @@ fi
 
 mkdir -p "$DEST"
 
-# Remove retired Router artifacts that are no longer part of the canonical ABI set.
-rm -f "$DEST/NadFunRouter.json" "$DEST/NadFunRouter02.json"
+# Remove retired artifacts that are no longer part of the canonical ABI set.
+rm -f \
+  "$DEST/FeeCollector.json" \
+  "$DEST/FeeTo.json" \
+  "$DEST/NadFunFactory.json" \
+  "$DEST/NadFunPair.json" \
+  "$DEST/NadFunRouter.json" \
+  "$DEST/NadFunRouter02.json" \
+  "$DEST/LPVault.json" \
+  "$DEST/NadSwapAdapter.json"
 
 # 주요 컨트랙트 목록
 CONTRACTS=(
