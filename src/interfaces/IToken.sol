@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-/// @title IToken -- Simple ERC20 token interface for NadFun v2
+/// @title IToken -- Bonding-curve ERC20 token interface
 /// @notice Deployed as ERC-1167 clone by BondingCurve. No fee-on-transfer.
-///         Fee collection happens at the NadFunPair and BondingCurve level.
 interface IToken {
     error AlreadyInitialized();
     error NotBondingCurve();
@@ -15,7 +14,7 @@ interface IToken {
     /// @param symbol_ Token symbol
     /// @param tokenURI_ Token metadata URI
     /// @param bondingCurve_ BondingCurve contract address (receives total supply)
-    /// @param pair_ NadFunPair address (transfer blocked before graduation)
+    /// @param pair_ Canonical liquidity pool address (transfer blocked before graduation)
     function initialize(
         string memory name_,
         string memory symbol_,
@@ -33,7 +32,7 @@ interface IToken {
     /// @notice The BondingCurve contract that deployed this token.
     function bondingCurve() external view returns (address);
 
-    /// @notice The NadFunPair address for this token.
+    /// @notice The canonical liquidity pool address for this token.
     function pair() external view returns (address);
 
     /// @notice Token metadata URI.
