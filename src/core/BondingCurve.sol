@@ -6,6 +6,7 @@ import {IProtocolManager} from "../interfaces/IProtocolManager.sol";
 import {BondingCurveLibrary} from "../libraries/BondingCurveLibrary.sol";
 import {ITokenRegistry} from "../interfaces/ITokenRegistry.sol";
 import {ILPManager} from "../interfaces/ILPManager.sol";
+import {IV3PoolDeployer} from "../interfaces/IV3PoolDeployer.sol";
 import {IToken} from "../interfaces/IToken.sol";
 import {ICreatorFeeProcessor} from "../interfaces/ICreatorFeeProcessor.sol";
 import {IFeeCollector} from "../interfaces/IFeeCollector.sol";
@@ -42,6 +43,7 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
     bytes32 public constant MODULE_CREATOR_FEE_PROCESSOR = keccak256("CREATOR_FEE_PROCESSOR");
     bytes32 public constant MODULE_FEE_COLLECTOR = keccak256("FEE_COLLECTOR");
     bytes32 public constant MODULE_FACTORY = keccak256("FACTORY");
+    bytes32 public constant MODULE_V3_POOL_DEPLOYER = keccak256("V3_POOL_DEPLOYER");
 
     address private _tokenImplementation;
     IProtocolManager private _protocolManager;
@@ -145,9 +147,17 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
 
         token = _tokenImplementation.cloneDeterministic(params.salt);
 
-        address pair = _deployPairViaFactory(token, params.quoteToken);
-
-        ITokenRegistry(registry).register(token, pair, params.quoteToken, params.dexType);
+        address pair;
+        if (params.dexType == ITokenRegistry.DexType.UniswapV3) {
+            address deployer = _modules[MODULE_V3_POOL_DEPLOYER];
+            require(deployer != address(0), "V3_POOL_DEPLOYER not set");
+            pair = IV3PoolDeployer(deployer).createPool(token, params.quoteToken);
+            IProtocolManager.QuoteConfig memory v3Config = _protocolManager.getConfig(params.quoteToken);
+            ITokenRegistry(registry).registerV3(token, pair, params.quoteToken, v3Config.v3FeeTier);
+        } else {
+            pair = _deployPairViaFactory(token, params.quoteToken);
+            ITokenRegistry(registry).register(token, pair, params.quoteToken, params.dexType);
+        }
 
         address feeCollector_ = _modules[MODULE_FEE_COLLECTOR];
         require(feeCollector_ != address(0), "FEE_COLLECTOR not set");
@@ -448,10 +458,24 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
         IERC20(token).safeTransfer(lpManager, tokenForLiquidity);
         IERC20(curve.quoteToken).safeTransfer(lpManager, quoteBalanceAfterGraduateFee);
 
-        ILPManager(lpManager)
-            .addLiquidity(
-                token, curve.quoteToken, tokenForLiquidity, quoteBalanceAfterGraduateFee, curve.dexType, curve.pair
-            );
+        if (curve.dexType == ITokenRegistry.DexType.UniswapV3) {
+            ILPManager(lpManager)
+                .allocate(
+                    ILPManager.AllocateParams({
+                        token: token,
+                        quoteAmount: quoteBalanceAfterGraduateFee,
+                        tokenAmount: tokenForLiquidity,
+                        virtualQuoteReserve: curve.virtualQuoteReserve,
+                        virtualTokenReserve: curve.virtualTokenReserve,
+                        graduateFee: curve.graduateFee
+                    })
+                );
+        } else {
+            ILPManager(lpManager)
+                .addLiquidity(
+                    token, curve.quoteToken, tokenForLiquidity, quoteBalanceAfterGraduateFee, curve.dexType, curve.pair
+                );
+        }
 
         emit Graduate(token, curve.pair);
     }
