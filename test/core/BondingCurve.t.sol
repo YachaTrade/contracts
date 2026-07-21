@@ -40,6 +40,7 @@ contract BondingCurveTest is SetUp {
             defaultDexProtocolFee,
             0
         );
+        protocolManager.setV3QuoteConfig(address(wmon), DEFAULT_V3_FEE_TIER, DEFAULT_LP_FEE_PROTOCOL_SHARE_BPS);
 
         bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), address(this));
         bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), user1);
@@ -699,16 +700,40 @@ contract BondingCurveTest is SetUp {
         bondingCurve.create(params);
     }
 
-    /// @dev dexTypes with no registered adapter must fail at create. Otherwise the token
-    ///      would be born in a state where graduation permanently reverts in LPManager.
-    function test_create_revertsOnUnsupportedDexType() public {
-        IBondingCurve.CreateTokenParams memory params = _createBCParams("BadDex", "BDX", keccak256("bad-dex-type"));
-        params.dexType = ITokenRegistry.DexType.UniswapV3; // no V3 adapter registered in SetUp
+    function test_create_revertsOnUniswapV2() public {
+        IBondingCurve.CreateTokenParams memory params = _createBCParams("V2 Disabled", "V2D", keccak256("v2-disabled"));
+        params.dexType = ITokenRegistry.DexType.UniswapV2;
 
         wmon.mint(address(this), defaultDeployFee);
         wmon.transfer(address(bondingCurve), defaultDeployFee);
         vm.expectRevert("Unsupported dexType");
         bondingCurve.create(params);
+    }
+
+    function test_create_revertsOnUniswapV4() public {
+        IBondingCurve.CreateTokenParams memory params = _createBCParams("BadDex", "BDX", keccak256("bad-dex-type"));
+        params.dexType = ITokenRegistry.DexType.UniswapV4;
+
+        wmon.mint(address(this), defaultDeployFee);
+        wmon.transfer(address(bondingCurve), defaultDeployFee);
+        vm.expectRevert("Unsupported dexType");
+        bondingCurve.create(params);
+    }
+
+    function test_create_uniswapV3DoesNotRequireLegacyDexAdapter() public {
+        IBondingCurve.CreateTokenParams memory params =
+            _createBCParams("V3 Launch", "V3L", keccak256("v3-without-legacy-adapter"));
+        params.dexType = ITokenRegistry.DexType.UniswapV3;
+
+        wmon.mint(address(this), defaultDeployFee);
+        wmon.transfer(address(bondingCurve), defaultDeployFee);
+        (address v3Token,) = bondingCurve.create(params);
+
+        ITokenRegistry.TokenInfo memory info = tokenRegistry.getTokenInfo(v3Token);
+        assertEq(uint256(info.dexType), uint256(ITokenRegistry.DexType.UniswapV3));
+        assertEq(info.pool, v3Factory.getPool(v3Token, address(wmon), DEFAULT_V3_FEE_TIER));
+        assertEq(info.pair, info.pool);
+        assertEq(info.feeTier, DEFAULT_V3_FEE_TIER);
     }
 
     /// @dev Previously, empty setupData skipped IVault.setup, leaving CreatorFeeVault
@@ -773,7 +798,7 @@ contract BondingCurveTest is SetUp {
             creatorFeeRate: 500,
             vaults: vaults,
             salt: salt,
-            dexType: ITokenRegistry.DexType.UniswapV2,
+            dexType: ITokenRegistry.DexType.UniswapV3,
             creator: address(this),
             buyQuoteAmount: 0
         });
@@ -792,7 +817,7 @@ contract BondingCurveTest is SetUp {
             creatorFeeRate: 500,
             vaults: vaults,
             salt: keccak256("bondingCurveTest"),
-            dexType: ITokenRegistry.DexType.UniswapV2,
+            dexType: ITokenRegistry.DexType.UniswapV3,
             creator: address(this),
             buyQuoteAmount: 0
         });

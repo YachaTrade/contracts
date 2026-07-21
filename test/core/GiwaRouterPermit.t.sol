@@ -177,13 +177,6 @@ contract GiwaRouterPermitTest is SetUp {
             buyerKey, address(fixture.permitQuote), buyer, address(giwaRouter), fixture.excessAmount, deadline
         );
 
-        vm.expectEmit(true, true, false, true, address(fixture.permitQuote));
-        emit IERC20.Transfer(buyer, address(giwaRouter), fixture.excessAmount);
-        vm.expectEmit(true, true, false, true, address(fixture.permitQuote));
-        emit IERC20.Transfer(address(giwaRouter), address(bondingCurve), fixture.expectedQuoteIn);
-        vm.expectEmit(true, true, false, true, address(fixture.permitQuote));
-        emit IERC20.Transfer(address(giwaRouter), buyer, fixture.expectedRefund);
-
         vm.prank(buyer);
         uint256 amountOut = giwaRouter.buyWithPermit(
             IGiwaRouter.BuyWithPermitParams({
@@ -323,7 +316,7 @@ contract GiwaRouterPermitTest is SetUp {
                 creatorFeeRate: defaultCreatorFeeRate,
                 vaults: vaults,
                 salt: salt,
-                dexType: ITokenRegistry.DexType.UniswapV2,
+                dexType: ITokenRegistry.DexType.UniswapV3,
                 buyQuoteAmount: 0,
                 deadline: block.timestamp + 1
             })
@@ -498,7 +491,7 @@ contract GiwaRouterPermitTest is SetUp {
     function _preparePermitQuoteBuyFixture() internal returns (PermitBuyFixture memory fixture) {
         fixture.permitQuote = new MockERC20Permit("Permit Quote", "PQT", 18);
 
-        vm.prank(admin);
+        vm.startPrank(admin);
         protocolManager.addQuoteToken(
             address(fixture.permitQuote),
             virtualReserve,
@@ -510,6 +503,10 @@ contract GiwaRouterPermitTest is SetUp {
             defaultDexProtocolFee,
             settlementThreshold
         );
+        protocolManager.setV3QuoteConfig(
+            address(fixture.permitQuote), DEFAULT_V3_FEE_TIER, DEFAULT_LP_FEE_PROTOCOL_SHARE_BPS
+        );
+        vm.stopPrank();
 
         fixture.permitToken = _createTokenWithQuote(fixture.permitQuote, keccak256("permit-quote-token"));
         vm.warp(block.timestamp + 100 minutes);

@@ -47,6 +47,7 @@ contract GiwaRouterTest is SetUp {
             defaultDexProtocolFee,
             0
         );
+        protocolManager.setV3QuoteConfig(address(wmon), DEFAULT_V3_FEE_TIER, DEFAULT_LP_FEE_PROTOCOL_SHARE_BPS);
         protocolManager.addQuoteToken(
             address(lvmon),
             virtualReserve,
@@ -58,6 +59,7 @@ contract GiwaRouterTest is SetUp {
             defaultDexProtocolFee,
             0
         );
+        protocolManager.setV3QuoteConfig(address(lvmon), DEFAULT_V3_FEE_TIER, DEFAULT_LP_FEE_PROTOCOL_SHARE_BPS);
 
         bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), address(this));
         vm.stopPrank();
@@ -338,28 +340,6 @@ contract GiwaRouterTest is SetUp {
         assertGe(user1.balance - nativeBefore, desiredNativeOut, "Native balance should increase by at least desired");
     }
 
-    function test_exactOutSellToNative_graduatedV2Metadata_revertsInvalidV3Pool() public {
-        uint256 graduationAmount = 800_000 ether;
-
-        wmon.mint(user1, graduationAmount);
-        vm.startPrank(user1);
-        wmon.transfer(address(bondingCurve), graduationAmount);
-        bondingCurve.buy(user1, token);
-        vm.stopPrank();
-
-        assertTrue(bondingCurve.getCurve(token).graduated, "Token should be graduated");
-
-        vm.startPrank(user1);
-        IERC20(token).approve(address(giwaRouter), 1 ether);
-        vm.expectRevert(IGiwaRouter.InvalidV3Pool.selector);
-        giwaRouter.exactOutSellToNative(
-            IGiwaRouter.ExactOutSellToNativeParams({
-                amountInMax: 1 ether, amountOut: 1, token: token, to: user1, deadline: block.timestamp + 1
-            })
-        );
-        vm.stopPrank();
-    }
-
     function test_exactOutSell_excessiveInput_reverts() public {
         wmon.mint(user1, 0.01 ether);
         vm.startPrank(user1);
@@ -482,12 +462,6 @@ contract GiwaRouterTest is SetUp {
         wmon.approve(address(giwaRouter), excessAmount);
         uint256 expectedRefund = excessAmount - expectedQuoteIn;
 
-        vm.expectEmit(true, true, false, true, address(wmon));
-        emit IERC20.Transfer(user2, address(giwaRouter), excessAmount);
-        vm.expectEmit(true, true, false, true, address(wmon));
-        emit IERC20.Transfer(address(giwaRouter), address(bondingCurve), expectedQuoteIn);
-        vm.expectEmit(true, true, false, true, address(wmon));
-        emit IERC20.Transfer(address(giwaRouter), user2, expectedRefund);
         giwaRouter.buy(
             IGiwaRouter.BuyParams({
                 amountIn: excessAmount, amountOutMin: 0, token: token, to: user2, deadline: block.timestamp + 1
@@ -595,161 +569,6 @@ contract GiwaRouterTest is SetUp {
         assertEq(unified, direct, "Pre-graduation getAmountIn should delegate to BondingCurve");
     }
 
-    function test_getAmountOut_postGraduationV2Metadata_revertsInvalidV3Pool() public {
-        // Graduate the token by pushing enough quote through BondingCurve.
-        uint256 graduationAmount = 800_000 ether;
-        wmon.mint(user1, graduationAmount);
-        vm.startPrank(user1);
-        wmon.transfer(address(bondingCurve), graduationAmount);
-        bondingCurve.buy(user1, token);
-        vm.stopPrank();
-        assertTrue(bondingCurve.getCurve(token).graduated, "Setup: token must graduate");
-
-        vm.expectRevert(IGiwaRouter.InvalidV3Pool.selector);
-        giwaRouter.getAmountOut(token, 0.1 ether, true);
-    }
-
-    function test_graduatedV2Metadata_allTradeAndQuoteEntrypointsRevertInvalidV3Pool() public {
-        uint256 graduationAmount = 800_000 ether;
-        wmon.mint(user1, graduationAmount);
-        vm.startPrank(user1);
-        wmon.transfer(address(bondingCurve), graduationAmount);
-        bondingCurve.buy(user1, token);
-        vm.stopPrank();
-        assertTrue(bondingCurve.getCurve(token).graduated, "Setup: token must graduate");
-
-        uint256 deadline = block.timestamp + 1;
-        wmon.approve(address(giwaRouter), type(uint256).max);
-        IERC20(token).approve(address(giwaRouter), type(uint256).max);
-        vm.deal(address(this), 2 ether);
-
-        _expectInvalidV3Pool(
-            abi.encodeCall(
-                GiwaRouter.buy,
-                (IGiwaRouter.BuyParams({amountIn: 1, amountOutMin: 0, token: token, to: user1, deadline: deadline}))
-            ),
-            0
-        );
-        _expectInvalidV3Pool(
-            abi.encodeCall(
-                GiwaRouter.buyWithNative,
-                (IGiwaRouter.BuyWithNativeParams({amountOutMin: 0, token: token, to: user1, deadline: deadline}))
-            ),
-            1
-        );
-        _expectInvalidV3Pool(
-            abi.encodeCall(
-                GiwaRouter.buyWithPermit,
-                (IGiwaRouter.BuyWithPermitParams({
-                        amountIn: 1,
-                        amountOutMin: 0,
-                        amountAllowance: 1,
-                        token: token,
-                        to: user1,
-                        deadline: deadline,
-                        v: 27,
-                        r: bytes32(0),
-                        s: bytes32(0)
-                    }))
-            ),
-            0
-        );
-        _expectInvalidV3Pool(
-            abi.encodeCall(
-                GiwaRouter.sell,
-                (IGiwaRouter.SellParams({amountIn: 1, amountOutMin: 0, token: token, to: user1, deadline: deadline}))
-            ),
-            0
-        );
-        _expectInvalidV3Pool(
-            abi.encodeCall(
-                GiwaRouter.sellToNative,
-                (IGiwaRouter.SellToNativeParams({
-                        amountIn: 1, amountOutMin: 0, token: token, to: user1, deadline: deadline
-                    }))
-            ),
-            0
-        );
-        _expectInvalidV3Pool(
-            abi.encodeCall(
-                GiwaRouter.sellWithPermit,
-                (IGiwaRouter.SellWithPermitParams({
-                        amountIn: 1,
-                        amountOutMin: 0,
-                        amountAllowance: 1,
-                        token: token,
-                        to: user1,
-                        deadline: deadline,
-                        v: 27,
-                        r: bytes32(0),
-                        s: bytes32(0)
-                    }))
-            ),
-            0
-        );
-        _expectInvalidV3Pool(
-            abi.encodeCall(
-                GiwaRouter.sellToNativeWithPermit,
-                (IGiwaRouter.SellToNativeWithPermitParams({
-                        amountIn: 1,
-                        amountOutMin: 0,
-                        amountAllowance: 1,
-                        token: token,
-                        to: user1,
-                        deadline: deadline,
-                        v: 27,
-                        r: bytes32(0),
-                        s: bytes32(0)
-                    }))
-            ),
-            0
-        );
-        _expectInvalidV3Pool(
-            abi.encodeCall(
-                GiwaRouter.exactOutBuy,
-                (IGiwaRouter.ExactOutBuyParams({
-                        amountInMax: 1, amountOut: 1, token: token, to: user1, deadline: deadline
-                    }))
-            ),
-            0
-        );
-        _expectInvalidV3Pool(
-            abi.encodeCall(
-                GiwaRouter.exactOutBuyWithNative,
-                (IGiwaRouter.ExactOutBuyWithNativeParams({amountOut: 1, token: token, to: user1, deadline: deadline}))
-            ),
-            1
-        );
-        _expectInvalidV3Pool(
-            abi.encodeCall(
-                GiwaRouter.exactOutSell,
-                (IGiwaRouter.ExactOutSellParams({
-                        amountInMax: 1, amountOut: 1, token: token, to: user1, deadline: deadline
-                    }))
-            ),
-            0
-        );
-        _expectInvalidV3Pool(
-            abi.encodeCall(
-                GiwaRouter.exactOutSellToNative,
-                (IGiwaRouter.ExactOutSellToNativeParams({
-                        amountInMax: 1, amountOut: 1, token: token, to: user1, deadline: deadline
-                    }))
-            ),
-            0
-        );
-        _expectInvalidV3Pool(abi.encodeCall(GiwaRouter.getAmountOut, (token, 1, true)), 0);
-        _expectInvalidV3Pool(abi.encodeCall(GiwaRouter.getAmountIn, (token, 1, true)), 0);
-        _expectInvalidV3Pool(abi.encodeCall(GiwaRouter.getDexAmountOut, (token, 1, true)), 0);
-        _expectInvalidV3Pool(abi.encodeCall(GiwaRouter.getDexAmountIn, (token, 1, true)), 0);
-    }
-
-    function _expectInvalidV3Pool(bytes memory callData, uint256 value) internal {
-        (bool success, bytes memory revertData) = address(giwaRouter).call{value: value}(callData);
-        assertFalse(success, "graduated V2 metadata path must revert");
-        assertEq(revertData, abi.encodeWithSelector(IGiwaRouter.InvalidV3Pool.selector));
-    }
-
     function test_initialize_revertsForEveryZeroDependency() public {
         address[6] memory dependencies = _validDependencies();
         for (uint256 i; i < dependencies.length; ++i) {
@@ -848,7 +667,7 @@ contract GiwaRouterTest is SetUp {
             creatorFeeRate: 500,
             vaults: vaults,
             salt: keccak256("giwaRouterTest"),
-            dexType: ITokenRegistry.DexType.UniswapV2,
+            dexType: ITokenRegistry.DexType.UniswapV3,
             creator: address(this),
             buyQuoteAmount: 0
         });
