@@ -17,15 +17,26 @@ interface ITokenRegistry {
 
     struct TokenInfo {
         address pair;
+        address pool;
         address quoteToken;
         DexType dexType;
+        uint24 feeTier;
     }
 
     /// @notice Register a token with its pair, quoteToken, and dexType
     function register(address token, address pair, address quoteToken, DexType dexType) external;
 
+    /// @notice Register a token with its canonical Uniswap V3 pool metadata.
+    function registerV3(address token, address pool, address quoteToken, uint24 feeTier) external;
+
     /// @notice Get the DEX pair address for a token
     function getPair(address token) external view returns (address);
+
+    /// @notice Get the canonical Uniswap V3 pool address for a token.
+    function getPool(address token) external view returns (address);
+
+    /// @notice Get the launch token registered for a canonical Uniswap V3 pool.
+    function getTokenByPool(address pool) external view returns (address);
 
     /// @notice Get the quote token for a token
     function getQuoteToken(address token) external view returns (address);
