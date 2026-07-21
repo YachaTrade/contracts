@@ -1,0 +1,18 @@
+{
+  "name": "Buyback & Burn",
+  "description": {
+    "what": "Buyback & Burn uses part of the trading fees to buy back the token from the market and burn it permanently. This helps reduce circulating supply and support the token's long-term structure.",
+    "how": [
+      "When trades occur, part of the allocated fees is accumulated.",
+      "Once a preset threshold is reached, the accumulated fees are used to buy back the token from the market.",
+      "The purchased tokens are burned immediately and cannot re-enter circulation."
+    ],
+    "rules": [
+      "The allocated fees are used only for this token's Buyback & Burn.",
+      "Purchased tokens are burned immediately and are not sent to any other wallet.",
+      "No manual claim or additional user action is required."
+    ],
+    "importantNote": "Buyback & Burn helps reduce circulating supply and support the token's structure. It does not guarantee price increases or returns."
+  },
+  "imageUri": "https://storage.nadapp.net/vault/image/buyback.png"
+}

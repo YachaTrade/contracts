@@ -1,0 +1,19 @@
+{
+  "name": "LP Support",
+  "description": {
+    "what": "LP Support uses part of the trading fees to support a protocol-designated liquidity pool. This helps strengthen liquidity and support a more stable trading environment.",
+    "how": [
+      "When trades occur, part of the allocated fees is accumulated.",
+      "Once the token reaches graduation, the accumulated fees are used to support the designated liquidity pool.",
+      "This helps improve liquidity depth and support a more stable trading environment."
+    ],
+    "rules": [
+      "The allocated fees are used only for the protocol-designated liquidity pool.",
+      "Fees accumulated during the bonding curve are applied after graduation.",
+      "No manual claim or additional user action is required.",
+      "This does not directly distribute rewards to LP providers."
+    ],
+    "importantNote": "LP Support helps strengthen liquidity and improve trading stability. It does not guarantee profits or price increases."
+  },
+  "imageUri": "https://storage.nadapp.net/vault/image/lp.png"
+}

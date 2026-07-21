@@ -1,0 +1,53 @@
+#!/bin/bash
+# ABI 추출 스크립트 — 주요 컨트랙트 ABI를 abis/ 폴더에 저장
+# Usage: ./script/extract-abis.sh
+
+set -euo pipefail
+
+ROOT=$(git rev-parse --show-toplevel)
+OUT="$ROOT/out"
+DEST="$ROOT/abis"
+
+# 빌드 확인
+if [ ! -d "$OUT" ]; then
+  echo "Building..."
+  forge build
+fi
+
+mkdir -p "$DEST"
+
+# 주요 컨트랙트 목록
+CONTRACTS=(
+  "BondingCurve"
+  "ProtocolManager"
+  "FeeCollector"
+  "TokenRegistry"
+  "LPManager"
+  "NadFunRouter"
+  "CreatorFeeProcessor"
+  "Treasury"
+  "FeeTo"
+  "Token"
+  "NadFunFactory"
+  "NadFunPair"
+  "VaultRegistry"
+  "BurnVault"
+  "LPVault"
+  "CreatorFeeVault"
+  "GiftVault"
+  "NadSwapAdapter"
+  "TokenInfoLens"
+)
+
+count=0
+for name in "${CONTRACTS[@]}"; do
+  json="$OUT/${name}.sol/${name}.json"
+  if [ ! -f "$json" ]; then
+    echo "SKIP: $name (not found in out/)"
+    continue
+  fi
+  jq '.abi' "$json" > "$DEST/${name}.json"
+  count=$((count + 1))
+done
+
+echo "Done: ${count}/${#CONTRACTS[@]} ABIs extracted to abis/"

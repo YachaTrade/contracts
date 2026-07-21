@@ -1,0 +1,22 @@
+{
+  "version": "1.0",
+  "chainId": "143",
+  "createdAt": 1778832799000,
+  "meta": {
+    "name": "Treasury feeReceiver wiring",
+    "description": "Point ProtocolManager.feeReceiver() to the newly deployed Treasury UUPS proxy.",
+    "txBuilderVersion": "1.17.0",
+    "createdFromSafeAddress": "0x63c46054C584231415d17A881f22b7898ceaDeB1",
+    "createdFromOwnerAddress": "",
+    "checksum": ""
+  },
+  "transactions": [
+    {
+      "to": "0x71F846A560a4d68F53e5bd34ED084E7992f171C7",
+      "value": "0",
+      "data": "0xefdcd974000000000000000000000000681c3f796ae388026634c26025504d7c45248998",
+      "contractMethod": null,
+      "contractInputsValues": null
+    }
+  ]
+}
