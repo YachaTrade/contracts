@@ -15,6 +15,7 @@ interface ILPManager {
         uint256 virtualTokenReserve;
         uint256 graduateFee;
     }
+
     /// @notice Canonical V3 pool data passed to the direct liquidity actor.
     struct PoolData {
         address pool;
@@ -30,9 +31,12 @@ interface ILPManager {
     }
     error LegacyLiquidityDisabled();
     function allocate(AllocateParams calldata params) external;
-    function increaseLiquidity(address token,uint256 tokenAmount,uint256 quoteAmount) external;
-    function getPositions(address token) external view returns(bytes32,int24,int24,uint128,bytes32,int24,int24,uint128);
-    function setV3LiquidityActor(address actor,address factory) external;
+    function increaseLiquidity(address token, uint256 tokenAmount, uint256 quoteAmount) external;
+    function getPositions(address token)
+        external
+        view
+        returns (bytes32, int24, int24, uint128, bytes32, int24, int24, uint128);
+    function setV3LiquidityActor(address actor, address factory) external;
 
     event Allocate(
         address indexed token,
@@ -55,7 +59,6 @@ interface ILPManager {
         ITokenRegistry.DexType dexType,
         address pair
     ) external returns (uint256 liquidity);
-
 
     function claimFees(address token) external returns (uint256 amount0, uint256 amount1);
 
