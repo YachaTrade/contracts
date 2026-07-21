@@ -24,6 +24,7 @@ contract FeeTest is SetUp {
         protocolManager.addQuoteToken(
             address(quoteToken), virtualReserve, virtualTokenReserve, minTokenReserve, 0, defaultGraduateFee, 0, 0, 0
         );
+        protocolManager.setV3QuoteConfig(address(quoteToken), DEFAULT_V3_FEE_TIER, DEFAULT_LP_FEE_PROTOCOL_SHARE_BPS);
         // Grant ROUTER_ROLE to test contract and user1 for direct bondingCurve.create() calls
         bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), address(this));
         bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), user1);
@@ -331,7 +332,7 @@ contract FeeTest is SetUp {
             creatorFeeRate: 500,
             vaults: vaults,
             salt: salt,
-            dexType: ITokenRegistry.DexType.UniswapV2,
+            dexType: ITokenRegistry.DexType.UniswapV3,
             creator: address(this),
             buyQuoteAmount: 0
         });

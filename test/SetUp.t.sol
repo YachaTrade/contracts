@@ -33,8 +33,6 @@ import {CreatorFeeProcessor} from "../src/core/CreatorFeeProcessor.sol";
 // Vault
 import {VaultRegistry} from "../src/vault/VaultRegistry.sol";
 import {IVaultRegistry} from "../src/interfaces/IVaultRegistry.sol";
-import {BurnVault} from "../src/vault/BurnVault.sol";
-import {LPVault} from "../src/vault/LPVault.sol";
 import {CreatorFeeVault} from "../src/vault/CreatorFeeVault.sol";
 
 // Adapter
@@ -91,8 +89,6 @@ contract SetUp is Test {
 
     // -- Vault ----------------------------------------------------
     VaultRegistry public vaultRegistry;
-    BurnVault public burnVault;
-    LPVault public lpVault;
     CreatorFeeVault public creatorFeeVault;
 
     // -- Constants ------------------------------------------------
@@ -268,36 +264,7 @@ contract SetUp is Test {
             )
         );
 
-        // 11. Vault singletons (UUPS proxies)
-        burnVault = BurnVault(
-            address(
-                new ERC1967Proxy(
-                    address(new BurnVault()),
-                    abi.encodeCall(
-                        BurnVault.initialize,
-                        (
-                            address(protocolManager),
-                            address(tokenRegistry),
-                            address(creatorFeeProcessor),
-                            address(bondingCurve),
-                            address(giwaRouter),
-                            ""
-                        )
-                    )
-                )
-            )
-        );
-        lpVault = LPVault(
-            address(
-                new ERC1967Proxy(
-                    address(new LPVault()),
-                    abi.encodeCall(
-                        LPVault.initialize,
-                        (address(protocolManager), address(tokenRegistry), address(creatorFeeProcessor), "")
-                    )
-                )
-            )
-        );
+        // 11. Creator fee vault singleton (UUPS proxy)
         creatorFeeVault = CreatorFeeVault(
             payable(address(
                     new ERC1967Proxy(
@@ -317,9 +284,7 @@ contract SetUp is Test {
                 ))
         );
 
-        // 12. Register vaults in VaultRegistry
-        vaultRegistry.register(address(burnVault), "BurnVault", "Buyback and burn", IVaultRegistry.VaultType.Burn);
-        vaultRegistry.register(address(lpVault), "LPVault", "Liquidity injection", IVaultRegistry.VaultType.LP);
+        // 12. Register the only vault supported by fresh deployments.
         vaultRegistry.register(
             address(creatorFeeVault), "CreatorFeeVault", "Direct transfer", IVaultRegistry.VaultType.Creator
         );

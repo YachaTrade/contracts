@@ -7,15 +7,27 @@ import {SetUp} from "../SetUp.t.sol";
 import {VaultRegistry} from "../../src/vault/VaultRegistry.sol";
 import {IVaultRegistry} from "../../src/interfaces/IVaultRegistry.sol";
 import {IVault} from "../../src/interfaces/IVault.sol";
-import {BurnVault} from "../../src/vault/BurnVault.sol";
-import {LPVault} from "../../src/vault/LPVault.sol";
-import {CreatorFeeVault} from "../../src/vault/CreatorFeeVault.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
+
+contract RegistryTestVault is IVault {
+    function afterDeposit(address, address, uint256) external {}
+
+    function setup(address, bytes calldata) external {}
+
+    function metadataURI() external pure returns (string memory) {
+        return "";
+    }
+
+    function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
+        return interfaceId == type(IVault).interfaceId || interfaceId == type(IERC165).interfaceId;
+    }
+}
 
 contract VaultRegistryTest is SetUp {
     VaultRegistry public registry;
     address public alice = makeAddr("alice");
-    address public burnVaultAddr;
+    address public vaultAddr;
 
     function setUp() public override {
         super.setUp();
@@ -26,71 +38,34 @@ contract VaultRegistryTest is SetUp {
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
         registry = VaultRegistry(address(proxy));
 
-        burnVaultAddr = address(
-            new ERC1967Proxy(
-                address(new BurnVault()),
-                abi.encodeCall(
-                    BurnVault.initialize,
-                    (
-                        address(protocolManager),
-                        makeAddr("tokenRegistry"),
-                        makeAddr("creatorFeeProcessor"),
-                        makeAddr("bondingCurve"),
-                        address(this),
-                        ""
-                    )
-                )
-            )
-        );
+        vaultAddr = address(new RegistryTestVault());
     }
 
     // --- Registration ---
 
     function test_register_success() public {
         vm.prank(admin);
-        registry.register(burnVaultAddr, "BurnVault", "Buyback and burn", IVaultRegistry.VaultType.Burn);
+        registry.register(vaultAddr, "CreatorFeeVault", "Direct transfer", IVaultRegistry.VaultType.Creator);
 
-        assertTrue(registry.isRegistered(burnVaultAddr));
-        assertTrue(registry.isActive(burnVaultAddr));
+        assertTrue(registry.isRegistered(vaultAddr));
+        assertTrue(registry.isActive(vaultAddr));
 
-        IVaultRegistry.VaultInfo memory info = registry.getVaultInfo(burnVaultAddr);
-        assertEq(info.name, "BurnVault");
-        assertEq(info.description, "Buyback and burn");
+        IVaultRegistry.VaultInfo memory info = registry.getVaultInfo(vaultAddr);
+        assertEq(info.name, "CreatorFeeVault");
+        assertEq(info.description, "Direct transfer");
         assertEq(info.creator, admin);
         assertTrue(info.active);
-        assertEq(uint8(info.vaultType), uint8(IVaultRegistry.VaultType.Burn));
-    }
-
-    function test_register_dividendVaultType() public {
-        // P5: DividendVault registers with its own appended VaultType (not Creator — that is
-        // CreatorFeeVault's type). Append-only: Dividend must come after Gift.
-        vm.prank(admin);
-        registry.register(burnVaultAddr, "DividendVault", "Multi-token dividends", IVaultRegistry.VaultType.Dividend);
-
-        assertEq(uint8(registry.getVaultType(burnVaultAddr)), uint8(IVaultRegistry.VaultType.Dividend));
-        assertEq(
-            uint8(IVaultRegistry.VaultType.Dividend),
-            uint8(IVaultRegistry.VaultType.Gift) + 1,
-            "Dividend appended after Gift (enum ordinals are storage commitments)"
-        );
+        assertEq(uint8(info.vaultType), uint8(IVaultRegistry.VaultType.Creator));
     }
 
     function test_register_multipleVaults() public {
-        address vault2 = address(
-            new ERC1967Proxy(
-                address(new LPVault()),
-                abi.encodeCall(
-                    LPVault.initialize,
-                    (address(protocolManager), makeAddr("tokenRegistry"), makeAddr("creatorFeeProcessor"), "")
-                )
-            )
-        );
+        address vault2 = address(new RegistryTestVault());
         vm.startPrank(admin);
-        registry.register(burnVaultAddr, "Vault1", "Desc1", IVaultRegistry.VaultType.Burn);
-        registry.register(vault2, "Vault2", "Desc2", IVaultRegistry.VaultType.LP);
+        registry.register(vaultAddr, "Vault1", "Desc1", IVaultRegistry.VaultType.Creator);
+        registry.register(vault2, "Vault2", "Desc2", IVaultRegistry.VaultType.Custom);
         vm.stopPrank();
 
-        assertTrue(registry.isRegistered(burnVaultAddr));
+        assertTrue(registry.isRegistered(vaultAddr));
         assertTrue(registry.isRegistered(vault2));
         assertTrue(registry.isActive(vault2));
     }
@@ -111,49 +86,49 @@ contract VaultRegistryTest is SetUp {
     function test_register_revert_emptyName() public {
         vm.prank(admin);
         vm.expectRevert(IVaultRegistry.InvalidMetadata.selector);
-        registry.register(burnVaultAddr, "", "Desc", IVaultRegistry.VaultType.Custom);
+        registry.register(vaultAddr, "", "Desc", IVaultRegistry.VaultType.Custom);
     }
 
     function test_register_revert_alreadyRegistered() public {
         vm.startPrank(admin);
-        registry.register(burnVaultAddr, "Vault1", "Desc1", IVaultRegistry.VaultType.Burn);
+        registry.register(vaultAddr, "Vault1", "Desc1", IVaultRegistry.VaultType.Creator);
         vm.expectRevert(IVaultRegistry.AlreadyRegistered.selector);
-        registry.register(burnVaultAddr, "Vault1Again", "Desc2", IVaultRegistry.VaultType.Burn);
+        registry.register(vaultAddr, "Vault1Again", "Desc2", IVaultRegistry.VaultType.Creator);
         vm.stopPrank();
     }
 
     function test_register_revert_notOwner() public {
         vm.prank(alice);
         vm.expectRevert();
-        registry.register(burnVaultAddr, "Vault", "Desc", IVaultRegistry.VaultType.Burn);
+        registry.register(vaultAddr, "Vault", "Desc", IVaultRegistry.VaultType.Creator);
     }
 
     // --- Deactivation ---
 
     function test_setActive_deactivate() public {
         vm.prank(admin);
-        registry.register(burnVaultAddr, "Vault", "Desc", IVaultRegistry.VaultType.Burn);
+        registry.register(vaultAddr, "Vault", "Desc", IVaultRegistry.VaultType.Creator);
 
         vm.prank(admin);
-        registry.setActive(burnVaultAddr, false);
-        assertFalse(registry.isActive(burnVaultAddr));
+        registry.setActive(vaultAddr, false);
+        assertFalse(registry.isActive(vaultAddr));
     }
 
     function test_setActive_reactivate() public {
         vm.startPrank(admin);
-        registry.register(burnVaultAddr, "Vault", "Desc", IVaultRegistry.VaultType.Burn);
-        registry.setActive(burnVaultAddr, false);
-        registry.setActive(burnVaultAddr, true);
+        registry.register(vaultAddr, "Vault", "Desc", IVaultRegistry.VaultType.Creator);
+        registry.setActive(vaultAddr, false);
+        registry.setActive(vaultAddr, true);
         vm.stopPrank();
-        assertTrue(registry.isActive(burnVaultAddr));
+        assertTrue(registry.isActive(vaultAddr));
     }
 
     function test_setActive_revert_notOwner() public {
         vm.prank(admin);
-        registry.register(burnVaultAddr, "Vault", "Desc", IVaultRegistry.VaultType.Burn);
+        registry.register(vaultAddr, "Vault", "Desc", IVaultRegistry.VaultType.Creator);
         vm.prank(alice);
         vm.expectRevert();
-        registry.setActive(burnVaultAddr, false);
+        registry.setActive(vaultAddr, false);
     }
 
     function test_setActive_revert_notFound() public {
@@ -165,41 +140,15 @@ contract VaultRegistryTest is SetUp {
     // --- VaultType ---
 
     function test_getVaultType() public {
-        address lpVaultAddr = address(
-            new ERC1967Proxy(
-                address(new LPVault()),
-                abi.encodeCall(
-                    LPVault.initialize,
-                    (address(protocolManager), makeAddr("tokenRegistry"), makeAddr("creatorFeeProcessor"), "")
-                )
-            )
-        );
-        address transferVault = address(
-            new ERC1967Proxy(
-                address(new CreatorFeeVault()),
-                abi.encodeCall(
-                    CreatorFeeVault.initialize,
-                    (
-                        address(protocolManager),
-                        makeAddr("bondingCurve"),
-                        makeAddr("creatorFeeProcessor"),
-                        makeAddr("tokenRegistry"),
-                        address(wmon),
-                        ""
-                    )
-                )
-            )
-        );
+        address customVault = address(new RegistryTestVault());
 
         vm.startPrank(admin);
-        registry.register(burnVaultAddr, "BurnVault", "Burn", IVaultRegistry.VaultType.Burn);
-        registry.register(lpVaultAddr, "LPVault", "LP", IVaultRegistry.VaultType.LP);
-        registry.register(transferVault, "CreatorFeeVault", "Transfer", IVaultRegistry.VaultType.Creator);
+        registry.register(vaultAddr, "CreatorFeeVault", "Transfer", IVaultRegistry.VaultType.Creator);
+        registry.register(customVault, "CustomVault", "Custom", IVaultRegistry.VaultType.Custom);
         vm.stopPrank();
 
-        assertEq(uint8(registry.getVaultType(burnVaultAddr)), uint8(IVaultRegistry.VaultType.Burn));
-        assertEq(uint8(registry.getVaultType(lpVaultAddr)), uint8(IVaultRegistry.VaultType.LP));
-        assertEq(uint8(registry.getVaultType(transferVault)), uint8(IVaultRegistry.VaultType.Creator));
+        assertEq(uint8(registry.getVaultType(vaultAddr)), uint8(IVaultRegistry.VaultType.Creator));
+        assertEq(uint8(registry.getVaultType(customVault)), uint8(IVaultRegistry.VaultType.Custom));
     }
 
     function test_getVaultType_revert_notFound() public {

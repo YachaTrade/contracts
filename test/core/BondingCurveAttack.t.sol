@@ -58,9 +58,17 @@ contract ReentrantLPManager is ILPManager {
         return 0;
     }
     function allocate(AllocateParams calldata) external pure override {}
-    function increaseLiquidity(address,uint256,uint256) external pure override {}
-    function getPositions(address) external pure override returns(bytes32,int24,int24,uint128,bytes32,int24,int24,uint128) { return (bytes32(0),0,0,0,bytes32(0),0,0,0); }
-    function setV3LiquidityActor(address,address) external pure override {}
+    function increaseLiquidity(address, uint256, uint256) external pure override {}
+
+    function getPositions(address)
+        external
+        pure
+        override
+        returns (bytes32, int24, int24, uint128, bytes32, int24, int24, uint128)
+    {
+        return (bytes32(0), 0, 0, 0, bytes32(0), 0, 0, 0);
+    }
+    function setV3LiquidityActor(address, address) external pure override {}
 
     receive() external payable {}
 }
@@ -189,7 +197,7 @@ contract BondingCurveAttackTest is SetUp {
             creatorFeeRate: 500,
             vaults: vaults,
             salt: salt,
-            dexType: ITokenRegistry.DexType.UniswapV2,
+            dexType: ITokenRegistry.DexType.UniswapV3,
             creator: address(this),
             buyQuoteAmount: 0
         });
