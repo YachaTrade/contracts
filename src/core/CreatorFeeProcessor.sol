@@ -8,25 +8,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {BPS} from "../libraries/Constants.sol";
 
-interface IProtocolManagerAuthority is IProtocolManager {
-    function canCall(address caller, address target, bytes4 selector) external view returns (bool allowed, uint32 delay);
-}
-
-library ProtocolManagerAuthority {
-    function canCall(IProtocolManager manager, address caller, address target, bytes4 selector)
-        internal
-        view
-        returns (bool allowed, uint32 delay)
-    {
-        return IProtocolManagerAuthority(address(manager)).canCall(caller, target, selector);
-    }
-}
-
 /// @title CreatorFeeProcessor
 /// @notice Pulls creator fees from an authorized caller and distributes them across configured vault slots.
 contract CreatorFeeProcessor is ICreatorFeeProcessor {
     using SafeERC20 for IERC20;
-    using ProtocolManagerAuthority for IProtocolManager;
 
     uint256 private constant MAX_VAULTS = 5;
 
