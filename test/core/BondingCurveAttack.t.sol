@@ -57,6 +57,10 @@ contract ReentrantLPManager is ILPManager {
     function getLiquidity(address, address) external pure override returns (uint256) {
         return 0;
     }
+    function allocate(AllocateParams calldata) external pure override {}
+    function increaseLiquidity(address,uint256,uint256) external pure override {}
+    function getPositions(address) external pure override returns(bytes32,int24,int24,uint128,bytes32,int24,int24,uint128) { return (bytes32(0),0,0,0,bytes32(0),0,0,0); }
+    function setV3LiquidityActor(address,address) external pure override {}
 
     receive() external payable {}
 }
