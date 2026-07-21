@@ -29,6 +29,10 @@ interface ILPManager {
         bool quoteIsToken0;
     }
     error LegacyLiquidityDisabled();
+    function allocate(AllocateParams calldata params) external;
+    function increaseLiquidity(address token,uint256 tokenAmount,uint256 quoteAmount) external;
+    function getPositions(address token) external view returns(bytes32,int24,int24,uint128,bytes32,int24,int24,uint128);
+    function setV3LiquidityActor(address actor,address factory) external;
 
     event Allocate(
         address indexed token,
