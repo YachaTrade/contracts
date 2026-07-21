@@ -75,7 +75,7 @@ struct VaultSlot {
 ## Key Logic: processCreatorFee 흐름
 
 ```
-FeeCollector.settle()
+FeeCollector.settle(pair, minAmountOut)
   -> approve(creatorFeeProcessor, amount)
   -> CreatorFeeProcessor.processCreatorFee(token, quoteToken, amount)
 
@@ -85,10 +85,10 @@ FeeCollector.settle()
    각 vault[i]에 대해:
      |- amount = creatorFeeQuote * vault[i].bps / BPS (마지막은 나머지)
      |- safeTransfer(vault[i].vault, amount)
-     +- try vault[i].afterDeposit(token, quoteToken, amount)
+     +- vault[i].afterDeposit(token, quoteToken, amount)
 ```
 
-각 vault가 자체 로직(소각, LP, 배당, 직접 전송 등)을 처리. CreatorFeeProcessor는 소각/LP/배당 로직에 대한 내장 지식이 없음.
+각 vault가 자체 로직(소각, LP, 배당, 직접 전송 등)을 처리한다. callback은 직접 호출되므로 vault 하나가 실패하면 전체 분배와 caller의 settlement 트랜잭션이 revert한다.
 
 ### Pull 패턴
 

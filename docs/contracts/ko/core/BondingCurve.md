@@ -16,10 +16,10 @@ BondingCurve는 기존 Router + TokenFactory의 기능을 하나의 컨트랙트
 
 ## 토큰 생성 흐름
 
-**접근 제어:** `create()`는 `ROUTER_ROLE` 필요 — NadFunRouter만 호출 가능. 사용자는 `NadFunRouter.create()` 또는 `NadFunRouter.createWithNative()`를 통해 토큰을 생성한다.
+**접근 제어:** `create()`는 `ROUTER_ROLE`이 필요하며 현재 배포는 GiwaRouter에 이 역할을 부여한다. 사용자는 `GiwaRouter.create()` 또는 `GiwaRouter.createWithNative()`를 통해 토큰을 생성한다.
 
 ```
-NadFunRouter → BondingCurve.create(params)  [ROUTER_ROLE 필요]
+GiwaRouter → BondingCurve.create(params)  [ROUTER_ROLE 필요]
   ├─ Balance detection: totalIn = 잔액 - _totalQuoteReserved
   ├─ 파라미터 검증 (quoteToken 허용목록, creatorFeeRate)
   ├─ deployFee(quoteToken)를 safeTransfer로 feeReceiver에 전송
@@ -35,7 +35,7 @@ NadFunRouter → BondingCurve.create(params)  [ROUTER_ROLE 필요]
 
 `create()`는 통합 함수 — deployFee 징수 후 잔여 quote가 감지되면 (balance detection) sniping 면제 초기 매수를 자동 실행한다. 첫 매수는 원자적이므로 슬리피지 보호 불필요.
 
-**`CreateTokenParams.creator` 필드:** NadFunRouter가 `msg.sender`(실제 사용자)를 creator로 전달.
+**`CreateTokenParams.creator` 필드:** GiwaRouter가 `msg.sender`(실제 사용자)를 creator로 전달.
 
 ## 매수/매도 (Transfer-then-Check 패턴)
 

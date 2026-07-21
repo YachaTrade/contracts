@@ -11,15 +11,15 @@ import {ProtocolManager} from "../src/core/ProtocolManager.sol";
 import {TokenRegistry} from "../src/core/TokenRegistry.sol";
 import {ITokenRegistry} from "../src/interfaces/ITokenRegistry.sol";
 import {LPManager} from "../src/core/LPManager.sol";
-import {NadFunRouter} from "../src/router/NadFunRouter.sol";
-import {INadFunRouter} from "../src/interfaces/INadFunRouter.sol";
-import {NadFunRouter02} from "../src/router/NadFunRouter02.sol";
-import {INadFunRouter02} from "../src/interfaces/INadFunRouter02.sol";
+import {GiwaRouter} from "../src/router/GiwaRouter.sol";
+import {IGiwaRouter} from "../src/interfaces/IGiwaRouter.sol";
 import {IBondingCurve} from "../src/interfaces/IBondingCurve.sol";
 
 // DEX
 import {NadFunFactory} from "../src/dex/NadFunFactory.sol";
 import {NadFunPair} from "../src/dex/NadFunPair.sol";
+import {UniswapV3Factory} from "@uniswap/v3-core/contracts/UniswapV3Factory.sol";
+import {QuoterV2} from "@uniswap/v3-periphery/contracts/lens/QuoterV2.sol";
 
 // Fee
 import {FeeCollector} from "../src/core/FeeCollector.sol";
@@ -37,14 +37,15 @@ import {CreatorFeeVault} from "../src/vault/CreatorFeeVault.sol";
 
 // Adapter
 import {NadSwapAdapter} from "../src/adapters/NadSwapAdapter.sol";
+import {V3SwapAdapter} from "../src/adapters/V3SwapAdapter.sol";
 import {IDexAdapter} from "../src/interfaces/IDexAdapter.sol";
 
 // Mocks
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockWMON} from "./mocks/MockWMON.sol";
 
-/// @title SetUp -- Shared base test contract for NadFun V2
-/// @notice Deploys the FULL v2 protocol stack with REAL contracts (no mocks except MockERC20/MockWMON).
+/// @title SetUp -- Shared base test contract for GIWA
+/// @notice Deploys the full protocol stack with real contracts (no mocks except MockERC20/MockWMON).
 /// @dev Deployment order: ProtocolManager -> TokenRegistry -> BondingCurve -> FeeCollector ->
 contract SetUp is Test {
     // -- Addresses ------------------------------------------------
@@ -66,8 +67,7 @@ contract SetUp is Test {
     LPManager public lpManager;
 
     // -- Router ---------------------------------------------------
-    NadFunRouter public nadFunRouter;
-    NadFunRouter02 public nadFunRouter02;
+    GiwaRouter public giwaRouter;
 
     // -- Token ----------------------------------------------------
     Token public tokenImpl;
@@ -78,9 +78,12 @@ contract SetUp is Test {
 
     // -- DEX ------------------------------------------------------
     NadFunFactory public nadFunFactory;
+    UniswapV3Factory public v3Factory;
+    QuoterV2 public quoterV2;
 
     // -- Adapter --------------------------------------------------
     NadSwapAdapter public nadSwapAdapter;
+    V3SwapAdapter public v3SwapAdapter;
 
     // -- Vault ----------------------------------------------------
     VaultRegistry public vaultRegistry;
@@ -156,6 +159,11 @@ contract SetUp is Test {
             )
         );
 
+        // 4.5. Canonical V3 dependencies used by GiwaRouter.
+        v3Factory = new UniswapV3Factory();
+        v3SwapAdapter = new V3SwapAdapter(address(v3Factory), address(tokenRegistry));
+        quoterV2 = new QuoterV2(address(v3Factory), address(wmon));
+
         // 5. LPManager (UUPS proxy)
         LPManager lmImpl = new LPManager();
         lpManager = LPManager(
@@ -181,20 +189,21 @@ contract SetUp is Test {
                 ))
         );
 
-        // 7.5. NadFunRouter (UUPS proxy) — FeeCollector and vaults reference it for lifecycle-aware quotes/trades
-        NadFunRouter nfrImpl = new NadFunRouter();
-        nadFunRouter = NadFunRouter(
+        // 7.5. GiwaRouter (UUPS proxy) — FeeCollector and vaults reference it for lifecycle-aware quotes/trades.
+        GiwaRouter giwaRouterImpl = new GiwaRouter();
+        giwaRouter = GiwaRouter(
             payable(address(
                     new ERC1967Proxy(
-                        address(nfrImpl),
+                        address(giwaRouterImpl),
                         abi.encodeCall(
-                            NadFunRouter.initialize,
+                            GiwaRouter.initialize,
                             (
                                 address(protocolManager),
                                 address(bondingCurve),
                                 address(tokenRegistry),
-                                address(quoteToken),
-                                address(0)
+                                address(wmon),
+                                address(v3SwapAdapter),
+                                address(quoterV2)
                             )
                         )
                     )
@@ -220,7 +229,7 @@ contract SetUp is Test {
                             address(protocolManager),
                             address(creatorFeeProcessor),
                             address(bondingCurve),
-                            address(nadFunRouter)
+                            address(giwaRouter)
                         )
                     )
                 )
@@ -231,18 +240,6 @@ contract SetUp is Test {
         // 9. NadFunFactory
         NadFunPair pairImpl = new NadFunPair();
         nadFunFactory = new NadFunFactory(address(protocolManager), address(feeCollector), address(pairImpl));
-
-        // 9.5 NadFunRouter02 (Router02-compatible periphery; deps = factory + wmon)
-        nadFunRouter02 = NadFunRouter02(
-            payable(address(
-                    new ERC1967Proxy(
-                        address(new NadFunRouter02()),
-                        abi.encodeCall(
-                            NadFunRouter02.initialize, (address(protocolManager), address(nadFunFactory), address(wmon))
-                        )
-                    )
-                ))
-        );
 
         // 10. VaultRegistry (UUPS proxy)
         VaultRegistry vrImpl = new VaultRegistry();
@@ -264,7 +261,7 @@ contract SetUp is Test {
                             address(tokenRegistry),
                             address(creatorFeeProcessor),
                             address(bondingCurve),
-                            address(nadFunRouter),
+                            address(giwaRouter),
                             ""
                         )
                     )
@@ -330,8 +327,8 @@ contract SetUp is Test {
         // Tests act as the settler keeper so they can trigger FeeCollector.settle directly.
         protocolManager.setOperatorPermission(address(this), address(feeCollector), FeeCollector.settle.selector, true);
 
-        // 16. Grant ROUTER_ROLE to NadFunRouter
-        bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), address(nadFunRouter));
+        // 16. Grant ROUTER_ROLE to GiwaRouter.
+        bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), address(giwaRouter));
 
         vm.stopPrank();
 
@@ -478,14 +475,14 @@ contract SetUp is Test {
         });
     }
 
-    // -- Helper: Token Creation (via NadFunRouter) -----------------
+    // -- Helper: Token Creation (via GiwaRouter) -------------------
 
-    /// @notice Creates a token with default params via NadFunRouter
+    /// @notice Creates a token with default params via GiwaRouter
     function _createToken() internal returns (address token) {
         token = _createViaRouter(_defaultParams(), creator);
     }
 
-    /// @notice Creates a token with custom params via NadFunRouter
+    /// @notice Creates a token with custom params via GiwaRouter
     function _createTokenWith(string memory name, string memory symbol, uint16 creatorFeeRate, bytes32 salt)
         internal
         returns (address token)
@@ -493,7 +490,7 @@ contract SetUp is Test {
         token = _createViaRouter(_createTokenParams(name, symbol, creatorFeeRate, salt), creator);
     }
 
-    /// @notice Creates a token via NadFunRouter.create() -- deployFee approve + call
+    /// @notice Creates a token via GiwaRouter.create() -- deployFee approve + call
     function _createViaRouter(IBondingCurve.CreateTokenParams memory bcParams, address caller)
         internal
         returns (address token)
@@ -502,11 +499,11 @@ contract SetUp is Test {
         if (deployFee > 0) {
             quoteToken.mint(caller, deployFee);
             vm.prank(caller);
-            quoteToken.approve(address(nadFunRouter), deployFee);
+            quoteToken.approve(address(giwaRouter), deployFee);
         }
         vm.prank(caller);
-        (token,) = nadFunRouter.create(
-            INadFunRouter.CreateParams({
+        (token,) = giwaRouter.create(
+            IGiwaRouter.CreateParams({
                 name: bcParams.name,
                 symbol: bcParams.symbol,
                 tokenURI: "",

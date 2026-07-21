@@ -16,10 +16,10 @@ BondingCurve integrates the functionality of the former Router + TokenFactory in
 
 ## Token Creation Flow
 
-**Access Control:** `create()` requires `ROUTER_ROLE` — only NadFunRouter can call it. Users create tokens via `NadFunRouter.create()` or `NadFunRouter.createWithNative()`.
+**Access Control:** `create()` requires `ROUTER_ROLE`; the current deployment grants it to GiwaRouter. Users create tokens via `GiwaRouter.create()` or `GiwaRouter.createWithNative()`.
 
 ```
-NadFunRouter -> BondingCurve.create(params)  [ROUTER_ROLE required]
+GiwaRouter -> BondingCurve.create(params)  [ROUTER_ROLE required]
   |-- Balance detection: totalIn = balance - _totalQuoteReserved
   |-- Validate params (quoteToken allowlist, creatorFeeRate)
   |-- Send deployFee(quoteToken) to feeReceiver via safeTransfer
@@ -35,7 +35,7 @@ NadFunRouter -> BondingCurve.create(params)  [ROUTER_ROLE required]
 
 `create()` is a unified function — if extra quote tokens are detected after deployFee collection (via balance detection), it automatically executes a sniping-free initial buy. No slippage protection needed since the first buy is atomic.
 
-**`CreateTokenParams.creator` field:** NadFunRouter passes `msg.sender` (real user) as creator.
+**`CreateTokenParams.creator` field:** GiwaRouter passes `msg.sender` (real user) as creator.
 
 ## Buy/Sell (Balance-Detection Pattern)
 
@@ -53,7 +53,7 @@ Router -> BondingCurve.buy(to, token)
   |     |-- requiredQuoteIn = getAmountIn(availableTokens, k, reserves)
   |     +-- excessQuoteIn = quoteInAfterFees - requiredQuoteIn -> added to protocolFee
   |-- Transfer protocolFee + snipingFee -> feeReceiver
-  |-- Transfer creatorFee -> FeeCollector, call collectFee(pair)
+  |-- Transfer fees -> FeeCollector, call collectFee(pair, protocolFee, creatorFee)
   |-- Transfer tokenOut -> to
   +-- If virtualTokenReserve == minTokenReserve -> _graduate()
 ```
@@ -70,7 +70,7 @@ Router -> BondingCurve.sell(to, token)
   |     -> returns (protocolFee, 0, creatorFee, quoteOutAfterFees)
   |     -> during settling: all fees = 0, quoteOutAfterFees = quoteOutBeforeFees
   |-- Transfer protocolFee -> feeReceiver
-  |-- Transfer creatorFee -> FeeCollector, call collectFee(pair)
+  |-- Transfer fees -> FeeCollector, call collectFee(pair, protocolFee, creatorFee)
   +-- Transfer quoteOutAfterFees -> to
 ```
 

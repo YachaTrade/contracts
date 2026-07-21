@@ -3,7 +3,7 @@
 **Path:** `src/interfaces/ICreatorFeeProcessor.sol`
 **Type:** Interface
 
-Public interface for CreatorFeeProcessor singleton. Defines the simplified swap-and-distribute pipeline with pull pattern.
+Public interface for the non-upgradeable CreatorFeeProcessor singleton. It pulls an already-denominated quote-token creator fee from FeeCollector and distributes it across the token's configured vaults.
 
 ---
 
@@ -26,11 +26,12 @@ struct VaultSlot {
 
 | Function | Returns | Description |
 |----------|---------|-------------|
-| `setup(token, vaults)` | — | Register per-token vault config (onlyAuthorized) |
-| `processCreatorFee(token, creatorFeeAmount, protocolFeeAmount)` | — | Creator fee processing: pull → swap all → fee → vaults[] |
-| `quoteToken()` | `address` | Swap target token (immutable) |
+| `setup(token, vaults)` | — | Register the token's vault allocation; callable only by BondingCurve and only once |
+| `processCreatorFee(token, quoteToken, amount)` | — | Pull `amount` of `quoteToken` from FeeCollector, split it by BPS, transfer each share, and call each vault's `afterDeposit` |
 | `vaultCount(token)` | `uint256` | Number of vault slots for given token |
-| `getVault(token, index)` | `(address, uint16)` | Vault address and BPS at index for given token |
+| `getVaults(token)` | `VaultSlot[]` | All configured vault slots for the token |
+
+Distribution is atomic: a failed transfer or vault callback reverts the whole transaction. No token swap is performed by CreatorFeeProcessor.
 
 ---
 
@@ -38,9 +39,11 @@ struct VaultSlot {
 
 | Event | Parameters |
 |-------|------------|
-| `CreatorFeeProcessed` | `uint256 creatorFeeAmount, uint256 protocolFeeAmount, uint256 quoteReceived` |
-| `VaultDistributed` | `address indexed vault, uint256 amount` |
-| `VaultCallbackFailed` | `address indexed vault, uint256 amount, bytes reason` |
+| `Setup` | `address indexed token, VaultSlot[] vaults` |
+| `Distribute` | `address indexed token, address indexed vault, uint256 amount` |
+| `CallbackFail` | `address indexed vault, uint256 amount, bytes reason` |
+
+`CallbackFail` remains in the interface ABI, but the current implementation calls vaults directly and does not emit it.
 
 ## Errors
 
@@ -48,7 +51,8 @@ struct VaultSlot {
 |-------|-------------|
 | `InvalidBpsTotal()` | Vault BPS total != 10000 |
 | `ZeroAddress()` | Required address is zero |
-| `NotAuthorized()` | Caller is not the token |
+| `NotAuthorized()` | Caller is not BondingCurve for `setup`, or not FeeCollector for `processCreatorFee` |
 | `TooManyVaults()` | More than 5 vaults |
 | `NoVaults()` | Zero vaults provided |
 | `ZeroBps()` | A vault has 0 BPS |
+| `AlreadyConfigured()` | The token already has a vault configuration |

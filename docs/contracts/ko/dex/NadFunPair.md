@@ -71,7 +71,7 @@ swap() 호출
   │   ├─ 잔액 변화량(balance delta)으로 amountIn 감지
   │   ├─ 출력 토큰 전송
   │   ├─ flash loan 콜백 (data.length > 0이면 nadFunCall)
-  │   ├─ _collectFee(): FeeCollector에 수수료 전송 + collectFee() 호출
+  │   ├─ _collectFee(): FeeCollector에 수수료 전송 + collectFee(pair, protocolFee, creatorFee) 호출
   │   │   ├─ Buy (quoteIn → baseOut): fee = quoteIn * feeRate / BPS
   │   │   └─ Sell (baseIn → quoteOut): fee = quoteOut * feeRate / (BPS - LP_FEE_RATE - feeRate)
   │   ├─ K invariant 검증 (0.25% LP 수수료 반영)

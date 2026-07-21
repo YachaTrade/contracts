@@ -4,7 +4,6 @@ pragma solidity ^0.8.24;
 import {SetUp} from "../SetUp.t.sol";
 import {FeeTo} from "../../src/core/FeeTo.sol";
 import {IFeeTo} from "../../src/interfaces/IFeeTo.sol";
-import {INadFunRouter} from "../../src/interfaces/INadFunRouter.sol";
 import {INadFunPair} from "../../src/dex/interfaces/INadFunPair.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -27,7 +26,7 @@ contract FeeToTest is SetUp {
         feeTo = FeeTo(
             address(
                 new ERC1967Proxy(
-                    address(impl), abi.encodeCall(FeeTo.initialize, (address(protocolManager), address(nadFunRouter)))
+                    address(impl), abi.encodeCall(FeeTo.initialize, (address(protocolManager), address(giwaRouter)))
                 )
             )
         );
@@ -47,20 +46,16 @@ contract FeeToTest is SetUp {
     // -- Helpers --------------------------------------------------------
 
     function _swap(uint256 buyAmount) internal {
+        _swapToken(token, pair, buyAmount);
+    }
+
+    function _swapToken(address token_, address pair_, uint256 buyAmount) internal {
         quoteToken.mint(user2, buyAmount);
         vm.startPrank(user2);
-        quoteToken.approve(address(nadFunRouter), buyAmount);
-        uint256 tokenOut = nadFunRouter.buy(
-            INadFunRouter.BuyParams({
-                amountIn: buyAmount, amountOutMin: 1, token: token, to: user2, deadline: block.timestamp + 1
-            })
-        );
-        IERC20(token).approve(address(nadFunRouter), tokenOut);
-        nadFunRouter.sell(
-            INadFunRouter.SellParams({
-                amountIn: tokenOut, amountOutMin: 1, token: token, to: user2, deadline: block.timestamp + 1
-            })
-        );
+        quoteToken.transfer(address(nadSwapAdapter), buyAmount);
+        uint256 tokenOut = nadSwapAdapter.swap(pair_, address(quoteToken), token_, buyAmount, user2, "");
+        IERC20(token_).transfer(address(nadSwapAdapter), tokenOut);
+        nadSwapAdapter.swap(pair_, token_, address(quoteToken), tokenOut, user2, "");
         vm.stopPrank();
     }
 
@@ -84,7 +79,7 @@ contract FeeToTest is SetUp {
     // -- Initialization -------------------------------------------------
 
     function test_initialize_setsState() public view {
-        assertEq(feeTo.router(), address(nadFunRouter));
+        assertEq(feeTo.router(), address(giwaRouter));
         assertEq(feeTo.authority(), address(protocolManager));
     }
 
@@ -96,7 +91,7 @@ contract FeeToTest is SetUp {
 
     function test_initialize_cannotReinitialize() public {
         vm.expectRevert();
-        feeTo.initialize(address(protocolManager), address(nadFunRouter));
+        feeTo.initialize(address(protocolManager), address(giwaRouter));
     }
 
     function test_setAuthority_alwaysReverts() public {
@@ -204,21 +199,7 @@ contract FeeToTest is SetUp {
         address pair2 = nadFunFactory.getPair(token2, address(quoteToken));
 
         _swap(50_000 ether);
-        quoteToken.mint(user2, 50_000 ether);
-        vm.startPrank(user2);
-        quoteToken.approve(address(nadFunRouter), 50_000 ether);
-        uint256 t2 = nadFunRouter.buy(
-            INadFunRouter.BuyParams({
-                amountIn: 50_000 ether, amountOutMin: 1, token: token2, to: user2, deadline: block.timestamp + 1
-            })
-        );
-        IERC20(token2).approve(address(nadFunRouter), t2);
-        nadFunRouter.sell(
-            INadFunRouter.SellParams({
-                amountIn: t2, amountOutMin: 1, token: token2, to: user2, deadline: block.timestamp + 1
-            })
-        );
-        vm.stopPrank();
+        _swapToken(token2, pair2, 50_000 ether);
 
         _fundOperator(20 ether);
 

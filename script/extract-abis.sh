@@ -16,6 +16,9 @@ fi
 
 mkdir -p "$DEST"
 
+# Remove retired Router artifacts that are no longer part of the canonical ABI set.
+rm -f "$DEST/NadFunRouter.json" "$DEST/NadFunRouter02.json"
+
 # 주요 컨트랙트 목록
 CONTRACTS=(
   "BondingCurve"
@@ -23,7 +26,8 @@ CONTRACTS=(
   "FeeCollector"
   "TokenRegistry"
   "LPManager"
-  "NadFunRouter"
+  "GiwaRouter"
+  "V3SwapAdapter"
   "CreatorFeeProcessor"
   "Treasury"
   "FeeTo"

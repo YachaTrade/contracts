@@ -4,7 +4,7 @@
 **Pattern:** UUPS Proxy
 **Inheritance:** `IVaultRegistry`, `UUPSUpgradeable`, `AccessManagedUpgradeable`
 
-관리자 전용 vault 레지스트리. 현재 authority가 허용한 restricted 호출자만 vault를 등록/비활성화할 수 있다. vault 주소를 키로 사용하여 중복 등록을 방지하고, VaultType으로 유형을 관리한다.
+authority-restricted vault 레지스트리. ProtocolManager owner 또는 selector-authorized operator가 vault를 등록/활성화/비활성화할 수 있다. vault 주소를 키로 사용하여 중복 등록을 방지하고 VaultType으로 유형을 관리한다.
 
 ---
 
@@ -30,7 +30,7 @@ struct VaultInfo {
 ### VaultType (Enum)
 
 ```solidity
-enum VaultType { Custom, Burn, LP, Creator, Gift }
+enum VaultType { Custom, Burn, LP, Creator, Gift, Dividend }
 ```
 
 ---
@@ -52,23 +52,22 @@ enum VaultType { Custom, Burn, LP, Creator, Gift }
 ## Key Logic: 등록
 
 ```
-관리자 -> VaultRegistry.register(vault, name, description, vaultType)
-  ├─ require(msg.sender == owner)           // onlyOwner
+authorized caller -> VaultRegistry.register(vault, name, description, vaultType)
   ├─ require(vault != address(0))           // InvalidImplementation
   ├─ require(name이 비어있지 않음)            // InvalidMetadata
   ├─ require(!_registered[vault])           // AlreadyRegistered
   ├─ _registered[vault] = true
   ├─ VaultInfo { name, description, creator=msg.sender, active=true, vaultType } 저장
-  └─ emit VaultRegistered(vault, name, msg.sender, vaultType)
+  └─ emit Register(vault, name, msg.sender, vaultType)
 ```
 
-### 비활성화 (관리자)
+### 활성화 / 비활성화
 
 ```
-관리자 -> VaultRegistry.setActive(vault, false)
+authorized caller -> VaultRegistry.setActive(vault, false)
   ├─ require(_registered[vault])  // VaultNotFound
   ├─ _vaults[vault].active = false
-  └─ emit VaultDeactivated(vault, false)
+  └─ emit Deactivate(vault, false)
 ```
 
 ---
@@ -86,5 +85,5 @@ enum VaultType { Custom, Burn, LP, Creator, Gift }
 
 | Event | Parameters |
 |-------|------------|
-| `VaultRegistered` | `address indexed vault, string name, address creator, VaultType vaultType` |
-| `VaultDeactivated` | `address indexed vault, bool active` |
+| `Register` | `address indexed vault, string name, address creator, VaultType vaultType` |
+| `Deactivate` | `address indexed vault, bool active` |

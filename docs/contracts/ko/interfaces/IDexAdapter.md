@@ -11,7 +11,6 @@
 
 | 함수 | 반환값 | 설명 |
 |------|--------|------|
-| `deployPair(tokenA, tokenB)` | `address pair` | 새 거래 페어/풀 배포 |
 | `swap(pair, tokenIn, tokenOut, amountIn, to, data)` | `uint256 amountOut` | 스왑 실행 (호출자가 tokenIn을 먼저 전송해야 함). `data`는 INadFunCallee 콜백을 통한 flash swap 지원. |
 | `getAmountOut(pair, tokenIn, amountIn)` | `uint256 amountOut` | 주어진 입력에 대한 예상 출력량 (view) |
 | `getAmountIn(pair, tokenOut, amountOut)` | `uint256 amountIn` | 원하는 출력을 위한 필요 입력량 (view) |
@@ -32,4 +31,4 @@
 
 ## 사용처
 
-BondingCurve (페어 배포), NadFunRouter (졸업 후 스왑), LPManager (졸업 유동성), BurnVault/LPVault/GiftVault 등 vault에서 사용.
+유지 중인 레거시 BondingCurve/LPManager 졸업 경로와 BurnVault/LPVault/GiftVault 등 vault에서 사용한다. GiwaRouter의 canonical V3 사용자 경로는 별도의 `IV3SwapAdapter` 인터페이스를 사용한다.

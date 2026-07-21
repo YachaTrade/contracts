@@ -8,9 +8,9 @@ Unified protocol configuration contract. Single source of truth for global fees,
 
 | Area | What It Manages |
 |------|----------------|
-| **Fees** | curveProtocolFeeRate, dexProtocolFeeRate, feeReceiver, giftSigner |
-| **Quote-Specific Fees** | deployFee, graduateFee (per quote token, stored in QuoteConfig) |
-| **Creator Fee Config** | allowedCreatorFeeRates (1%/3%/5%), settlementThreshold |
+| **Fees** | curveProtocolFeeRate, dexProtocolFeeRate, feeReceiver |
+| **Quote-Specific Fees** | deployFee, graduateFee, v3FeeTier, lpFeeProtocolShareBps |
+| **Creator Fee Config** | owner-configured allowedCreatorFeeRates, settlementThreshold |
 | **Sniping Penalty** | snipingPenaltyTable (per-block BPS lookup) |
 | **Quote Tokens** | Per-token config: virtualReserve, virtualTokenReserve, minTokenReserve, decimals |
 | **Authority Policy** | target + selector scoped operator permissions for AccessManaged modules |
@@ -19,7 +19,6 @@ Unified protocol configuration contract. Single source of truth for global fees,
 
 ```
 Fee State:
-  _giftSigner           address    Legacy: backend signer for the old EIP-712 claim flow. GiftVault no longer consumes this value (claim is now AccessManaged `restricted`); retained for backwards compatibility and pending removal
   _feeReceiver          address    Fee recipient
   (deployFee and graduateFee are now per-quote-token — see QuoteConfig)
 
@@ -51,6 +50,8 @@ struct QuoteConfig {
     uint16 curveProtocolFeeRate; // Bonding curve protocol fee rate (BPS)
     uint16 dexProtocolFeeRate;   // DEX protocol fee rate (BPS)
     uint256 settlementThreshold;  // Min creator fee balance before settlement
+    uint24 v3FeeTier;             // Canonical Uniswap V3 fee tier
+    uint16 lpFeeProtocolShareBps; // Protocol share of collected V3 LP fees
     bool active;                 // Whether this quote token is allowed
 }
 ```
@@ -66,8 +67,8 @@ struct QuoteConfig {
 | `dexProtocolFeeRate(address)` | view | DEX protocol fee rate (BPS) for a quote token |
 | `deployFee(address quoteToken)` | view | Token creation fee for specific quote token |
 | `graduateFee(address quoteToken)` | view | Graduation fee for specific quote token |
-| `giftSigner()` | view | Legacy backend signer from the old EIP-712 claim flow. No longer consumed by GiftVault; pending removal |
-| `setGiftSigner(address)` | onlyOwner | Legacy setter; no longer affects GiftVault claim authorization |
+| `v3FeeTier(address quoteToken)` | view | Canonical V3 fee tier for a quote token |
+| `lpFeeProtocolShareBps(address quoteToken)` | view | Protocol share of collected V3 LP fees |
 | `setFeeReceiver(address)` | onlyOwner | Set fee recipient |
 ### Creator Fee Configuration
 
@@ -78,6 +79,7 @@ struct QuoteConfig {
 | `setAllowedCreatorFeeRates(uint16[])` | onlyOwner | Add rates to allowlist (additive) |
 | `removeCreatorFeeRate(uint16)` | onlyOwner | Remove rate from allowlist |
 | `setSettlementThreshold(address quoteToken, uint256 threshold)` | onlyOwner | Set settlement threshold for a quote token |
+| `setV3QuoteConfig(address quoteToken, uint24 feeTier, uint16 lpFeeProtocolShareBps)` | onlyOwner | Set V3 fee tier and LP-fee protocol share |
 
 ### Sniping Penalty Configuration
 
@@ -117,10 +119,12 @@ struct QuoteConfig {
 | `getMinTokenReserve(address)` | view | Get graduation threshold |
 | `getDecimals(address)` | view | Get token decimals |
 
-## Initialize Defaults
+## Deployment Configuration
 
 ```
-allowedCreatorFeeRates: 100 (1%), 300 (3%), 500 (5%)
+initialize(): owner + feeReceiver only
+Deploy.s.sol later configures allowedCreatorFeeRates (currently 100/300/500 BPS),
+quote tokens, and the sniping penalty table.
 settlementThreshold: configured per quote token
 snipingPenaltyTable (BPS, index = block.number - createdAtBlock):
   block 0: 8000 (80%)
@@ -141,7 +145,7 @@ quote-specific fee rates: set per quote token
 | `BondingCurve` | All fees, creator fee rate validation, quote token config, feeReceiver, sniping penalty config |
 | `TokenRegistry` | authority policy via `setOperatorPermission()` / `canCall()` |
 | `LPManager` | authority policy via `setOperatorPermission()` / `canCall()` |
-| `NadFunRouter` | `feeReceiver()` |
+| `GiwaRouter` | `dexProtocolFeeRate(quoteToken)`, `feeReceiver()` and AccessManaged authorization |
 | `FeeCollector` | authority via `AccessManaged`, feeReceiver lookup, quote-token settlement thresholds |
 | `GiftVault` | `AccessManaged` authority (operator permission for `setReceiver(token, receiver)` selector granted to a trusted off-chain relayer by admin) |
 | `NadFunFactory` | `setFactoryFeeTo()`, `setFactoryImplementation()` — factory admin via ProtocolManager |
@@ -152,10 +156,12 @@ quote-specific fee rates: set per quote token
 |-------|------|
 | `ZeroAddress()` | Adding quote token with address(0) |
 | `QuoteTokenAlreadyAdded()` | Adding already-active quote token |
+| `InvalidFeeTier()` | V3 fee tier is invalid |
+| `InvalidLpFeeShare()` | V3 LP-fee protocol share exceeds BPS |
 
 ## Events
 
-Fee: `FeeReceiverUpdate`, `GiftSignerUpdate`
+Fee: `FeeReceiverUpdate`, `V3QuoteConfigUpdate`
 
 Creator fee: `CreatorFeeRatesUpdate`, `SettlementThresholdUpdate`
 

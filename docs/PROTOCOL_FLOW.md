@@ -1,4 +1,4 @@
-# Protocol Flow — End-to-End Lifecycle
+# Protocol Flow — GiwaRouter Runtime and Retained Lifecycle
 
 ## Overview
 
@@ -6,14 +6,16 @@
 Token Creation → Bonding Curve Trading → Graduation → DEX Trading → Fee Settlement → Distribution
 ```
 
+> **Integration boundary:** `GiwaRouter` and `V3SwapAdapter` implement the current canonical Uniswap V3 user runtime. The default deployment script still wires token creation and graduation to the retained NadFun V2 factory/LPManager path, so it is not an end-to-end V3 lifecycle. V2-graduated metadata is rejected by GiwaRouter's graduated path.
+
 ---
 
 ## Phase 1: Token Creation
 
-**Entry:** `NadFunRouter.create(params)` → `BondingCurve.create(params)` [ROUTER_ROLE required]
+**Entry:** `GiwaRouter.create(params)` → `BondingCurve.create(params)` [ROUTER_ROLE required]
 
 ```
-User ──► NadFunRouter.create() ──► BondingCurve.create()  [ROUTER_ROLE]
+User ──► GiwaRouter.create() ──► BondingCurve.create()  [ROUTER_ROLE]
               │
               ├── Deploy fee ──► feeReceiver (quote token, if > 0)
               │
@@ -26,7 +28,7 @@ User ──► NadFunRouter.create() ──► BondingCurve.create()  [ROUTER_RO
               │
               ├── 5. Initialize:
               │      Singleton CreatorFeeProcessor.setup(token, vaults[]) (MODULE_CREATOR_FEE_PROCESSOR로 주소 조회)
-              │      Token.initialize(name, symbol, uri, pair)
+              │      Token.initialize(name, symbol, uri, bondingCurve, pair)
               │      (1B tokens minted → BondingCurve during Token.initialize)
               │
               └── 6. Init curve state:
@@ -46,7 +48,7 @@ User ──► NadFunRouter.create() ──► BondingCurve.create()  [ROUTER_RO
 `BondingCurve.create()` is a unified function — if extra quote is detected after deployFee(quoteToken), it automatically executes a sniping-free initial buy.
 
 ```
-User → NadFunRouter.create(params{buyQuoteAmount: X})
+User → GiwaRouter.create(params{buyQuoteAmount: X})
        ├── safeTransferFrom(User → BC, deployFee(quoteToken) + buyQuoteAmount)
        └── BC.create(params{creator: User})  [ROUTER_ROLE required]
             ├── balance detection: totalIn = balance - _totalQuoteReserved
@@ -62,28 +64,29 @@ User → NadFunRouter.create(params{buyQuoteAmount: X})
 ### Buy (Quote → Token)
 
 ```
-User ──► NadFunRouter.buy()
+User ──► GiwaRouter.buy()
               │
               ├── quoteToken.transfer(BondingCurve, amount)
               │
               └── BondingCurve.buy(to, token)
                     │
                     ├── 0. Detect quoteAmount from balance delta
-                    ├── 1. Protocol fee ──► feeReceiver (quote에서)
+                    ├── 1. Protocol + creator fee → FeeCollector when creatorFee > 0
+                    │      └── collectFee forwards protocol; accumulates creator fee
+                    │      (if creatorFee == 0, protocol fee goes directly to feeReceiver)
                     ├── 2. Anti-sniping penalty ──► feeReceiver
-                    ├── 3. Creator fee ──► FeeCollector.collectFee() (quote에서)
-                    ├── 4. Effective amount → curve calculation (x·y=k)
-                    ├── 5. _totalQuoteReserved += effectiveQuoteIn
-                    ├── 6. Token transfer → user (plain ERC20, no creator fee hook)
+                    ├── 3. Effective amount → curve calculation (x·y=k)
+                    ├── 4. _totalQuoteReserved += effectiveQuoteIn
+                    ├── 5. Token transfer → user (plain ERC20, no creator fee hook)
                     │
-                    └── 7. Graduation check:
+                    └── 6. Graduation check:
                           virtualTokenReserve == minTokenReserve → _graduate()
 ```
 
 ### Sell (Token → Quote)
 
 ```
-User ──► NadFunRouter.sell()
+User ──► GiwaRouter.sell()
               │
               ├── token.transfer(BondingCurve, amount)
               │
@@ -92,14 +95,15 @@ User ──► NadFunRouter.sell()
                     ├── 0. Detect tokenAmount from balance delta
                     ├── 1. Curve calculation (x·y=k)
                     ├── 2. _totalQuoteReserved -= grossQuoteOut
-                    ├── 3. Protocol fee ──► feeReceiver
-                    ├── 4. Creator fee ──► FeeCollector.collectFee()
-                    └── 5. Net quoteOut ──► user
+                    ├── 3. Protocol + creator fee → FeeCollector when creatorFee > 0
+                    │      └── collectFee forwards protocol; accumulates creator fee
+                    │      (if creatorFee == 0, protocol fee goes directly to feeReceiver)
+                    └── 4. Net quoteOut ──► user
 ```
 
 ---
 
-## Phase 3: Graduation (DEX Migration)
+## Phase 3: Graduation (Current Default Wiring: Legacy V2)
 
 **Trigger:** `virtualTokenReserve == curve.minTokenReserve` (automatic)
 
@@ -109,7 +113,7 @@ BondingCurve._graduate()
     ├── 1. curve.graduated = true
     ├── 2. _totalQuoteReserved release
     ├── 3. Graduate fee ──► feeReceiver
-    ├── 4. Excess token burn (DEX price = curve price matching)
+    ├── 4. Excess token → feeReceiver (DEX price = curve price matching)
     │
     ├── 5. LPManager.addLiquidity()
     │       ├── token + quoteToken → LPManager
@@ -121,16 +125,41 @@ BondingCurve._graduate()
 
 ---
 
-## Phase 4: DEX Trading (via NadFunPair)
+## Phase 4A: Canonical V3 Trading through GiwaRouter
+
+This runtime applies when the curve is graduated and TokenRegistry metadata is `DexType.UniswapV3` with a canonical factory pool and registered fee tier.
+
+```
+User ──► GiwaRouter.buy()/sell()/exactOutBuy()/exactOutSell()
+              │
+              ├── resolve graduation from BondingCurve.getCurve()
+              ├── validate V3 pool/quote/fee metadata from TokenRegistry
+              ├── compute pool budget or gross-output target
+              └── V3SwapAdapter.exactInput()/exactOutput()
+                    ├── recompute canonical factory pool
+                    ├── install one nonce-bound callback context
+                    ├── pool.swap() → authenticated callback
+                    ├── validate deltas/input cap; delete context; pay pool
+                    └── verify callback consumption and balance deltas
+              ├── reset adapter allowance
+              ├── compute actual quote-side dexProtocolFeeRate
+              ├── protocol fee → current feeReceiver
+              └── output + call-scoped unused input refund → user
+```
+
+- Exact-input may partially fill at a non-zero price limit and refunds unused input.
+- Exact-output requires the pool to deliver the full requested output.
+- Native routes require the token quote to equal configured wrapped-native; `receive()` accepts native only from wrapped-native withdrawal.
+- `getDexAmountOut`/`getDexAmountIn` use QuoterV2 and are non-view Solidity calls; clients should execute them with `eth_call`. Swap execution does not depend on QuoterV2.
+
+## Phase 4B: Retained Legacy V2 DEX Trading
 
 ### Trade Flow
 
 ```
-User ──► NadFunRouter.buy() / sell()
+User ──► explicit legacy adapter / NadFunPair
               │
-              ├── Tokens ──► DEX adapter (via TokenRegistry)
-              │
-              └── adapter.swap() ──► NadFunPair.swap()
+              └── NadSwapAdapter.swap() ──► NadFunPair.swap()
                     │
                     ├── FeeCollector.getFeeConfig(pair) 조회
                     │
@@ -139,7 +168,7 @@ User ──► NadFunRouter.buy() / sell()
                     ├── Protocol fee + Creator fee → FeeCollector
                     │     fee = quoteAmount × (creatorFeeRate + dexProtocolFeeRate) / BPS
                     │     transfer(feeCollector, fee)
-                    │     FeeCollector.collectFee(pair)  // balance delta, no amount param
+                    │     FeeCollector.collectFee(pair, protocolFee, creatorFee)
                     │
                     ├── k invariant verification
                     │
@@ -152,10 +181,10 @@ User ──► NadFunRouter.buy() / sell()
 
 **Trigger:** `FeeCollector.accumulatedFee(pair) >= settlementThreshold`
 
-Settlement works in both bonding and post-graduation phases. The `_settling` flag is stored in FeeCollector as `mapping(address pair => bool)`, and BondingCurve returns 0 fees during settling to prevent recursive fee accumulation.
+This retained creator-fee settlement path works in both bonding and legacy post-graduation phases. Canonical V3 GiwaRouter protocol fees are sent directly to the current feeReceiver and do not enter this creator-fee pipeline. The `_settling` flag is stored in FeeCollector as `mapping(address pair => bool)`, and BondingCurve returns 0 fees during settling to prevent recursive fee accumulation.
 
 ```
-FeeCollector.settle(pair)  [restricted authorized settler]
+FeeCollector.settle(pair, minAmountOut)  [restricted authorized settler]
     │
     ├── 1. Check accumulated creator fee >= settlementThreshold
     ├── 2. Set _settling[pair] = true (fee-free mode for vault operations)
@@ -165,8 +194,8 @@ FeeCollector.settle(pair)  [restricted authorized settler]
     │             for each vault[i]:
     │               ├── amount = creatorFeeAmount × vault[i].bps / BPS
     │               ├── transfer(vault[i], amount)
-    │               └── try vault[i].afterDeposit(token, quoteToken, amount)
-    │                   (vault behavior depends on graduation phase — see Phase 6)
+    │               └── vault[i].afterDeposit(token, quoteToken, amount)
+    │                   (failure reverts the entire distribution/settlement transaction)
     │
     └── 4. Set _settling[pair] = false
 ```
@@ -182,18 +211,18 @@ Vault behavior differs based on whether the token has graduated:
 
 ```
 BurnVault:
-  Bonding phase:        quoteToken → BondingCurve.buy() + burn → 0xdead
-  Post-graduation:      quoteToken → NadSwapAdapter swap + burn → 0xdead
+  Bonding phase:        quoteToken → GiwaRouter.buy() + burn → 0xdead
+  Post-graduation:      quoteToken → registered adapter swap + burn → 0xdead
 
 GiftVault:
-  Bonding phase:        quoteToken → BondingCurve.buy() + burn → 0xdead
-  Post-graduation:      quoteToken → NadSwapAdapter swap + burn → 0xdead
+  Bonding phase:        quoteToken → GiwaRouter.buy() + burn → 0xdead
+  Post-graduation:      quoteToken → registered adapter swap + burn → 0xdead
 
 LPVault:
   Bonding phase:        early return (accumulate, no action)
   Post-graduation:      quoteToken → swap half to token → addLiquidity → LP → 0xdead
 
-CreatorFeeVault:        quoteToken → direct transfer to recipient (unchanged, phase-independent)
+CreatorFeeVault:        quoteToken → per-token accrual → creator claim as ERC-20 or WMON-unwrapped native (phase-independent)
 ```
 
 ---
@@ -210,60 +239,30 @@ CreatorFeeVault:        quoteToken → direct transfer to recipient (unchanged, 
 | LP Fee | 0.25% | NadFunPair swap | Stays in reserves |
 | Protocol Fee (DEX) | dexProtocolFeeRate | NadFunPair swap | forwarded immediately by FeeCollector |
 | Creator fee (DEX) | 1%/3%/5% | NadFunPair swap | FeeCollector → CreatorFeeProcessor → Vaults |
+| GiwaRouter V3 Protocol Fee | dexProtocolFeeRate on quote side | canonical V3 route | current feeReceiver |
+| Uniswap V3 Pool Fee | registered pool fee tier | canonical V3 pool swap | pool liquidity position accounting |
 
 ---
 
 ## Contract Interaction Map
 
 ```
-                    ┌─────────────┐
-                    │    User     │
-                    └──────┬──────┘
-                           │
-                    ┌──────┴──────┐
-                    │ NadFunRouter│
-                    │ (create/    │
-                    │  buy/sell)  │
-                    └──┬──────┬───┘
-                       │      │
-          ┌────────────┘      └────────────┐
-          ▼ (pre-graduation)     (post-graduation) ▼
-    ┌─────────────┐              ┌──────────────┐
-    │BondingCurve │              │NadSwapAdapter │
-    │  (create    │              │  (swap)       │
-    │   buy/sell  │              └──────┬────────┘
-    │  _graduate) │                     │
-    └──┬───┬──────┘                     ▼
-       │   │                     ┌──────────────┐
-       │   │ creator fee         │NadFunPair    │
-       │   │     ┌──────────────►│(swap + fee)  │
-       │   └────►│               └──────┬───────┘
-       │         │                      │ fee
-       │         │                      │
-       ▼         ▼                      ▼
-    ┌─────────────────────────┐
-    │    FeeCollector         │
-    │  (config + accumulate   │
-    │   + settle)             │
-    └────┬───────┬────────────┘
-         │       │
-         │       ▼
-         │  ┌─────────────────┐
-         │  │  CreatorFeeProcessor   │
-         │  │(vault 분배)     │
-         │  └────┬────────────┘
-         │       │
-         │       └──► Singleton Vaults (by BPS):
-         │            ├── BurnVault    → buyback & burn
-         │            ├── LPVault      → add liquidity & burn LP
-         │            └── CreatorFeeVault     → direct transfer
-         │
-         └──► feeReceiver (protocol fee)
+User → GiwaRouter
+  ├─ pre-graduation → BondingCurve
+  │    ├─ anti-sniping penalty → feeReceiver
+  │    ├─ protocol + creator fee → FeeCollector (when creator fee enabled)
+  │    │    ├─ protocol fee → feeReceiver
+  │    │    └─ creator fee → CreatorFeeProcessor → singleton vaults
+  │    └─ default graduation → LPManager → retained NadFunPair metadata
+  │         └─ GiwaRouter rejects this V2 metadata after graduation
+  │
+  └─ graduated + registered UniswapV3
+       └─ V3SwapAdapter → canonical factory pool
+            ├─ authenticated callback pays exact pool input
+            └─ GiwaRouter quote-side protocol fee → current feeReceiver
 
-    ┌────────────────┐  ┌──────────┐  ┌──────────────┐
-    │ProtocolManager │  │LPManager │  │NadFunFactory │
-    │(fee+creatorFee+quote) │  │(LP lock) │  │(pair deploy) │
-    └────────────────┘  └──────────┘  └──────────────┘
+ProtocolManager supplies per-quote curve/V3 fee configuration and selector-scoped authority.
+TokenRegistry supplies the graduated pool, quote token, DEX type, and V3 fee tier.
 ```
 
 ---
@@ -275,7 +274,10 @@ CreatorFeeVault:        quoteToken → direct transfer to recipient (unchanged, 
 3. **Graduation irreversible**: `graduated = true` → curve trading blocked
 4. **Permanent graduation LP**: LPManager holds launch LP with no remove-liquidity entrypoint
 5. **NadFunPair k invariant**: After fee deduction, `k` must not decrease
-6. **Fee collection split ratio**: `creatorFeeRate / (creatorFeeRate + activeProtocolFeeRate)` is preserved during `collectFee()`
-7. **Creator fee rate allowlist**: Only 1%/3%/5% (ProtocolManager)
+6. **Explicit fee accounting**: `collectFee(pair, protocolFee, creatorFee)` requires the received balance delta to cover both declared components; any excess is paid to the protocol receiver
+7. **Creator fee rate allowlist**: Token creation accepts only rates currently configured by the ProtocolManager owner (the default policy is 1%/3%/5%)
 8. **Creator fee is permanent**: No expiration — fees collected indefinitely
 9. **Token pair transfer guard**: Transfers to pair address blocked before graduation (prevents reserve corruption from direct token transfers during bonding phase)
+10. **Canonical V3 callback**: only the registry/factory-derived active pool and nonce-bound callback data may consume the swap context
+11. **Exact-output completeness**: graduated V3 exact-output must deliver the full requested output; partial fill reverts
+12. **Call-scoped refunds**: V3 ERC-20/native refunds cannot sweep balances that existed before the call

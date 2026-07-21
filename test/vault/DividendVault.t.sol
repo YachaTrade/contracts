@@ -6,7 +6,7 @@ import {DividendVault} from "../../src/vault/DividendVault.sol";
 import {IDividendVault} from "../../src/interfaces/IDividendVault.sol";
 import {IVault} from "../../src/interfaces/IVault.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
-import {MockNadFunRouter} from "../mocks/MockNadFunRouter.sol";
+import {MockGiwaRouter} from "../mocks/MockGiwaRouter.sol";
 import {NadSwapAdapter} from "../../src/adapters/NadSwapAdapter.sol";
 import {NadFunFactory} from "../../src/dex/NadFunFactory.sol";
 import {NadFunPair} from "../../src/dex/NadFunPair.sol";
@@ -14,7 +14,7 @@ import {INadFunPair} from "../../src/dex/interfaces/INadFunPair.sol";
 import {TokenRegistry} from "../../src/core/TokenRegistry.sol";
 import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
 import {IDexAdapter} from "../../src/interfaces/IDexAdapter.sol";
-import {INadFunRouter} from "../../src/interfaces/INadFunRouter.sol";
+import {IGiwaRouter} from "../../src/interfaces/IGiwaRouter.sol";
 import {ProtocolManager} from "../../src/core/ProtocolManager.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -29,9 +29,9 @@ import {MockBondingCurveV1} from "../mocks/MockBondingCurveV1.sol";
 
 /// @dev Bot-driven conversion model (docs/plans/2026-06-12-dividend-bot-conversion-design.md +
 ///      2026-06-13-dividend-router-lane-design.md): afterDeposit records the ratio split only; the
-///      operator bot converts pending quote through executeConversion — V2 tokens (graduated or not)
-///      via the router hop branch (hop.adapter == router), external tokens through the uni adapter
-///      lanes; Merkle claim unchanged.
+///      operator bot converts pending quote through executeConversion — current launch tokens via
+///      the GiwaRouter hop (pre-graduation curve or canonical V3), legacy V2 pools via NadSwapAdapter,
+///      and external tokens through the uni adapter lanes; Merkle claim unchanged.
 contract DividendVaultTest is Test {
     DividendVault public vault;
     MockERC20 public quoteToken;
@@ -42,7 +42,7 @@ contract DividendVaultTest is Test {
 
     address bondingCurve = makeAddr("bondingCurve");
     MockBondingCurveV1 public bondingCurveV1; // V1 admission gate: createdAt/isGraduated source
-    MockNadFunRouter public mockRouter; // the vault's router — executeConversion's router hop calls buy() on it
+    MockGiwaRouter public mockRouter; // the vault's router — executeConversion's router hop calls buy() on it
     NadSwapAdapter public nadSwapAdapter; // the general NadFunPair lane (USDC/WMON, cross-quote legs)
     address sourceToken = makeAddr("sourceToken"); // the dividend-enabled token (holders of this get paid)
     address operator = makeAddr("operator"); // bot identity: Merkle root publishing + conversions
@@ -55,10 +55,10 @@ contract DividendVaultTest is Test {
         quoteToken = new MockERC20("WMON", "WMON", 18);
         memeA = new MockERC20("MEMEA", "MEMEA", 18);
 
-        // The vault's router — V2 token hops (graduated or bonding) call buy() on it directly through
-        // executeConversion's router branch. The real router's curve/DEX dispatch and refund
-        // economics are covered by DividendRouterLane.t.sol on the live stack.
-        mockRouter = new MockNadFunRouter(address(quoteToken));
+        // The vault's GiwaRouter sentinel — pre-graduation curve and canonical V3 launch-token hops
+        // call buy() through this branch; graduated legacy V2 pools use NadSwapAdapter instead.
+        // DividendRouterLane.t.sol covers the live curve/refund and explicit legacy-V2 paths.
+        mockRouter = new MockGiwaRouter(address(quoteToken));
         // The general NadFunPair lane — vanilla pool swaps (USDC/WMON, cross-quote bridge legs).
         nadSwapAdapter = new NadSwapAdapter();
 
@@ -212,8 +212,8 @@ contract DividendVaultTest is Test {
         assertEq(address(vault.tokenRegistryV2()), address(tokenRegistry));
         assertEq(vault.creatorFeeProcessor(), address(this));
         assertEq(vault.bondingCurve(), bondingCurve);
-        // The router is the vault's V2 conversion target (executeConversion's router hop), wired at
-        // init — NOT a setAdapters lane.
+        // GiwaRouter is the current lifecycle conversion target (pre-graduation curve or canonical
+        // V3), wired at init — NOT a setAdapters lane. Legacy V2 pools use NadSwapAdapter.
         assertEq(vault.router(), address(mockRouter));
         assertEq(address(vault.bondingCurveV1()), address(bondingCurveV1));
     }
@@ -501,8 +501,8 @@ contract DividendVaultTest is Test {
     }
 
     // ── setAllowedDividendToken: V1 admission gate ───────────────────────
-    // Pre-graduation V1 tokens have NO conversion lane (no CL pool yet; the NadFunRouter lane is
-    // V2-only), so admitting one would strand its pendingSwap quote until graduation — which may
+    // Pre-graduation V1 tokens have no conversion lane (no CL pool yet, and GiwaRouter serves the
+    // current registry), so admitting one would strand its pendingSwap quote until graduation — which may
     // never come. The gate blocks admission until the V1 curve reports graduation.
 
     function test_setAllowedDividendToken_revertsOnPreGraduationV1Token() public {
@@ -730,9 +730,9 @@ contract DividendVaultTest is Test {
 
     // ── executeConversion (operator bot, hop path) ───────────────────────
     // 플랜: docs/plans/2026-06-12-dividend-bot-conversion-design.md §3 +
-    //       2026-06-13-dividend-router-lane-design.md. Two hop kinds: the router hop
-    //       (hop.adapter == router) buys V2 nad.fun tokens; adapter hops (nadSwapAdapter /
-    //       uniswapV2Adapter / uniswapV3Adapter) swap through general/external pools.
+    //       2026-06-13-dividend-router-lane-design.md. GiwaRouter hops buy current launch tokens
+    //       (pre-graduation curve or canonical V3); NadSwapAdapter hops handle legacy V2 pools;
+    //       the uniswapV2Adapter / uniswapV3Adapter lanes handle external pools.
 
     function test_executeConversion_singleHop_convertsPendingToDividend() public {
         _setup(_single(address(memeA)), _singleRatio(10000), 0);
@@ -799,8 +799,8 @@ contract DividendVaultTest is Test {
         vm.expectCall(
             address(mockRouter),
             abi.encodeCall(
-                INadFunRouter.buy,
-                (INadFunRouter.BuyParams({
+                IGiwaRouter.buy,
+                (IGiwaRouter.BuyParams({
                         amountIn: 2 ether,
                         amountOutMin: 0,
                         token: address(memeA),
@@ -847,7 +847,7 @@ contract DividendVaultTest is Test {
     }
 
     function test_executeConversion_multiHop_chainsBalanceDeltas() public {
-        // quote → midToken (NadFunRouter lane) → destToken (UniswapV2 lane). destToken is an
+        // quote → midToken (GiwaRouter lane) → destToken (UniswapV2 lane). destToken is an
         // allowlisted external ERC20; hop2's input is hop1's measured output delta, and no
         // intermediate midToken may remain in the vault after the path completes.
         MockERC20 midToken = new MockERC20("MID", "MID", 18);
@@ -961,7 +961,7 @@ contract DividendVaultTest is Test {
     }
 
     function test_executeConversion_intermediateHopPartialFill_revertsPathResidue() public {
-        // quote → midToken (NadFunRouter lane, full fill) → destToken (Capricorn mock, 50% fill).
+        // quote → midToken (GiwaRouter lane, full fill) → destToken (Capricorn mock, 50% fill).
         // The partially-filled hop2 refunds leftover midToken to the vault — an intermediate
         // currency OUTSIDE the pendingSwap accounting — so the whole frame must revert PathResidue
         // and leave the pending slice fully intact for a complete retry.
@@ -1113,7 +1113,7 @@ contract DividendVaultTest is Test {
     }
 
     function test_executeConversion_batch_convertsMultipleOrders() public {
-        // Two dividend tokens, two lanes: memeA (V2 token) through the NadFunRouter lane and an
+        // Two dividend tokens, two lanes: memeA through the GiwaRouter lane and an
         // allowlisted external ERC20 through the UniswapV2 lane. ONE executeConversion call with
         // two orders settles both pending slots in a single batch.
         MockERC20 usdt = new MockERC20("USDT", "USDT", 18);

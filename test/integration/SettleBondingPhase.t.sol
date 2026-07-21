@@ -49,7 +49,7 @@ contract SettleBondingPhaseTest is SetUp {
                                 address(bondingCurve),
                                 address(tokenRegistry),
                                 7 days,
-                                address(nadFunRouter),
+                                address(giwaRouter),
                                 address(wmon),
                                 ""
                             )

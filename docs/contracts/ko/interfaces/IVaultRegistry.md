@@ -3,7 +3,7 @@
 **Path:** `src/interfaces/IVaultRegistry.sol`
 **Type:** Interface
 
-관리자 전용(onlyOwner) Vault 레지스트리 인터페이스. 관리자만 Vault를 등록할 수 있고, 취약한 Vault를 비활성화할 수 있음. Vault 주소를 키로 사용하여 중복 등록 방지. 각 Vault에 VaultType을 지정.
+authority-restricted Vault 레지스트리 인터페이스. ProtocolManager owner 또는 selector-authorized operator가 Vault를 등록/활성화/비활성화할 수 있다. Vault 주소를 키로 사용하여 중복 등록을 방지한다.
 
 ---
 
@@ -12,7 +12,7 @@
 ### VaultType
 
 ```solidity
-enum VaultType { Custom, Burn, LP, Creator, Gift }
+enum VaultType { Custom, Burn, LP, Creator, Gift, Dividend }
 ```
 
 ---
@@ -37,8 +37,8 @@ struct VaultInfo {
 
 | 함수 | 반환값 | 설명 |
 |------|--------|------|
-| `register(vault, name, description, vaultType)` | — | 새 Vault 등록 (관리자 전용, onlyOwner) |
-| `setActive(vault, active)` | — | Vault 활성/비활성 전환 (관리자 전용) |
+| `register(vault, name, description, vaultType)` | — | 새 Vault 등록 (implementation은 `restricted`) |
+| `setActive(vault, active)` | — | Vault 활성/비활성 전환 (implementation은 `restricted`) |
 | `isActive(vault)` | `bool` | 등록되어 있고 활성 상태인지 확인 |
 | `getVaultInfo(vault)` | `VaultInfo` | 전체 Vault 정보 조회 |
 | `isRegistered(vault)` | `bool` | 등록 여부 (활성/비활성 무관) |
@@ -50,8 +50,8 @@ struct VaultInfo {
 
 | 이벤트 | 매개변수 |
 |--------|----------|
-| `VaultRegistered` | `address indexed vault, string name, address creator, VaultType vaultType` |
-| `VaultDeactivated` | `address indexed vault, bool active` |
+| `Register` | `address indexed vault, string name, address creator, VaultType vaultType` |
+| `Deactivate` | `address indexed vault, bool active` |
 
 ## 에러
 

@@ -4,7 +4,7 @@
 **Pattern:** UUPS Proxy (Singleton)
 **Inheritance:** `IVault`, `UUPSUpgradeable`, `AccessManagedUpgradeable`
 
-Buyback and burn vault. Deployed once as a singleton and shared across all tokens. Receives quoteToken from CreatorFeeProcessor, buys token, and sends to `0xdead` for permanent burn. Supports both bonding phase (via NadFunRouter, which caps/refunds clamped buys) and post-graduation (via DEX adapter swap).
+Buyback and burn vault. Deployed once as a singleton UUPS proxy and shared across all tokens. Receives quoteToken from CreatorFeeProcessor, buys token, and sends to `0xdead` for permanent burn. Supports both bonding phase (via GiwaRouter, which caps/refunds clamped buys) and post-graduation (via the registered DEX adapter).
 
 ---
 
@@ -32,7 +32,7 @@ Buyback and burn vault. Deployed once as a singleton and shared across all token
 |----------|--------|-------------|
 | `initialize(protocolManager_, tokenRegistry_, creatorFeeProcessor_, bondingCurve_, router_)` | external (initializer) | UUPS initializer |
 | `setup(token, data)` | external | No-op. Required by IVault interface but nothing to configure |
-| `afterDeposit(token, quoteToken, amount)` | creatorFeeProcessor only | Buy token and send to 0xdead. Pre-graduation: NadFunRouter.buy; post-graduation: adapter swap |
+| `afterDeposit(token, quoteToken, amount)` | creatorFeeProcessor only | Buy token and send to 0xdead. Pre-graduation: GiwaRouter.buy; post-graduation: registered adapter swap |
 
 ---
 
@@ -40,7 +40,7 @@ Buyback and burn vault. Deployed once as a singleton and shared across all token
 
 ```
 CreatorFeeProcessor -> transfer(quoteToken, vault, amount)
-CreatorFeeProcessor -> try vault.afterDeposit(token, quoteToken, amount)
+CreatorFeeProcessor -> vault.afterDeposit(token, quoteToken, amount)
   |-- totalQuote = balanceOf(this)  (uses full balance, not just amount param)
   |-- if totalQuote == 0: return
   |-- if isGraduated:
@@ -50,12 +50,12 @@ CreatorFeeProcessor -> try vault.afterDeposit(token, quoteToken, amount)
   |     +-- adapter.swap(pair, quoteToken, token, totalQuote, this, "")
   |-- else (bonding phase):
   |     |-- approve router
-  |     +-- NadFunRouter.buy({amountIn: totalQuote, amountOutMin: 1})
+  |     +-- GiwaRouter.buy({amountIn: totalQuote, amountOutMin: 1})
   |-- transfer token -> 0xdead
   +-- emit Burn
 ```
 
-Swap/buy failures cause revert. CreatorFeeProcessor's try/catch around afterDeposit protects the overall creator fee distribution pipeline.
+`afterDeposit` records pending quote, then invokes `executePendingBuyback` through a self-call inside `try/catch`. A swap/buy failure rolls back that self-call but is caught; pending quote remains for a later retry and the outer creator-fee settlement can complete.
 
 ---
 

@@ -28,19 +28,25 @@ enum CurveVersion {
 | `quoteToken` | `address` | Quote token address |
 | `virtualQuoteReserve` | `uint256` | Virtual quote reserve |
 | `virtualTokenReserve` | `uint256` | Virtual token reserve |
+| `k` | `uint256` | Constant-product invariant captured at creation |
+| `minTokenReserve` | `uint256` | Graduation threshold |
+| `initialQuoteReserve` | `uint256` | Initial virtual quote reserve |
+| `initialTokenReserve` | `uint256` | Initial virtual token reserve |
 | `createdAtBlock` | `uint64` | Creation block number (anti-sniping index = `block.number - createdAtBlock`) |
 | `graduated` | `bool` | Whether graduated |
+| `creatorFeeRate` | `uint16` | Creator fee rate in BPS |
 | `version` | `CurveVersion` | V1 |
 | `dexType` | `ITokenRegistry.DexType` | DEX type (V2/V3/V4) |
 | `pair` | `address` | DEX pair address |
+| `graduateFee` | `uint256` | Quote-denominated graduation fee captured for the curve |
 
 ### VaultAllocation — Vault allocation for token creation
 
 | Field | Type | Purpose |
 |-------|------|---------|
-| `implementation` | `address` | Vault implementation address (registered in VaultRegistry) |
+| `vault` | `address` | Singleton vault address registered in VaultRegistry |
 | `bps` | `uint16` | Basis points allocation (> 0) |
-| `initData` | `bytes` | Vault-specific initialization data |
+| `setupData` | `bytes` | Vault-specific setup data |
 
 ### CreateTokenParams — Token creation parameters
 
@@ -48,11 +54,14 @@ enum CurveVersion {
 |-------|------|---------|
 | `name` | `string` | Token name |
 | `symbol` | `string` | Token symbol |
+| `tokenURI` | `string` | Token metadata URI |
 | `quoteToken` | `address` | Quote token address |
 | `creatorFeeRate` | `uint16` | Creator fee rate (BPS) |
 | `vaults` | `VaultAllocation[]` | Vault allocations (max 5, bps sum = 10000) |
 | `salt` | `bytes32` | CREATE2 salt |
 | `dexType` | `ITokenRegistry.DexType` | DEX type selection (V2/V3/V4) |
+| `creator` | `address` | Token creator |
+| `buyQuoteAmount` | `uint256` | Explicit optional initial-buy quote amount |
 
 > `sum(vaults[i].bps) == 10000` is required. Maximum 5 vaults.
 
@@ -62,7 +71,7 @@ enum CurveVersion {
 
 | Function | Returns | Description |
 |----------|---------|-------------|
-| `create(CreateTokenParams)` payable | `address token` | Create token + activate bonding curve |
+| `create(CreateTokenParams)` payable | `(address token, uint256 tokenOut)` | Create token and optionally execute the explicit initial buy |
 | `buy(to, token)` | `uint256 tokensOut` | Bonding curve buy (balance-detection) |
 | `sell(to, token)` | `uint256 quoteOut` | Bonding curve sell (balance-detection) |
 | `getCurve(token)` | `Curve memory` | Query curve information |
@@ -80,14 +89,14 @@ enum CurveVersion {
 
 | Event | Parameters |
 |-------|------------|
-| `TokenCreated` | `address indexed token, address indexed creator, string name` |
-| `TokenBuy` | `address indexed token, address indexed buyer, uint256 quoteIn, uint256 tokensOut` |
-| `TokenSell` | `address indexed token, address indexed seller, uint256 tokensIn, uint256 quoteOut` |
-| `TokenGraduated` | `address indexed token, address indexed pair` |
-| `SnipingPenalty` | `address indexed token, address indexed buyer, uint256 penaltyQuote, uint256 penaltyBps` |
-| `CurveSync` | `address indexed token, uint256 virtualQuoteReserve, uint256 virtualTokenReserve` |
-| `ModuleUpdated` | `bytes32 indexed moduleId, address indexed module` |
-| `Halted` | `bool halted` |
+| `Create` | `creator, token, pair, quoteToken, name, symbol, tokenURI, virtualQuoteReserve, virtualTokenReserve, minTokenReserve` |
+| `Buy` | `address indexed token, address indexed buyer, uint256 quoteIn, uint256 tokenOut` |
+| `Sell` | `address indexed token, address indexed seller, uint256 tokenIn, uint256 quoteOut` |
+| `Graduate` | `address indexed token, address indexed pair` |
+| `SnipingPenalty` | `address indexed token, address indexed buyer, uint256 snipingFee, uint256 penaltyBps` |
+| `Sync` | `token, realQuoteReserve, realTokenReserve, virtualQuoteReserve, virtualTokenReserve` |
+| `ModuleUpdate` | `bytes32 indexed moduleId, address indexed module` |
+| `Halt` | `bool halted` |
 
 ## Errors
 
@@ -97,3 +106,8 @@ enum CurveVersion {
 | `AlreadyGraduated()` | Already graduated |
 | `InvalidKValue()` | Invalid K value |
 | `ProtocolHalted()` | Protocol halted |
+| `UnsupportedVersion()` | Curve version is unsupported |
+| `ZeroModule()` | Module address is zero |
+| `ModuleAlreadySet(bytes32)` | Module ID is already configured |
+| `InsufficientTokenOut()` | Initial buy returned no tokens |
+| `DuplicateVault()` | Vault appears more than once in allocations |

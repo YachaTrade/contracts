@@ -6,15 +6,15 @@ pragma solidity ^0.8.24;
 import {console} from "forge-std/Test.sol";
 import {SetUp} from "../SetUp.t.sol";
 import {IBondingCurve} from "../../src/interfaces/IBondingCurve.sol";
-import {INadFunRouter} from "../../src/interfaces/INadFunRouter.sol";
-import {NadFunRouter} from "../../src/router/NadFunRouter.sol";
+import {IGiwaRouter} from "../../src/interfaces/IGiwaRouter.sol";
+import {GiwaRouter} from "../../src/router/GiwaRouter.sol";
 import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
 import {MockWMON} from "../mocks/MockWMON.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract BondingCurveTest is SetUp {
-    NadFunRouter localRouter;
+    GiwaRouter localRouter;
 
     address vault;
     address token;
@@ -44,27 +44,28 @@ contract BondingCurveTest is SetUp {
         bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), address(this));
         bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), user1);
 
-        // Deploy NadFunRouter as UUPS proxy with MockWMON as wrappedNative
-        NadFunRouter routerImpl = new NadFunRouter();
-        localRouter = NadFunRouter(
+        // Deploy GiwaRouter as UUPS proxy with MockWMON as wrappedNative
+        GiwaRouter routerImpl = new GiwaRouter();
+        localRouter = GiwaRouter(
             payable(address(
                     new ERC1967Proxy(
                         address(routerImpl),
                         abi.encodeCall(
-                            NadFunRouter.initialize,
+                            GiwaRouter.initialize,
                             (
                                 address(protocolManager),
                                 address(bondingCurve),
                                 address(tokenRegistry),
                                 address(wmon),
-                                address(0)
+                                address(v3SwapAdapter),
+                                address(quoterV2)
                             )
                         )
                     )
                 ))
         );
 
-        // Grant ROUTER_ROLE to NadFunRouter so it can call bondingCurve.buy/sell
+        // Grant ROUTER_ROLE to GiwaRouter so it can call bondingCurve.buy/sell
         bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), address(localRouter));
         vm.stopPrank();
 
@@ -138,9 +139,9 @@ contract BondingCurveTest is SetUp {
     function test_buy_slippageProtection() public {
         _mintAndApproveRouter(user1, 1 ether);
         vm.prank(user1);
-        vm.expectRevert(INadFunRouter.InsufficientOutput.selector);
+        vm.expectRevert(IGiwaRouter.InsufficientOutput.selector);
         localRouter.buy(
-            INadFunRouter.BuyParams({
+            IGiwaRouter.BuyParams({
                 amountIn: 1 ether,
                 amountOutMin: type(uint256).max,
                 token: token,
@@ -171,7 +172,7 @@ contract BondingCurveTest is SetUp {
         vm.startPrank(user1);
         IERC20(token).approve(address(localRouter), sellAmount);
         uint256 quoteOut = localRouter.sell(
-            INadFunRouter.SellParams({
+            IGiwaRouter.SellParams({
                 amountIn: sellAmount, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -203,7 +204,7 @@ contract BondingCurveTest is SetUp {
         vm.startPrank(user1);
         IERC20(token).approve(address(localRouter), sellAmount);
         uint256 quoteOut = localRouter.sell(
-            INadFunRouter.SellParams({
+            IGiwaRouter.SellParams({
                 amountIn: sellAmount, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -233,9 +234,9 @@ contract BondingCurveTest is SetUp {
 
         vm.startPrank(user1);
         IERC20(token).approve(address(localRouter), tokenOut);
-        vm.expectRevert(INadFunRouter.InsufficientOutput.selector);
+        vm.expectRevert(IGiwaRouter.InsufficientOutput.selector);
         localRouter.sell(
-            INadFunRouter.SellParams({
+            IGiwaRouter.SellParams({
                 amountIn: tokenOut,
                 amountOutMin: type(uint256).max,
                 token: token,
@@ -445,7 +446,7 @@ contract BondingCurveTest is SetUp {
         wmon.approve(address(localRouter), maxQuoteIn);
 
         uint256 amountIn = localRouter.exactOutBuy(
-            INadFunRouter.ExactOutBuyParams({
+            IGiwaRouter.ExactOutBuyParams({
                 amountInMax: maxQuoteIn,
                 amountOut: desiredTokens,
                 token: token,
@@ -471,9 +472,9 @@ contract BondingCurveTest is SetUp {
         vm.startPrank(user1);
         wmon.approve(address(localRouter), tooLittleQuote);
 
-        vm.expectRevert(INadFunRouter.ExcessiveInput.selector);
+        vm.expectRevert(IGiwaRouter.ExcessiveInput.selector);
         localRouter.exactOutBuy(
-            INadFunRouter.ExactOutBuyParams({
+            IGiwaRouter.ExactOutBuyParams({
                 amountInMax: tooLittleQuote,
                 amountOut: desiredTokens,
                 token: token,
@@ -492,7 +493,7 @@ contract BondingCurveTest is SetUp {
 
         vm.prank(user1);
         uint256 amountIn = localRouter.exactOutBuyWithNative{value: maxNativeIn}(
-            INadFunRouter.ExactOutBuyWithNativeParams({
+            IGiwaRouter.ExactOutBuyWithNativeParams({
                 amountOut: desiredTokens, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -521,7 +522,7 @@ contract BondingCurveTest is SetUp {
         wmon.approve(address(localRouter), maxQuoteIn);
 
         uint256 amountIn = localRouter.exactOutBuy(
-            INadFunRouter.ExactOutBuyParams({
+            IGiwaRouter.ExactOutBuyParams({
                 amountInMax: maxQuoteIn,
                 amountOut: desiredTokens,
                 token: newToken,
@@ -541,7 +542,7 @@ contract BondingCurveTest is SetUp {
         vm.startPrank(user1);
         wmon.approve(address(localRouter), buyAmount);
         uint256 tokensOwned = localRouter.buy(
-            INadFunRouter.BuyParams({
+            IGiwaRouter.BuyParams({
                 amountIn: buyAmount, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -550,8 +551,8 @@ contract BondingCurveTest is SetUp {
         IERC20(token).approve(address(localRouter), tokensOwned);
 
         uint256 quoteBefore = wmon.balanceOf(user1);
-        uint256 amountOut = localRouter.exactOutSell(
-            INadFunRouter.ExactOutSellParams({
+        uint256 tokenIn = localRouter.exactOutSell(
+            IGiwaRouter.ExactOutSellParams({
                 amountInMax: tokensOwned,
                 amountOut: desiredQuoteOut,
                 token: token,
@@ -561,14 +562,15 @@ contract BondingCurveTest is SetUp {
         );
         vm.stopPrank();
 
-        assertGe(amountOut, desiredQuoteOut, "Should receive at least desired quote");
+        assertGt(tokenIn, 0, "Should spend launch tokens");
+        assertLe(tokenIn, tokensOwned, "Should not exceed max launch-token input");
         assertApproxEqAbs(
-            amountOut, desiredQuoteOut, 1, "Should receive desired quote (1 wei tolerance for fee rounding)"
+            wmon.balanceOf(user1) - quoteBefore,
+            desiredQuoteOut,
+            1,
+            "Should receive desired quote (1 wei tolerance for fee rounding)"
         );
-        assertGe(
-            wmon.balanceOf(user1) - quoteBefore, desiredQuoteOut, "Balance should increase by at least desiredQuoteOut"
-        );
-        assertGt(IERC20(token).balanceOf(user1), 0, "Should still have unused tokens");
+        assertEq(tokensOwned - IERC20(token).balanceOf(user1), tokenIn, "Return value is actual launch-token input");
     }
 
     function test_exactOutSellToNative() public {
@@ -577,7 +579,7 @@ contract BondingCurveTest is SetUp {
         vm.startPrank(user1);
         wmon.approve(address(localRouter), buyAmount);
         uint256 tokensOwned = localRouter.buy(
-            INadFunRouter.BuyParams({
+            IGiwaRouter.BuyParams({
                 amountIn: buyAmount, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -586,8 +588,8 @@ contract BondingCurveTest is SetUp {
         IERC20(token).approve(address(localRouter), tokensOwned);
 
         uint256 nativeBefore = user1.balance;
-        uint256 amountOut = localRouter.exactOutSellToNative(
-            INadFunRouter.ExactOutSellToNativeParams({
+        uint256 tokenIn = localRouter.exactOutSellToNative(
+            IGiwaRouter.ExactOutSellToNativeParams({
                 amountInMax: tokensOwned,
                 amountOut: desiredNativeOut,
                 token: token,
@@ -597,11 +599,15 @@ contract BondingCurveTest is SetUp {
         );
         vm.stopPrank();
 
-        assertGe(amountOut, desiredNativeOut, "Should receive at least desired native");
+        assertGt(tokenIn, 0, "Should spend launch tokens");
+        assertLe(tokenIn, tokensOwned, "Should not exceed max launch-token input");
         assertApproxEqAbs(
-            amountOut, desiredNativeOut, 1, "Should receive desired native (1 wei tolerance for fee rounding)"
+            user1.balance - nativeBefore,
+            desiredNativeOut,
+            1,
+            "Should receive desired native (1 wei tolerance for fee rounding)"
         );
-        assertGe(user1.balance - nativeBefore, desiredNativeOut, "Native balance should increase by at least desired");
+        assertEq(tokensOwned - IERC20(token).balanceOf(user1), tokenIn, "Return value is actual launch-token input");
     }
 
     function test_exactOutSell_excessiveInput() public {
@@ -609,7 +615,7 @@ contract BondingCurveTest is SetUp {
         vm.startPrank(user1);
         wmon.approve(address(localRouter), 0.01 ether);
         uint256 tokensOwned = localRouter.buy(
-            INadFunRouter.BuyParams({
+            IGiwaRouter.BuyParams({
                 amountIn: 0.01 ether, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -617,7 +623,7 @@ contract BondingCurveTest is SetUp {
         IERC20(token).approve(address(localRouter), tokensOwned);
         vm.expectRevert();
         localRouter.exactOutSell(
-            INadFunRouter.ExactOutSellParams({
+            IGiwaRouter.ExactOutSellParams({
                 amountInMax: tokensOwned, amountOut: 100 ether, token: token, to: user1, deadline: block.timestamp + 1
             })
         );

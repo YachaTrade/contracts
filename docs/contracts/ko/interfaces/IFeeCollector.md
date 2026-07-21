@@ -21,9 +21,10 @@ FeeCollector 인터페이스. DEX 거래 수수료의 수집, 정산, 관리 함
 |------|--------|------|
 | `setup(pair, baseToken, quoteToken, creatorFeeRate, curveProtocolFeeRate, dexProtocolFeeRate)` | — | 페어별 수수료 설정 등록 (BondingCurve 호출) |
 | `getFeeConfig(pair)` | `FeeConfig` | 페어의 수수료 설정 전체 조회. Pair는 `address(this)`로 호출하고 caller에 맞는 feeRate를 로컬에서 계산. |
-| `collectFee(pair)` | — | 수수료 수집 — balance delta 방식 (호출 전 quoteToken 전송 필요, msg.sender는 pair 또는 bondingCurve) |
-| `settle(pair)` | — | 누적 크리에이터 수수료 정산 (authorized settler only, restricted). 본딩 phase에서도 동작 |
+| `collectFee(pair, protocolFee, creatorFee)` | — | 먼저 quoteToken을 전송한다. 수신 balance delta가 명시한 두 구성요소를 충족해야 하며 protocol fee와 초과분은 현재 receiver로, creator fee는 누적으로 처리한다. caller는 pair 또는 BondingCurve여야 한다. |
+| `settle(pair, minAmountOut)` | — | 누적 creator fee 정산(restricted). pair lock 또는 settlement 견적이 `minAmountOut` 미만이면 revert |
 | `accumulatedFee(pair)` | `uint256` | 페어의 누적 크리에이터 수수료 |
+| `router()` | `address` | settlement 견적에 사용하는 configured GiwaRouter |
 | `settlementThreshold(pair)` | `uint256` | pair quoteToken의 정산 임계값 |
 | `isSettleable(pair)` | `bool` | 정산 가능 여부 |
 | `isSettling(pair)` | `bool` | 페어가 정산 중인지 여부 |
@@ -39,6 +40,8 @@ FeeCollector 인터페이스. DEX 거래 수수료의 수집, 정산, 관리 함
 | `Setup(token, pair, creatorFeeRate, curveProtocolFeeRate, dexProtocolFeeRate)` | 수수료 설정 등록 시 |
 | `Collect(token, pair, amount)` | 수수료 수집 시 |
 | `Settle(token, pair, totalFee, creatorFee)` | 정산 실행 시 |
+| `CurveProtocolFeeRateUpdate(pair, oldRate, newRate)` | 커브 프로토콜 수수료율 변경 시 |
+| `DexProtocolFeeRateUpdate(pair, oldRate, newRate)` | DEX 프로토콜 수수료율 변경 시 |
 
 ---
 
@@ -52,3 +55,6 @@ FeeCollector 인터페이스. DEX 거래 수수료의 수집, 정산, 관리 함
 | `InvalidRates()` | 수수료율 모두 0 |
 | `NotAuthorized()` | 권한 없는 호출자 |
 | `PairLocked()` | pair가 lock-guarded 작업 중 |
+| `InvalidFeeAmount()` | 수신 balance delta가 명시한 protocol + creator fee보다 작음 |
+| `InsufficientOutput()` | settlement 견적이 `minAmountOut`보다 작음 |
+| `BelowThreshold()` | 선언은 유지되지만 현재 settle은 threshold 미만에서 revert하지 않고 return |
