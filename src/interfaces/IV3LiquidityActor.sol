@@ -9,6 +9,7 @@ interface IV3LiquidityActor {
     error ExcessiveCallbackAmount(uint256 amount0Owed, uint256 amount1Owed, uint256 amount0Max, uint256 amount1Max);
     error InvalidCallbackData();
     error InvalidCallbackPool();
+    error InvalidBalanceDelta(address token, address account, uint256 expectedBalance, uint256 actualBalance);
     error InvalidFactory();
     error InvalidOwner();
     error InvalidPool(address pool);
