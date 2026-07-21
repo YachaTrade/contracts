@@ -13,10 +13,13 @@ import {
 /// @dev Also stores the adapter mapping used by routers and vaults for DEX-specific interactions.
 contract TokenRegistry is ITokenRegistry, UUPSUpgradeable, AccessManagedUpgradeable {
     error AlreadyRegistered();
+    error PoolAlreadyRegistered();
+    error InvalidPool();
     error ZeroAddress();
 
     mapping(address => TokenInfo) private _tokens;
     mapping(DexType => IDexAdapter) private _adapters;
+    mapping(address => address) private _tokensByPool;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -35,12 +38,34 @@ contract TokenRegistry is ITokenRegistry, UUPSUpgradeable, AccessManagedUpgradea
         // registration that later gets overwritten.
         if (token == address(0) || pair == address(0) || quoteToken == address(0)) revert ZeroAddress();
 
-        _tokens[token] = TokenInfo({pair: pair, quoteToken: quoteToken, dexType: dexType});
+        _tokens[token] = TokenInfo({pair: pair, pool: address(0), quoteToken: quoteToken, dexType: dexType, feeTier: 0});
+    }
+
+    /// @inheritdoc ITokenRegistry
+    function registerV3(address token, address pool, address quoteToken, uint24 feeTier) external restricted {
+        if (token == address(0) || pool == address(0) || quoteToken == address(0)) revert ZeroAddress();
+        if (pool.code.length == 0) revert InvalidPool();
+        if (_tokens[token].pair != address(0)) revert AlreadyRegistered();
+        if (_tokensByPool[pool] != address(0)) revert PoolAlreadyRegistered();
+
+        _tokens[token] =
+            TokenInfo({pair: pool, pool: pool, quoteToken: quoteToken, dexType: DexType.UniswapV3, feeTier: feeTier});
+        _tokensByPool[pool] = token;
     }
 
     /// @inheritdoc ITokenRegistry
     function getPair(address token) external view returns (address) {
         return _tokens[token].pair;
+    }
+
+    /// @inheritdoc ITokenRegistry
+    function getPool(address token) external view returns (address) {
+        return _tokens[token].pool;
+    }
+
+    /// @inheritdoc ITokenRegistry
+    function getTokenByPool(address pool) external view returns (address) {
+        return _tokensByPool[pool];
     }
 
     /// @inheritdoc ITokenRegistry
