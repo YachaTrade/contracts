@@ -18,12 +18,16 @@
 - All Router, vault, Treasury, V3 pool, registry, and lifecycle paths must use the same WETH address.
 - Preserve unrelated user changes, including the in-progress V3 `BondingCurve` graduation branch.
 - LP fee collection/swap/distribution is outside this plan; only its quote-token compatibility is required.
+- The user-facing deployment target is `GiwaRouter` from `origin/giwarouter` commit `db4bc8e`, not `NadFunRouter`.
+- Graduated swaps use `V3SwapAdapter`. `GiwaRouter.initialize` receives ProtocolManager, BondingCurve, TokenRegistry, deployed WETH, V3SwapAdapter, and a QuoterV2 whose factory matches the adapter factory.
+- Legacy `NadFunRouter` source may remain for compatibility, but deployment, permissions, vault wiring, lifecycle tests, ABIs, and documentation must target `GiwaRouter`.
+- Fresh deployments are V3-only: remove the V2 `createPair/register/addLiquidity` graduation path and convert or delete every test that graduates through V2. `BondingCurve` token creation must reject a non-V3 `dexType`.
 
 ## File Structure
 
 - Create `src/token/WrappedEther.sol`: protocol-owned wrapped-native token with no custom state or privileged API.
 - Create `test/token/WrappedEther.t.sol`: unit and invariant-style backing tests.
-- Modify `script/deploy/normal/Deploy.s.sol`: deploy WETH once, configure quote/V3 fields, deploy and wire V3 modules, permissions, and adapter.
+- Modify `script/deploy/normal/Deploy.s.sol`: deploy WETH once, configure quote/V3 fields, deploy and wire V3 modules, permissions, `V3SwapAdapter`, QuoterV2, and `GiwaRouter`.
 - Modify `src/core/BondingCurve.sol`: complete the already-started V3 create/register and graduation/allocate branch.
 - Modify `test/SetUp.t.sol`: provide a real local V3 factory, deployer, actor, adapter, permissions, and WETH quote fixture without replacing existing V2 fixtures.
 - Create `test/integration/WethV3GraduationE2E.t.sol`: create, graduate, inspect liquidity positions, buy post-graduation, and sell the seller's entire token balance.
@@ -226,7 +230,14 @@ Remove `vm.envAddress("WMON")`, deploy exactly once immediately after `vm.startB
 ```solidity
 d.weth = address(new WrappedEther());
 d.protocolManager = _deployProtocolManager(deployer, feeReceiver, d.weth, lvmon);
-d.nadFunRouter = _deployNadFunRouter(d.protocolManager, d.bondingCurve, d.tokenRegistry, d.weth);
+d.giwaRouter = _deployGiwaRouter(
+    d.protocolManager,
+    d.bondingCurve,
+    d.tokenRegistry,
+    d.weth,
+    d.v3SwapAdapter,
+    d.quoterV2
+);
 ```
 
 Do not deploy a second wrapped token in any helper.
@@ -366,10 +377,12 @@ Extend `Deploy.Deployed` and deploy:
 address v3Factory;
 address v3PoolDeployer;
 address v3LiquidityActor;
-address uniswapV3Adapter;
+address v3SwapAdapter;
+address quoterV2;
+address giwaRouter;
 ```
 
-The canonical V3 factory address must be an explicit deployment input appropriate for the target chain; `Deploy.s.sol` must validate `code.length > 0`. Deploy `V3PoolDeployer` behind `ERC1967Proxy`, deploy `V3LiquidityActor(d.lpManager, d.v3Factory)`, then call:
+The canonical V3 factory and QuoterV2 addresses must be explicit deployment inputs appropriate for the target chain; `Deploy.s.sol` must validate both have code and that `IPeripheryImmutableState(quoterV2).factory() == v3Factory`. Deploy `V3PoolDeployer` behind `ERC1967Proxy`, deploy `V3LiquidityActor(d.lpManager, d.v3Factory)`, deploy `V3SwapAdapter(d.v3Factory, d.tokenRegistry)`, then call:
 
 ```solidity
 LPManager(d.lpManager).setV3LiquidityActor(d.v3LiquidityActor, d.v3Factory);
@@ -386,11 +399,16 @@ pm.setOperatorPermission(d.bondingCurve, d.tokenRegistry, TokenRegistry.register
 pm.setOperatorPermission(d.bondingCurve, d.lpManager, LPManager.allocate.selector, true);
 ```
 
-Deploy `UniswapV3ExternalAdapter` and register it:
+Wire the deployed `V3SwapAdapter` into `GiwaRouter`; do not register it as the legacy `IDexAdapter`, because `GiwaRouter` calls the typed `IV3SwapAdapter` directly:
 
 ```solidity
-TokenRegistry(d.tokenRegistry).setAdapter(
-    ITokenRegistry.DexType.UniswapV3, IDexAdapter(d.uniswapV3Adapter)
+d.v3SwapAdapter = address(new V3SwapAdapter(d.v3Factory, d.tokenRegistry));
+d.giwaRouter = _deployProxy(
+    address(new GiwaRouter()),
+    abi.encodeCall(
+        GiwaRouter.initialize,
+        (d.protocolManager, d.bondingCurve, d.tokenRegistry, d.weth, d.v3SwapAdapter, d.quoterV2)
+    )
 );
 ```
 
@@ -398,7 +416,7 @@ The deployment admin also needs temporary permission to call `LPManager.setV3Liq
 
 - [ ] **Step 6: Mirror the real V3 wiring in `test/SetUp.t.sol`**
 
-Deploy a real local `UniswapV3Factory`, proxy-backed `V3PoolDeployer`, `V3LiquidityActor`, and `UniswapV3ExternalAdapter`; register WETH's quote config; add the same three BondingCurve selector permissions; register `MODULE_V3_POOL_DEPLOYER`; keep the existing V2 adapter and V2 setup available to tests that explicitly request `UniswapV2`.
+Deploy a real local `UniswapV3Factory`, compatible QuoterV2 test dependency, proxy-backed `V3PoolDeployer`, `V3LiquidityActor`, `V3SwapAdapter`, and proxy-backed `GiwaRouter`; register WETH's quote config; add the same three BondingCurve selector permissions; register `MODULE_V3_POOL_DEPLOYER`; keep legacy V2 fixtures only for tests that explicitly exercise them.
 
 - [ ] **Step 7: Run focused and regression tests**
 
@@ -428,11 +446,11 @@ git commit -m "feat: wire V3 token graduation lifecycle"
 
 **Files:**
 - Modify: `test/integration/WethV3GraduationE2E.t.sol`
-- Modify: `src/adapters/UniswapV3ExternalAdapter.sol` only if the failing real-pool test demonstrates a concrete adapter defect.
-- Modify: `src/router/NadFunRouter.sol` only if the failing real-pool test demonstrates a concrete V3 routing defect.
+- Modify: `src/adapters/V3SwapAdapter.sol` only if the failing real-pool test demonstrates a concrete adapter defect.
+- Modify: `src/router/GiwaRouter.sol` only if the failing real-pool test demonstrates a concrete V3 routing defect.
 
 **Interfaces:**
-- Consumes: `NadFunRouter.buy`, `NadFunRouter.sell`, TokenRegistry V3 metadata, `UniswapV3ExternalAdapter.swap`, and WETH ERC20 operations.
+- Consumes: `GiwaRouter.buy`, `GiwaRouter.sell`, TokenRegistry V3 metadata, `V3SwapAdapter.exactInput`, and WETH ERC20 operations.
 - Produces: an end-to-end proof that a post-graduation holder can sell their full token balance without token dust.
 
 - [ ] **Step 1: Add the post-graduation exact-input scenario**
@@ -444,11 +462,11 @@ uint256 quoteIn = 1 ether;
 vm.prank(trader);
 weth.deposit{value: quoteIn}();
 vm.prank(trader);
-weth.approve(address(nadFunRouter), quoteIn);
+weth.approve(address(giwaRouter), quoteIn);
 
 vm.prank(trader);
-uint256 tokenOut = nadFunRouter.buy(
-    INadFunRouter.BuyParams({
+uint256 tokenOut = giwaRouter.buy(
+    IGiwaRouter.BuyParams({
         amountIn: quoteIn,
         amountOutMin: 1,
         token: token,
@@ -460,11 +478,11 @@ assertGt(tokenOut, 0);
 
 uint256 fullBalance = IERC20(token).balanceOf(trader);
 vm.prank(trader);
-IERC20(token).approve(address(nadFunRouter), fullBalance);
+IERC20(token).approve(address(giwaRouter), fullBalance);
 uint256 quoteBefore = weth.balanceOf(trader);
 vm.prank(trader);
-uint256 quoteOut = nadFunRouter.sell(
-    INadFunRouter.SellParams({
+uint256 quoteOut = giwaRouter.sell(
+    IGiwaRouter.SellParams({
         amountIn: fullBalance,
         amountOutMin: 1,
         token: token,
@@ -539,7 +557,7 @@ Expected: build and all focused tests pass. If repository-wide `forge fmt --chec
 - [ ] **Step 6: Commit Task 4**
 
 ```bash
-git add test/integration/WethV3GraduationE2E.t.sol src/adapters/UniswapV3ExternalAdapter.sol src/router/NadFunRouter.sol
+git add test/integration/WethV3GraduationE2E.t.sol src/adapters/V3SwapAdapter.sol src/router/GiwaRouter.sol
 git commit -m "test: prove WETH V3 graduation and full sell"
 ```
 
@@ -569,10 +587,11 @@ require(
     config.lpFeeProtocolShareBps == _readUint16("LP_FEE_PROTOCOL_SHARE_BPS"),
     "Deploy: LP split mismatch"
 );
-require(NadFunRouter(payable(d.nadFunRouter)).wrappedNative() == d.weth, "Deploy: Router WETH mismatch");
+require(GiwaRouter(payable(d.giwaRouter)).wrappedNative() == d.weth, "Deploy: Router WETH mismatch");
 require(LPManager(d.lpManager).v3Factory() == d.v3Factory, "Deploy: LP factory mismatch");
 require(LPManager(d.lpManager).v3LiquidityActor() == d.v3LiquidityActor, "Deploy: actor mismatch");
-require(address(TokenRegistry(d.tokenRegistry).getAdapter(ITokenRegistry.DexType.UniswapV3)) == d.uniswapV3Adapter, "Deploy: V3 adapter mismatch");
+require(GiwaRouter(payable(d.giwaRouter)).v3SwapAdapter() == d.v3SwapAdapter, "Deploy: V3 adapter mismatch");
+require(GiwaRouter(payable(d.giwaRouter)).quoterV2() == d.quoterV2, "Deploy: Quoter mismatch");
 ```
 
 Also verify the three BondingCurve selector permissions with `ProtocolManager.canCall`.
