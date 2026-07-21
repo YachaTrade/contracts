@@ -14,14 +14,11 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 /// @dev Ownable authority that also implements selector-scoped operator permissions consumed by
 ///      AccessManaged modules across the protocol.
 contract ProtocolManager is IProtocolManager, UUPSUpgradeable, OwnableUpgradeable {
-    uint16 private constant MAX_CREATOR_FEE_RATE = 1000;
-
     address private _feeReceiver;
 
     /// @dev Per-block sniping penalty table in BPS. Index = `block.number - createdAtBlock`.
     ///      Empty array disables sniping. Entries past the last index implicitly resolve to 0.
     uint256[] private _snipingPenaltyTable;
-    mapping(uint16 => bool) private _allowedCreatorFeeRates;
 
     mapping(address => QuoteConfig) private _configs;
     mapping(address => mapping(address => mapping(bytes4 => bool))) private _operatorPermissions;
@@ -70,31 +67,6 @@ contract ProtocolManager is IProtocolManager, UUPSUpgradeable, OwnableUpgradeabl
         require(receiver != address(0), "Zero address");
         _feeReceiver = receiver;
         emit FeeReceiverUpdate(receiver);
-    }
-
-    function isCreatorFeeRateAllowed(uint16 rate) external view returns (bool) {
-        return _allowedCreatorFeeRates[rate];
-    }
-
-    function settlementThreshold(address quoteToken) external view returns (uint256) {
-        return _configs[quoteToken].settlementThreshold;
-    }
-
-    function setAllowedCreatorFeeRates(uint16[] calldata rates) external onlyOwner {
-        for (uint256 i = 0; i < rates.length; i++) {
-            require(rates[i] <= MAX_CREATOR_FEE_RATE, "Creator fee too high");
-            _allowedCreatorFeeRates[rates[i]] = true;
-        }
-        emit CreatorFeeRatesUpdate(rates);
-    }
-
-    function removeCreatorFeeRate(uint16 rate) external onlyOwner {
-        _allowedCreatorFeeRates[rate] = false;
-    }
-
-    function setSettlementThreshold(address quoteToken, uint256 threshold) external onlyOwner {
-        _configs[quoteToken].settlementThreshold = threshold;
-        emit SettlementThresholdUpdate(quoteToken, threshold);
     }
 
     function setV3QuoteConfig(address quoteToken, uint24 v3FeeTier_, uint16 lpFeeProtocolShareBps_) public onlyOwner {
@@ -156,8 +128,7 @@ contract ProtocolManager is IProtocolManager, UUPSUpgradeable, OwnableUpgradeabl
         uint256 deployFee_,
         uint256 graduateFee_,
         uint16 curveProtocolFeeRate_,
-        uint16 dexProtocolFeeRate_,
-        uint256 settlementThreshold_
+        uint16 dexProtocolFeeRate_
     ) public onlyOwner {
         if (quoteToken == address(0)) revert ZeroAddress();
         if (_configs[quoteToken].active) revert QuoteTokenAlreadyAdded();
@@ -178,7 +149,6 @@ contract ProtocolManager is IProtocolManager, UUPSUpgradeable, OwnableUpgradeabl
             graduateFee: graduateFee_,
             curveProtocolFeeRate: curveProtocolFeeRate_,
             dexProtocolFeeRate: dexProtocolFeeRate_,
-            settlementThreshold: settlementThreshold_,
             v3FeeTier: 0,
             lpFeeProtocolShareBps: 0,
             active: true
@@ -192,8 +162,7 @@ contract ProtocolManager is IProtocolManager, UUPSUpgradeable, OwnableUpgradeabl
             deployFee_,
             graduateFee_,
             curveProtocolFeeRate_,
-            dexProtocolFeeRate_,
-            settlementThreshold_
+            dexProtocolFeeRate_
         );
     }
 
@@ -207,7 +176,6 @@ contract ProtocolManager is IProtocolManager, UUPSUpgradeable, OwnableUpgradeabl
         uint256 graduateFee_,
         uint16 curveProtocolFeeRate_,
         uint16 dexProtocolFeeRate_,
-        uint256 settlementThreshold_,
         uint24 v3FeeTier_,
         uint16 lpFeeProtocolShareBps_
     ) external onlyOwner {
@@ -219,8 +187,7 @@ contract ProtocolManager is IProtocolManager, UUPSUpgradeable, OwnableUpgradeabl
             deployFee_,
             graduateFee_,
             curveProtocolFeeRate_,
-            dexProtocolFeeRate_,
-            settlementThreshold_
+            dexProtocolFeeRate_
         );
         setV3QuoteConfig(quoteToken, v3FeeTier_, lpFeeProtocolShareBps_);
     }
@@ -238,8 +205,7 @@ contract ProtocolManager is IProtocolManager, UUPSUpgradeable, OwnableUpgradeabl
         uint256 deployFee_,
         uint256 graduateFee_,
         uint16 curveProtocolFeeRate_,
-        uint16 dexProtocolFeeRate_,
-        uint256 settlementThreshold_
+        uint16 dexProtocolFeeRate_
     ) public onlyOwner {
         require(_configs[quoteToken].active, "Not active");
         require(curveProtocolFeeRate_ <= 1000, "Protocol fee too high");
@@ -255,7 +221,6 @@ contract ProtocolManager is IProtocolManager, UUPSUpgradeable, OwnableUpgradeabl
         _configs[quoteToken].graduateFee = graduateFee_;
         _configs[quoteToken].curveProtocolFeeRate = curveProtocolFeeRate_;
         _configs[quoteToken].dexProtocolFeeRate = dexProtocolFeeRate_;
-        _configs[quoteToken].settlementThreshold = settlementThreshold_;
         emit QuoteTokenUpdate(
             quoteToken,
             virtualReserve,
@@ -264,8 +229,7 @@ contract ProtocolManager is IProtocolManager, UUPSUpgradeable, OwnableUpgradeabl
             deployFee_,
             graduateFee_,
             curveProtocolFeeRate_,
-            dexProtocolFeeRate_,
-            settlementThreshold_
+            dexProtocolFeeRate_
         );
     }
 
@@ -279,7 +243,6 @@ contract ProtocolManager is IProtocolManager, UUPSUpgradeable, OwnableUpgradeabl
         uint256 graduateFee_,
         uint16 curveProtocolFeeRate_,
         uint16 dexProtocolFeeRate_,
-        uint256 settlementThreshold_,
         uint24 v3FeeTier_,
         uint16 lpFeeProtocolShareBps_
     ) external onlyOwner {
@@ -291,8 +254,7 @@ contract ProtocolManager is IProtocolManager, UUPSUpgradeable, OwnableUpgradeabl
             deployFee_,
             graduateFee_,
             curveProtocolFeeRate_,
-            dexProtocolFeeRate_,
-            settlementThreshold_
+            dexProtocolFeeRate_
         );
         setV3QuoteConfig(quoteToken, v3FeeTier_, lpFeeProtocolShareBps_);
     }

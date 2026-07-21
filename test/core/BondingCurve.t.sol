@@ -12,6 +12,7 @@ import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
 import {MockWMON} from "../mocks/MockWMON.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 contract BondingCurveTest is SetUp {
     GiwaRouter localRouter;
@@ -37,8 +38,7 @@ contract BondingCurveTest is SetUp {
             defaultDeployFee,
             defaultGraduateFee,
             defaultCurveProtocolFee,
-            defaultDexProtocolFee,
-            0
+            defaultDexProtocolFee
         );
         protocolManager.setV3QuoteConfig(address(wmon), DEFAULT_V3_FEE_TIER, DEFAULT_LP_FEE_PROTOCOL_SHARE_BPS);
 
@@ -82,21 +82,19 @@ contract BondingCurveTest is SetUp {
         vm.roll(block.number + 10);
     }
 
-    // Creator fee is deducted from quote, not from token output.
     function test_buy_receivesTokens() public {
         uint256 buyAmount = 1 ether;
         _mintAndTransferBC(user1, buyAmount);
         vm.prank(user1);
         uint256 tokenOut = bondingCurve.buy(user1, token);
 
-        // Additive fee: totalFeeRate = curveProtocolFeeRate + creatorFeeRate (no sniping after warp).
-        uint256 totalFeeRate = uint256(defaultCurveProtocolFee) + 500;
-        uint256 quoteInAfterFees = buyAmount * (10000 - totalFeeRate) / 10000;
+        uint256 protocolFee = FixedPointMathLib.mulDivUp(buyAmount, defaultCurveProtocolFee, 10000);
+        uint256 quoteInAfterFees = buyAmount - protocolFee;
         uint256 k = virtualReserve * virtualTokenReserve;
         uint256 newReserveIn = virtualReserve + quoteInAfterFees;
         uint256 newReserveOut = (k + newReserveIn - 1) / newReserveIn; // ceilDiv
         uint256 expectedTokenOut = virtualTokenReserve - newReserveOut;
-        assertEq(tokenOut, expectedTokenOut, "Should receive exact bonding curve output (creator fee on quote)");
+        assertEq(tokenOut, expectedTokenOut, "Should receive exact bonding curve output after protocol fee");
         assertEq(IERC20(token).balanceOf(user1), tokenOut, "Balance should match tokenOut");
     }
 
@@ -107,18 +105,16 @@ contract BondingCurveTest is SetUp {
         vm.prank(user1);
         uint256 tokenOut = bondingCurve.buy(user1, token);
 
-        // Additive fee: totalFeeRate = curveProtocolFeeRate + creatorFeeRate (no sniping after warp).
-        uint256 totalFeeRate = uint256(defaultCurveProtocolFee) + 500;
-        uint256 quoteInAfterFees = buyAmount * (10000 - totalFeeRate) / 10000;
+        uint256 protocolFee = FixedPointMathLib.mulDivUp(buyAmount, defaultCurveProtocolFee, 10000);
+        uint256 quoteInAfterFees = buyAmount - protocolFee;
         IBondingCurve.Curve memory info = bondingCurve.getCurve(token);
         assertEq(
             info.virtualQuoteReserve - info.initialQuoteReserve,
             quoteInAfterFees,
-            "realQuoteReserve should equal effective input after protocol fee and creator fee"
+            "realQuoteReserve should equal quote input after protocol fee"
         );
-        // tokensSold == tokenOut because creator fees are charged in quote.
         uint256 tokensSold = info.initialTokenReserve - info.virtualTokenReserve;
-        assertEq(tokensSold, tokenOut, "Tokens sold should equal tokenOut (no creator fee on transfer)");
+        assertEq(tokensSold, tokenOut, "Tokens sold should equal tokenOut");
     }
 
     function test_buy_multipleBuys() public {
@@ -161,7 +157,6 @@ contract BondingCurveTest is SetUp {
         bondingCurve.buy(user1, fakeToken);
     }
 
-    // Creator fee is deducted from gross quote output, not from token input.
     function test_sell_receivesQuote() public {
         _mintAndTransferBC(user1, 1 ether);
         vm.prank(user1);
@@ -212,12 +207,10 @@ contract BondingCurveTest is SetUp {
         );
 
         // quoteOutBeforeFees = delta(virtualQuoteReserve).
-        // quoteOut = grossQuote - protocolFee - creatorFee
+        // quoteOut = grossQuote - protocolFee
         uint256 grossQuote = infoBefore.virtualQuoteReserve - infoAfter.virtualQuoteReserve;
-        uint256 totalFees = (grossQuote * (defaultCurveProtocolFee + 500)) / 10000;
-        assertApproxEqAbs(
-            quoteOut, grossQuote - totalFees, 2, "quoteOut should be grossQuote minus fees and creator fee"
-        );
+        uint256 protocolFee = FixedPointMathLib.mulDivUp(grossQuote, defaultCurveProtocolFee, 10000);
+        assertEq(quoteOut, grossQuote - protocolFee, "quoteOut should be grossQuote minus protocol fee");
     }
 
     function test_sell_slippageProtection() public {
@@ -248,27 +241,55 @@ contract BondingCurveTest is SetUp {
         _verifySnipingBuyAndFees(newToken);
     }
 
+    function test_buy_combinedFeeAtOrAbove100Percent_chargesAllQuoteToCurrentFeeReceiver() public {
+        uint256[] memory penaltyTable = new uint256[](1);
+        penaltyTable[0] = 10_000;
+        vm.prank(admin);
+        protocolManager.setSnipingPenaltyTable(penaltyTable);
+
+        wmon.mint(address(this), defaultDeployFee);
+        wmon.transfer(address(bondingCurve), defaultDeployFee);
+        (address newToken,) = bondingCurve.create(_createBCParams("FullPenalty", "FP", keccak256("fullPenalty")));
+
+        uint256 quoteIn = 1 ether;
+        assertEq(bondingCurve.getAmountOut(newToken, quoteIn, true), 0, "100% sniping leaves no curve quote");
+
+        address currentFeeReceiver = makeAddr("fullPenaltyFeeReceiver");
+        vm.prank(admin);
+        protocolManager.setFeeReceiver(currentFeeReceiver);
+
+        _mintAndTransferBC(user1, quoteIn);
+        uint256 feeCollectorBefore = wmon.balanceOf(address(feeCollector));
+
+        vm.prank(user1);
+        uint256 tokenOut = bondingCurve.buy(user1, newToken);
+
+        assertEq(tokenOut, 0, "execution must match the zero-output view");
+        assertEq(wmon.balanceOf(currentFeeReceiver), quoteIn, "current fee receiver gets the full quote input");
+        assertEq(wmon.balanceOf(address(feeCollector)), feeCollectorBefore, "FeeCollector receives no curve fee");
+
+        vm.expectRevert("Fee exceeds 100%");
+        bondingCurve.getAmountIn(newToken, 1, true);
+    }
+
     function _verifySnipingBuyAndFees(address newToken) internal {
-        // Additive model: totalFeeRate = 8000 (sniping) + protocol + 500 (creator) < BPS, buy succeeds.
+        // Additive model: totalFeeRate = 8000 (sniping) + protocol < BPS, buy succeeds.
         // Verify a substantial sniping fee was charged.
         _mintAndTransferBC(user1, 1 ether);
-        address pair = tokenRegistry.getPair(newToken);
         uint256 feeReceiverBefore = wmon.balanceOf(feeReceiver);
-        uint256 accumulatedBefore = feeCollector.accumulatedFee(pair);
+        uint256 feeCollectorBefore = wmon.balanceOf(address(feeCollector));
 
         vm.prank(user1);
         uint256 tokenOut = bondingCurve.buy(user1, newToken);
 
         uint256 snipingFee = 800_000_000_000_000_000;
         uint256 protocolFee = 1 ether * uint256(defaultCurveProtocolFee) / 10000;
-        uint256 creatorFee = 50_000_000_000_000_000;
 
         assertGt(tokenOut, 0, "buy succeeds at 80% sniping penalty");
         assertEq(IERC20(newToken).balanceOf(user1), tokenOut, "buyer receives quoted tokens");
         uint256 feeReceiverDelta = wmon.balanceOf(feeReceiver) - feeReceiverBefore;
-        uint256 accumulatedDelta = feeCollector.accumulatedFee(pair) - accumulatedBefore;
-        assertTrue(feeReceiverDelta == snipingFee + protocolFee, "fee receiver");
-        assertTrue(accumulatedDelta == creatorFee, "creator fee");
+        assertEq(feeReceiverDelta, snipingFee + protocolFee, "fee receiver gets protocol and sniping fees");
+        assertEq(wmon.balanceOf(address(feeCollector)), feeCollectorBefore, "FeeCollector receives no curve fees");
     }
 
     /// @dev Verifies the per-block penalty curve matches the production table
@@ -324,7 +345,7 @@ contract BondingCurveTest is SetUp {
         assertGt(tokenOut, 0, "small buy should not underflow fee split");
     }
 
-    // BondingCurve.getAmountIn includes protocolFee + snipingPenalty + creatorFee
+    // BondingCurve.getAmountIn includes protocolFee + snipingPenalty.
 
     function test_getAmountIn_buy_noFee() public view {
         uint256 desiredTokens = 1000 ether;
@@ -335,7 +356,7 @@ contract BondingCurveTest is SetUp {
     function test_getAmountIn_buy_withProtocolFee() public {
         vm.prank(admin);
         protocolManager.updateQuoteToken(
-            address(wmon), virtualReserve, virtualTokenReserve, minTokenReserve, 0, defaultGraduateFee, 100, 0, 0
+            address(wmon), virtualReserve, virtualTokenReserve, minTokenReserve, 0, defaultGraduateFee, 100, 0
         );
 
         uint256 desiredTokens = 1000 ether;
@@ -349,7 +370,7 @@ contract BondingCurveTest is SetUp {
         (address newToken,) = bondingCurve.create(_createBCParams("PenaltyTest", "PT", keccak256("penaltyTest")));
 
         // Same-block buy → max sniping (8000 BPS). getAmountIn must inflate the input to cover
-        // both protocol/creator fees and the sniping penalty.
+        // both protocol fees and the sniping penalty.
         uint256 desiredTokens = 100 ether;
         uint256 inflatedAmountIn = bondingCurve.getAmountIn(newToken, desiredTokens, true);
 
@@ -362,7 +383,7 @@ contract BondingCurveTest is SetUp {
         assertGt(inflatedAmountIn, baselineAmountIn, "sniping window must require more quote in");
     }
 
-    // BondingCurve.getAmountIn includes protocolFee + creatorFee.
+    // BondingCurve.getAmountIn includes the protocol fee.
     function test_getAmountIn_sell_noFee() public view {
         uint256 desiredQuote = 1 ether;
         uint256 bcAmountIn = bondingCurve.getAmountIn(token, desiredQuote, false);
@@ -372,7 +393,7 @@ contract BondingCurveTest is SetUp {
     function test_getAmountIn_sell_withProtocolFee() public {
         vm.prank(admin);
         protocolManager.updateQuoteToken(
-            address(wmon), virtualReserve, virtualTokenReserve, minTokenReserve, 0, defaultGraduateFee, 100, 0, 0
+            address(wmon), virtualReserve, virtualTokenReserve, minTokenReserve, 0, defaultGraduateFee, 100, 0
         );
 
         _mintAndTransferBC(user1, 5 ether);
@@ -384,7 +405,7 @@ contract BondingCurveTest is SetUp {
         assertGt(bcAmountIn, 0, "getAmountIn sell with fee should return positive value");
     }
 
-    // BondingCurve.getAmountOut includes protocolFee + snipingPenalty + creatorFee
+    // BondingCurve.getAmountOut includes protocolFee + snipingPenalty.
 
     function test_getAmountOut_buy_noFee() public view {
         uint256 quoteIn = 1 ether;
@@ -395,7 +416,7 @@ contract BondingCurveTest is SetUp {
     function test_getAmountOut_buy_withProtocolFee() public {
         vm.prank(admin);
         protocolManager.updateQuoteToken(
-            address(wmon), virtualReserve, virtualTokenReserve, minTokenReserve, 0, defaultGraduateFee, 100, 0, 0
+            address(wmon), virtualReserve, virtualTokenReserve, minTokenReserve, 0, defaultGraduateFee, 100, 0
         );
 
         uint256 quoteIn = 1 ether;
@@ -417,7 +438,7 @@ contract BondingCurveTest is SetUp {
     function test_getAmountOut_sell_withProtocolFee() public {
         vm.prank(admin);
         protocolManager.updateQuoteToken(
-            address(wmon), virtualReserve, virtualTokenReserve, minTokenReserve, 0, defaultGraduateFee, 100, 0, 0
+            address(wmon), virtualReserve, virtualTokenReserve, minTokenReserve, 0, defaultGraduateFee, 100, 0
         );
 
         _mintAndTransferBC(user1, 5 ether);
@@ -429,7 +450,6 @@ contract BondingCurveTest is SetUp {
         assertGt(bcOut, 0, "getAmountOut sell with fee should return positive value");
     }
 
-    // Creator fee is charged in quote, so the user receives the full tokenOut.
     function test_exactOutBuy() public {
         uint256 desiredTokens = 1000 ether;
         uint256 maxQuoteIn = 5 ether;
@@ -450,7 +470,6 @@ contract BondingCurveTest is SetUp {
         vm.stopPrank();
 
         uint256 tokenBalance = IERC20(token).balanceOf(user1);
-        // The user receives the full desiredTokens because there is no creator fee on token transfer.
         assertGe(tokenBalance, desiredTokens, "Should receive at least desired tokens");
         assertApproxEqAbs(tokenBalance, desiredTokens, 1e15, "Surplus from rounding should be small");
         assertLe(amountIn, maxQuoteIn, "Should not exceed max input");
@@ -478,7 +497,6 @@ contract BondingCurveTest is SetUp {
         vm.stopPrank();
     }
 
-    // Creator fee is charged in quote, so the user receives the full tokenOut.
     function test_exactOutBuyWithNative() public {
         uint256 desiredTokens = 1000 ether;
         uint256 maxNativeIn = 5 ether;
@@ -491,7 +509,6 @@ contract BondingCurveTest is SetUp {
             })
         );
 
-        // The user receives the full desiredTokens because there is no creator fee on transfer.
         assertGe(IERC20(token).balanceOf(user1), desiredTokens, "Should receive at least desired tokens");
         assertApproxEqAbs(IERC20(token).balanceOf(user1), desiredTokens, 1e15, "Surplus from rounding should be small");
         assertEq(user1.balance, maxNativeIn - amountIn, "Native refund should match");
@@ -504,7 +521,7 @@ contract BondingCurveTest is SetUp {
             bondingCurve.create(_createBCParams("ExactOutPenalty", "EOP", keccak256("exactOutPenalty")));
 
         // Same-block exactOutBuy → table[0] (8000 BPS) sniping penalty applies on top of
-        // protocol/creator fees. amountInMax must cover the inflated cost; otherwise the router
+        // protocol fees. amountInMax must cover the inflated cost; otherwise the router
         // reverts with InsufficientOutput / out-of-budget. With a generous max we just verify the
         // exact-output buy succeeds during the sniping window.
         uint256 desiredTokens = 100 ether;
@@ -809,7 +826,6 @@ contract BondingCurveTest is SetUp {
             symbol: symbol,
             tokenURI: "",
             quoteToken: address(wmon),
-            creatorFeeRate: 500,
             vaults: vaults,
             salt: salt,
             dexType: ITokenRegistry.DexType.UniswapV3,
@@ -828,7 +844,6 @@ contract BondingCurveTest is SetUp {
             symbol: "BT",
             tokenURI: "",
             quoteToken: address(wmon),
-            creatorFeeRate: 500,
             vaults: vaults,
             salt: keccak256("bondingCurveTest"),
             dexType: ITokenRegistry.DexType.UniswapV3,

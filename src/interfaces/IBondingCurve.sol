@@ -28,7 +28,6 @@ interface IBondingCurve {
         ///      ProtocolManager's per-block penalty table.
         uint64 createdAtBlock;
         bool graduated;
-        uint16 creatorFeeRate;
         CurveVersion version;
         ITokenRegistry.DexType dexType;
         address pair;
@@ -50,7 +49,6 @@ interface IBondingCurve {
         string symbol;
         string tokenURI;
         address quoteToken;
-        uint16 creatorFeeRate;
         /// @dev Vault allocations (max 5, bps sum = 10000)
         VaultAllocation[] vaults;
         bytes32 salt;

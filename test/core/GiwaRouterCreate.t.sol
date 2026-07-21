@@ -34,8 +34,7 @@ contract GiwaRouterCreateTest is SetUp {
             defaultDeployFee,
             defaultGraduateFee,
             defaultCurveProtocolFee,
-            defaultDexProtocolFee,
-            0
+            defaultDexProtocolFee
         );
         protocolManager.setV3QuoteConfig(address(wmon), DEFAULT_V3_FEE_TIER, DEFAULT_LP_FEE_PROTOCOL_SHARE_BPS);
         protocolManager.addQuoteToken(
@@ -46,8 +45,7 @@ contract GiwaRouterCreateTest is SetUp {
             defaultDeployFee,
             defaultGraduateFee,
             defaultCurveProtocolFee,
-            defaultDexProtocolFee,
-            0
+            defaultDexProtocolFee
         );
         protocolManager.setV3QuoteConfig(address(lvmon), DEFAULT_V3_FEE_TIER, DEFAULT_LP_FEE_PROTOCOL_SHARE_BPS);
 
@@ -228,7 +226,6 @@ contract GiwaRouterCreateTest is SetUp {
             symbol: "NFC",
             tokenURI: "",
             quoteToken: address(wmon),
-            creatorFeeRate: 500,
             vaults: vaults,
             salt: keccak256("giwaRouterCreate"),
             dexType: ITokenRegistry.DexType.UniswapV3,
