@@ -160,7 +160,7 @@ contract QuoteReserveAttackTest is SetUp {
             creatorFeeRate: 500,
             vaults: vaults,
             salt: salt,
-            dexType: ITokenRegistry.DexType.UniswapV2,
+            dexType: ITokenRegistry.DexType.UniswapV3,
             creator: address(this),
             buyQuoteAmount: 0
         });

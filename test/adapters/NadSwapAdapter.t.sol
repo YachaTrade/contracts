@@ -99,7 +99,7 @@ contract NadSwapAdapterTest is Test {
     }
 
     /// @notice tokenOut must be the pair's other token — a mismatched tokenOut reverts BEFORE any
-    ///         transfer, so a caller (e.g. DividendVault's bot-supplied hop) can't push quote into a
+    ///         transfer, so a caller cannot push quote into a
     ///         pair and have it swapped into a token other than the one it credits. Mirrors
     ///         UniswapV2ExternalAdapter's TokenMismatch guard.
     function test_swap_revertsOnTokenMismatch() public {

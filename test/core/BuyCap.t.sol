@@ -7,7 +7,6 @@ import {SetUp} from "../SetUp.t.sol";
 import {IBondingCurve} from "../../src/interfaces/IBondingCurve.sol";
 import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
 import {BondingCurveLibrary} from "../../src/libraries/BondingCurveLibrary.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract BuyCapTest is SetUp {
     address vault;
@@ -218,7 +217,7 @@ contract BuyCapTest is SetUp {
             creatorFeeRate: 500,
             vaults: vaults,
             salt: salt,
-            dexType: ITokenRegistry.DexType.UniswapV2,
+            dexType: ITokenRegistry.DexType.UniswapV3,
             creator: address(this),
             buyQuoteAmount: 0
         });

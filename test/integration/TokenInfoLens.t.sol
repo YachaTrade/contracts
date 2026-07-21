@@ -22,6 +22,11 @@ contract TokenInfoLensTest is SetUp {
         v1 = new MockTokenRegistryV1();
         wmonAddr = address(wmon);
         lens = new TokenInfoLens(address(v1), address(tokenRegistry), wmonAddr);
+
+        vm.prank(admin);
+        protocolManager.setOperatorPermission(
+            address(this), address(tokenRegistry), ITokenRegistry.register.selector, true
+        );
     }
 
     // ── Constructor guards ───────────────────────────────────────
@@ -146,10 +151,8 @@ contract TokenInfoLensTest is SetUp {
 
     // ── helpers ─────────────────────────────────────────────────
 
-    /// @dev V2 TokenRegistry.register는 restricted (BondingCurve role).
-    ///      테스트에서 BondingCurve 주체를 가장하여 임의의 토큰을 등록한다.
+    /// @dev Directly seeds legacy registry data for lens compatibility coverage.
     function _registerV2(address token, address pair, address quote) internal {
-        vm.prank(address(bondingCurve));
         tokenRegistry.register(token, pair, quote, ITokenRegistry.DexType.UniswapV2);
     }
 }

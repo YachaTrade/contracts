@@ -5,6 +5,7 @@ import {SetUp} from "../SetUp.t.sol";
 import {FeeTo} from "../../src/core/FeeTo.sol";
 import {IFeeTo} from "../../src/interfaces/IFeeTo.sol";
 import {INadFunPair} from "../../src/dex/interfaces/INadFunPair.sol";
+import {MockERC20} from "../mocks/MockERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IAccessManaged} from "@openzeppelin/contracts/access/manager/IAccessManaged.sol";
@@ -37,16 +38,30 @@ contract FeeToTest is SetUp {
         protocolManager.setOperatorPermission(operator, address(feeTo), BURN_SELECTOR, true);
         vm.stopPrank();
 
-        token = _createToken();
-        _skipAntiSniping();
-        _graduateToken(token);
-        pair = nadFunFactory.getPair(token, address(quoteToken));
+        (token, pair) = _createV2Market("FeeToTest", "FT");
     }
 
     // -- Helpers --------------------------------------------------------
 
     function _swap(uint256 buyAmount) internal {
         _swapToken(token, pair, buyAmount);
+    }
+
+    function _createV2Market(string memory name, string memory symbol)
+        internal
+        returns (address token_, address pair_)
+    {
+        MockERC20 baseToken = new MockERC20(name, symbol, 18);
+        token_ = address(baseToken);
+        pair_ = nadFunFactory.createPair(token_, address(quoteToken));
+
+        uint256 tokenLiquidity = 1_000_000 ether;
+        uint256 quoteLiquidity = 100_000 ether;
+        baseToken.mint(address(this), tokenLiquidity);
+        quoteToken.mint(address(this), quoteLiquidity);
+        baseToken.transfer(pair_, tokenLiquidity);
+        quoteToken.transfer(pair_, quoteLiquidity);
+        INadFunPair(pair_).mint(address(this));
     }
 
     function _swapToken(address token_, address pair_, uint256 buyAmount) internal {
@@ -192,11 +207,7 @@ contract FeeToTest is SetUp {
     // -- Batch (multiple pairs) ---------------------------------------
 
     function test_claim_batchTwoPairsSameQuote() public {
-        bytes32 salt = keccak256("FeeToTest:token2");
-        address token2 = _createTokenWith("FeeToTest2", "FT2", DEFAULT_CREATOR_FEE_RATE, salt);
-        _skipAntiSniping();
-        _graduateToken(token2);
-        address pair2 = nadFunFactory.getPair(token2, address(quoteToken));
+        (address token2, address pair2) = _createV2Market("FeeToTest2", "FT2");
 
         _swap(50_000 ether);
         _swapToken(token2, pair2, 50_000 ether);

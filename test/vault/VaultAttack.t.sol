@@ -4,18 +4,14 @@ pragma solidity ^0.8.24;
 /// @notice Test suite for VaultAttack.
 
 import {SetUp} from "../SetUp.t.sol";
-import {BondingCurve} from "../../src/core/BondingCurve.sol";
 import {IBondingCurve} from "../../src/interfaces/IBondingCurve.sol";
 import {CreatorFeeProcessor} from "../../src/core/CreatorFeeProcessor.sol";
 import {ICreatorFeeProcessor} from "../../src/interfaces/ICreatorFeeProcessor.sol";
-import {VaultRegistry} from "../../src/vault/VaultRegistry.sol";
 import {IVaultRegistry} from "../../src/interfaces/IVaultRegistry.sol";
 import {CreatorFeeVault} from "../../src/vault/CreatorFeeVault.sol";
 import {IVault} from "../../src/interfaces/IVault.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
-import {ProtocolManager} from "../../src/core/ProtocolManager.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
@@ -141,7 +137,7 @@ contract VaultAttackTest is SetUp {
             creatorFeeRate: 500,
             vaults: vaults,
             salt: keccak256("deact-attack"),
-            dexType: ITokenRegistry.DexType.UniswapV2,
+            dexType: ITokenRegistry.DexType.UniswapV3,
             creator: address(this),
             buyQuoteAmount: 0
         });
@@ -168,7 +164,7 @@ contract VaultAttackTest is SetUp {
             creatorFeeRate: 500,
             vaults: vaults,
             salt: keccak256("collision-salt"),
-            dexType: ITokenRegistry.DexType.UniswapV2,
+            dexType: ITokenRegistry.DexType.UniswapV3,
             creator: address(this),
             buyQuoteAmount: 0
         });
@@ -187,7 +183,7 @@ contract VaultAttackTest is SetUp {
             creatorFeeRate: 500,
             vaults: vaults,
             salt: keccak256("collision-salt"),
-            dexType: ITokenRegistry.DexType.UniswapV2,
+            dexType: ITokenRegistry.DexType.UniswapV3,
             creator: address(this),
             buyQuoteAmount: 0
         });
@@ -237,7 +233,7 @@ contract VaultAttackTest is SetUp {
             creatorFeeRate: 500,
             vaults: vaults,
             salt: keccak256("bad-type"),
-            dexType: ITokenRegistry.DexType.UniswapV2,
+            dexType: ITokenRegistry.DexType.UniswapV3,
             creator: address(this),
             buyQuoteAmount: 0
         });

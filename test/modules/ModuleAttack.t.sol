@@ -4,21 +4,10 @@ pragma solidity ^0.8.24;
 /// @notice Test suite for ModuleAttack.
 
 import {SetUp} from "../SetUp.t.sol";
-import {BondingCurve} from "../../src/core/BondingCurve.sol";
 import {IBondingCurve} from "../../src/interfaces/IBondingCurve.sol";
-import {ProtocolManager} from "../../src/core/ProtocolManager.sol";
-import {CreatorFeeProcessor} from "../../src/core/CreatorFeeProcessor.sol";
-import {LPManager} from "../../src/core/LPManager.sol";
-import {TokenRegistry} from "../../src/core/TokenRegistry.sol";
 import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
-import {MockERC20} from "../mocks/MockERC20.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {VaultRegistry} from "../../src/vault/VaultRegistry.sol";
-import {CreatorFeeVault} from "../../src/vault/CreatorFeeVault.sol";
-import {IVaultRegistry} from "../../src/interfaces/IVaultRegistry.sol";
 
-/// @notice LPManager double liquidity, ProtocolManager extreme fees, disallowed creator fee rates
+/// @notice ProtocolManager extreme fees and disallowed creator fee rates.
 contract ModuleAttackTest is SetUp {
     function setUp() public override {
         super.setUp();
@@ -26,14 +15,6 @@ contract ModuleAttackTest is SetUp {
         bytes32 routerRole = bondingCurve.ROUTER_ROLE();
         vm.prank(admin);
         bondingCurve.grantRole(routerRole, creator);
-    }
-
-    /// @notice Same token addLiquidity twice -> pair and liquidity are stored correctly
-    function test_attack_lpManagerDoubleLiquidity_records() public {
-        // The real LPManager requires ProtocolManager-granted operator permission and actual token balances.
-        // Verify that the real LPManager stores pair and accumulates liquidity.
-        assertEq(lpManager.getPair(makeAddr("unregistered")), address(0), "Unregistered token should have no pair");
-        assertEq(lpManager.getLiquidity(makeAddr("unregistered"), address(bondingCurve)), 0, "Should have no liquidity");
     }
 
     /// @notice protocolFee beyond max (1000 = 10%) -> revert
@@ -139,7 +120,7 @@ contract ModuleAttackTest is SetUp {
             creatorFeeRate: creatorFeeRate,
             vaults: vaultAllocs,
             salt: salt,
-            dexType: ITokenRegistry.DexType.UniswapV2,
+            dexType: ITokenRegistry.DexType.UniswapV3,
             creator: address(this),
             buyQuoteAmount: 0
         });
