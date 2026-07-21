@@ -12,7 +12,7 @@ import {ProtocolManager} from "../../../src/core/ProtocolManager.sol";
 ///
 ///      Environment variables:
 ///        MULTISIG_PRIVATE_KEY - signer key for ProtocolManager owner
-///        V2_PROTOCOL_MANAGER  - deployed ProtocolManager proxy
+///        PROTOCOL_MANAGER     - deployed ProtocolManager proxy
 ///        QUOTE_TOKEN          - quote token address to update
 ///        Quote config values   - VIRTUAL_RESERVE, DEPLOY_FEE, etc.
 ///
@@ -35,7 +35,7 @@ contract UpdateQuoteToken is Script {
 
     function run() external {
         uint256 signerKey = vm.envUint("MULTISIG_PRIVATE_KEY");
-        address protocolManager = vm.envAddress("V2_PROTOCOL_MANAGER");
+        address protocolManager = vm.envAddress("PROTOCOL_MANAGER");
         address quoteToken = vm.envAddress("QUOTE_TOKEN");
         address signer = vm.addr(signerKey);
         QuoteTokenConfig memory updateConfig = _readConfig();

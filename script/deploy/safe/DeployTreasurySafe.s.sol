@@ -7,6 +7,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {Treasury} from "../../../src/core/Treasury.sol";
 import {IProtocolManager} from "../../../src/interfaces/IProtocolManager.sol";
 import {ProtocolManager} from "../../../src/core/ProtocolManager.sol";
+import {GIWA_WETH} from "../normal/Deploy.s.sol";
 
 /// @title DeployTreasurySafe
 /// @notice Deploys a fresh Treasury (impl + UUPS proxy) on mainnet (deployer EOA) and
@@ -17,8 +18,7 @@ import {ProtocolManager} from "../../../src/core/ProtocolManager.sol";
 /// Required env:
 ///   PRIVATE_KEY          - deployer EOA key
 ///   DEPLOYER             - expected deployer address (sanity guard)
-///   V2_PROTOCOL_MANAGER  - ProtocolManager UUPS proxy (used as Treasury authority)
-///   WMON                 - wrapped native (WMON) address
+///   PROTOCOL_MANAGER     - ProtocolManager UUPS proxy (used as Treasury authority)
 ///
 /// Run:
 ///   source .env.mainnet && forge script script/DeployTreasurySafe.s.sol:DeployTreasurySafe \
@@ -27,16 +27,17 @@ contract DeployTreasurySafe is Script {
     function run() external {
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
         address deployerEnv = vm.envAddress("DEPLOYER");
-        address protocolManager = vm.envAddress("V2_PROTOCOL_MANAGER");
-        address wmon = vm.envAddress("WMON");
+        address protocolManager = vm.envAddress("PROTOCOL_MANAGER");
+        address weth = GIWA_WETH;
 
         require(vm.addr(deployerKey) == deployerEnv, "Deploy: PRIVATE_KEY does not match DEPLOYER env");
+        require(weth.code.length > 0, "DeployTreasurySafe: canonical WETH missing code");
 
         // -- 1. Deploy impl + proxy (deployer EOA) -------------------
         vm.startBroadcast(deployerKey);
         Treasury impl = new Treasury();
         ERC1967Proxy proxy =
-            new ERC1967Proxy(address(impl), abi.encodeCall(Treasury.initialize, (protocolManager, wmon)));
+            new ERC1967Proxy(address(impl), abi.encodeCall(Treasury.initialize, (protocolManager, weth)));
         vm.stopBroadcast();
 
         address treasury = address(proxy);
@@ -49,7 +50,7 @@ contract DeployTreasurySafe is Script {
         console.log("========================================");
         console.log("Impl:            ", address(impl));
         console.log("Proxy:           ", treasury);
-        console.log("WMON:            ", wmon);
+        console.log("WETH:            ", weth);
         console.log("Authority:       ", protocolManager);
         console.log("PM.owner:        ", ProtocolManager(protocolManager).owner());
         console.log("========================================");
