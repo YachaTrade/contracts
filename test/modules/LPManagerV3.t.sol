@@ -131,6 +131,7 @@ contract MockActor is IV3LiquidityActor {
 
     function mint(ILPManager.PoolData calldata d, uint256 a0, uint256 a1) external returns (uint256, uint256) {
         if (shouldRevert) revert();
+        if (qpos != bytes32(0) || tpos != bytes32(0)) revert();
         IERC20(d.token0).transferFrom(msg.sender, address(this), used0);
         IERC20(d.token1).transferFrom(msg.sender, address(this), used1);
         qpos = bytes32(uint256(1));
@@ -156,10 +157,13 @@ contract MockActor is IV3LiquidityActor {
 
     /// Focused API/math smoke tests. Full lifecycle fixtures are covered by integration suites.
     contract LPManagerV3Test is Test {
+        MockFactory internal fixtureFactory;
+
         function _fixture(bool quote0) internal returns (LPManager, MockERC20, MockERC20, MockActor) {
             MockAuthority a = new MockAuthority();
             MockRegistry r = new MockRegistry();
             MockFactory f = new MockFactory();
+            fixtureFactory = f;
             MockERC20 token = new MockERC20("T");
             MockERC20 quote = new MockERC20("Q");
             address t0 = quote0 ? address(quote) : address(token);
@@ -202,6 +206,36 @@ contract MockActor is IV3LiquidityActor {
             m.increaseLiquidity(address(token), 20, 30);
             (bytes32 q,,,,,,,) = m.getPositions(address(token));
             assertEq(q, bytes32(uint256(1)));
+        }
+
+        function test_allocate_quoteToken1_order_and_duplicate_reverts() public {
+            (LPManager m, MockERC20 token, MockERC20 quote, MockActor actor) = _fixture(false);
+            actor.setUsage(40, 60, false);
+            m.allocate(ILPManager.AllocateParams(address(token), 100, 200, 1000, 2000, 1));
+            (bytes32 q,,,,,,,) = m.getPositions(address(token));
+            assertEq(q, bytes32(uint256(1)));
+            vm.expectRevert();
+            m.allocate(ILPManager.AllocateParams(address(token), 100, 200, 1000, 2000, 1));
+            assertEq(token.allowance(address(m), address(actor)), 0);
+            assertEq(quote.allowance(address(m), address(actor)), 0);
+        }
+
+        function test_allocate_and_increase_unauthorized_revert() public {
+            (LPManager m, MockERC20 token,,) = _fixture(true);
+            address attacker = address(0xA11CE);
+            vm.startPrank(attacker);
+            vm.expectRevert();
+            m.allocate(ILPManager.AllocateParams(address(token), 100, 200, 1000, 2000, 1));
+            vm.expectRevert();
+            m.increaseLiquidity(address(token), 1, 1);
+            vm.stopPrank();
+        }
+
+        function test_allocate_rejects_wrong_canonical_pool() public {
+            (LPManager m, MockERC20 token,,) = _fixture(true);
+            fixtureFactory.setPool(address(0xCAFE));
+            vm.expectRevert(LPManager.InvalidPool.selector);
+            m.allocate(ILPManager.AllocateParams(address(token), 100, 200, 1000, 2000, 1));
         }
 
         function test_setV3LiquidityActor_wiresOnceAndValidates() public {
