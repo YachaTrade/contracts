@@ -35,9 +35,8 @@ contract DividendVault is IDividendVault, UUPSUpgradeable, AccessManagedUpgradea
     address public bondingCurve;
     address public router;
     IBondingCurveV1 public bondingCurveV1;
-    // External adapter lanes. Legacy V2 pools use nadSwapAdapter; GiwaRouter handles
-    // pre-graduation curve hops and graduated tokens registered with canonical V3 metadata.
-    IDexAdapter public nadSwapAdapter;
+    // External adapter lanes. GiwaRouter handles pre-graduation curve hops and graduated tokens
+    // registered with canonical V3 metadata.
     IDexAdapter public uniswapV2Adapter;
     IDexAdapter public uniswapV3Adapter;
     // WMON singleton used only to unwrap native MON on claim. 0 = disabled.
@@ -232,8 +231,7 @@ contract DividendVault is IDividendVault, UUPSUpgradeable, AccessManagedUpgradea
                 } else {
                     IDexAdapter adapter = hop.adapter;
                     bool adapterAllowed;
-                    if (address(adapter) != address(0) && adapter == nadSwapAdapter) adapterAllowed = true;
-                    if (!adapterAllowed && address(adapter) != address(0) && adapter == uniswapV2Adapter) {
+                    if (address(adapter) != address(0) && adapter == uniswapV2Adapter) {
                         adapterAllowed = true;
                     }
                     if (!adapterAllowed && address(adapter) != address(0) && adapter == uniswapV3Adapter) {
@@ -340,14 +338,10 @@ contract DividendVault is IDividendVault, UUPSUpgradeable, AccessManagedUpgradea
     }
 
     /// @notice Admin replaces the explicit adapter allowlist lanes. 0 disables that lane.
-    function setAdapters(address nadSwapAdapter_, address uniswapV2Adapter_, address uniswapV3Adapter_)
-        external
-        restricted
-    {
-        nadSwapAdapter = IDexAdapter(nadSwapAdapter_);
+    function setAdapters(address uniswapV2Adapter_, address uniswapV3Adapter_) external restricted {
         uniswapV2Adapter = IDexAdapter(uniswapV2Adapter_);
         uniswapV3Adapter = IDexAdapter(uniswapV3Adapter_);
-        emit SetAdapters(nadSwapAdapter_, uniswapV2Adapter_, uniswapV3Adapter_);
+        emit SetAdapters(uniswapV2Adapter_, uniswapV3Adapter_);
     }
 
     /// @notice Admin opens or closes setup admission for an external dividend token.

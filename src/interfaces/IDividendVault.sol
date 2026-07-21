@@ -40,7 +40,7 @@ interface IDividendVault is IVault {
     event SetMerkleRoot(bytes32 indexed merkleRoot);
     event Claim(address indexed holder, address[] sourceTokens, address[] dividendTokens, uint256[] amounts);
     event SetWmon(address wmon);
-    event SetAdapters(address nadSwapAdapter, address uniswapV2Adapter, address uniswapV3Adapter);
+    event SetAdapters(address uniswapV2Adapter, address uniswapV3Adapter);
     event SetAllowedDividendToken(address indexed token, bool allowed);
 
     error NotAuthorized();
@@ -82,7 +82,7 @@ interface IDividendVault is IVault {
     function setMerkleRoot(bytes32 newRoot) external;
 
     /// @notice Admin replaces the explicit adapter allowlist lanes. 0 disables that lane.
-    function setAdapters(address nadSwapAdapter_, address uniswapV2Adapter_, address uniswapV3Adapter_) external;
+    function setAdapters(address uniswapV2Adapter_, address uniswapV3Adapter_) external;
 
     /// @notice Admin sets the WMON singleton used for native unwrap on claim. 0 disables unwrap.
     function setWmon(address newWmon) external;
@@ -106,9 +106,6 @@ interface IDividendVault is IVault {
 
     /// @notice GiwaRouter used directly for registered launch-token buy hops.
     function router() external view returns (address);
-
-    /// @notice Legacy adapter lane retained for existing external conversion routes.
-    function nadSwapAdapter() external view returns (IDexAdapter);
 
     /// @notice Uniswap V2 adapter lane used for allowed external V2 path hops.
     function uniswapV2Adapter() external view returns (IDexAdapter);
