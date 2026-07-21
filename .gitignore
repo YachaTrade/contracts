@@ -1,0 +1,21 @@
+# Compiler files
+cache/
+out/
+
+# Broadcast logs
+broadcast/
+
+# Docs
+docs/plans/
+docs/superpowers/
+
+# Worktrees
+.worktrees/
+
+# Dotenv files (including per-network: .env.mainnet, .env.testnet, etc.)
+.env
+.env.*
+
+# gstack (skills are local, not committed)
+.claude/skills/gstack/
+.gstack/

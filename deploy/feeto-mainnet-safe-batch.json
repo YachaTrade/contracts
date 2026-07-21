@@ -1,0 +1,36 @@
+{
+  "version": "1.0",
+  "chainId": "143",
+  "createdAt": 1778824148000,
+  "meta": {
+    "name": "FeeTo mainnet wiring",
+    "description": "1) Route NadFunFactory.feeTo to new FeeTo proxy. 2-3) Grant CLAIM_BOT operator permission for claim and burn on the FeeTo proxy.",
+    "txBuilderVersion": "1.17.0",
+    "createdFromSafeAddress": "0x63c46054C584231415d17A881f22b7898ceaDeB1",
+    "createdFromOwnerAddress": "",
+    "checksum": ""
+  },
+  "transactions": [
+    {
+      "to": "0x71F846A560a4d68F53e5bd34ED084E7992f171C7",
+      "value": "0",
+      "data": "0x62180460000000000000000000000000a25b13127e63ddae6d0b35570ff3d39dbd6210010000000000000000000000009a6b8addfec15a27c54570033c1ee02af1d2c7e6",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0x71F846A560a4d68F53e5bd34ED084E7992f171C7",
+      "value": "0",
+      "data": "0xa26546490000000000000000000000009a4673a0a047ed02598be6d0abcea872c04c478b0000000000000000000000009a6b8addfec15a27c54570033c1ee02af1d2c7e6b19e5036000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0x71F846A560a4d68F53e5bd34ED084E7992f171C7",
+      "value": "0",
+      "data": "0xa26546490000000000000000000000009a4673a0a047ed02598be6d0abcea872c04c478b0000000000000000000000009a6b8addfec15a27c54570033c1ee02af1d2c7e66c5d6156000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001",
+      "contractMethod": null,
+      "contractInputsValues": null
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "version": "1.0",
+  "chainId": "143",
+  "createdAt": 1781772793000,
+  "meta": {
+    "name": "DividendVault upgrade \u2014 admit graduated V1 tokens",
+    "description": "UUPS upgrade of DividendVault proxy (0xD6858E770aE97dF74B86BD5CddCd1Dd5D0c34BFC) to new impl 0x0EBd5be35c540850a75Ce6cb3162aBA5a0022E78 (adds graduated-V1 setup() admission path).",
+    "txBuilderVersion": "1.17.0",
+    "createdFromSafeAddress": "0x63c46054C584231415d17A881f22b7898ceaDeB1",
+    "createdFromOwnerAddress": "",
+    "checksum": ""
+  },
+  "transactions": [
+    {
+      "to": "0xD6858E770aE97dF74B86BD5CddCd1Dd5D0c34BFC",
+      "value": "0",
+      "data": "0x4f1ef2860000000000000000000000000ebd5be35c540850a75ce6cb3162aba5a0022e7800000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000",
+      "contractMethod": null,
+      "contractInputsValues": null
+    }
+  ]
+}

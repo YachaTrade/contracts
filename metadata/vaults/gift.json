@@ -1,0 +1,21 @@
+{
+  "name": "Gift Vault",
+  "description": {
+    "what": "Gift allows part of the trading fees to be assigned to a designated X account owner. The owner can verify the account and register an EVM wallet address through a verification tweet, then claim the fees directly.",
+    "how": [
+      "At token creation, you enter the X handle that will receive the fees.",
+      "The account owner posts the exact verification tweet to verify ownership and register the recipient EVM wallet address. Verification text: \"Activating Gift for [Token CA]. Fees will go to [Recipient Wallet Address] #Nadfun @nadfunnews\"",
+      "Once verification is complete, the recipient EVM wallet address is confirmed.",
+      "After that, the fees can be claimed directly on nad.fun by the registered address."
+    ],
+    "rules": [
+      "The X handle cannot be changed after token creation.",
+      "The fee recipient address cannot be changed once it is set.",
+      "Fees are not paid out automatically and must be claimed on nad.fun.",
+      "If verification or wallet setup is not completed within 7 days of token creation, the fees are redirected to Buyback & Burn.",
+      "If you posted the verification tweet but it was not verified, please open a Discord ticket for support."
+    ],
+    "importantNote": "After verification, fees must be claimed on nad.fun by the registered address. If verification is not completed within 7 days, fees will be redirected to Buyback & Burn. Nad.fun is not responsible for fees redirected due to verification issues after the 7 days time limit."
+  },
+  "imageUri": "https://storage.nadapp.net/vault/image/gift.png"
+}

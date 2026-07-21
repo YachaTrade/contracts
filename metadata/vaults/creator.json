@@ -1,0 +1,19 @@
+{
+  "name": "Creator Fee",
+  "description": {
+    "what": "Creator Fee allocates part of the trading fees to the token creator for project operations. The accumulated fees can be claimed directly on nad.fun.",
+    "how": [
+      "When trades occur, part of the allocated fees is accumulated.",
+      "Claim access is assigned to the wallet connected when the token is created.",
+      "The accumulated fees are not paid out automatically and can be claimed directly on nad.fun."
+    ],
+    "rules": [
+      "Claim access is assigned to the wallet connected at token creation.",
+      "The recipient wallet address cannot be changed after creation except when the community takes over the token.",
+      "CTO (Community takeover) requests can be submitted via Discord ticket and are reviewed at Nad.fun's discretion.",
+      "Fees are not paid out automatically and must be claimed manually."
+    ],
+    "importantNote": "The wallet connected at token creation becomes the fixed wallet for Creator claims. Make sure to use the correct wallet for project operations."
+  },
+  "imageUri": "https://storage.nadapp.net/vault/image/creator.png"
+}

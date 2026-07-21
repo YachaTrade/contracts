@@ -1,0 +1,2 @@
+# Dependencies under lib/ are vendored as regular tracked files in this repository.
+# Their source worktrees were materialized without nested Git metadata.

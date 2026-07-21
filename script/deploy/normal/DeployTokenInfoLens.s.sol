@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: MIT
+pragma solidity =0.8.24;
+
+import {Script, console} from "forge-std/Script.sol";
+import {TokenInfoLens} from "../../../src/integration/TokenInfoLens.sol";
+
+/// @title DeployTokenInfoLens
+/// @notice Deploys the TokenInfoLens view contract wired to existing V1/V2 TokenRegistry
+///         addresses and WMON. Requires env vars: `PRIVATE_KEY`, `V1_TOKEN_REGISTRY`,
+///         `V2_TOKEN_REGISTRY`, `WMON`.
+/// @dev `PRIVATE_KEY`를 env에서 직접 읽어 `vm.startBroadcast(pk)`로 사용한다 — CLI
+///      `--private-key` 인자를 통한 ps/proc 노출을 피하기 위함.
+contract DeployTokenInfoLens is Script {
+    function run() external {
+        uint256 pk = vm.envUint("PRIVATE_KEY");
+        address v1 = vm.envAddress("V1_TOKEN_REGISTRY");
+        address v2 = vm.envAddress("V2_TOKEN_REGISTRY");
+        address wmon = vm.envAddress("WMON");
+
+        vm.startBroadcast(pk);
+        TokenInfoLens lens = new TokenInfoLens(v1, v2, wmon);
+        vm.stopBroadcast();
+
+        console.log("TokenInfoLens deployed at:", address(lens));
+        console.log("  v1Registry:", v1);
+        console.log("  v2Registry:", v2);
+        console.log("  wmon:      ", wmon);
+    }
+}
