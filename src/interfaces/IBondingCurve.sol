@@ -54,8 +54,7 @@ interface IBondingCurve {
         bytes32 salt;
         ITokenRegistry.DexType dexType;
         address creator;
-        /// @dev Explicit quote amount to use for the optional initial buy. Any excess transferred
-        ///      into BondingCurve before create() is sent to the protocol fee receiver.
+        /// @dev Explicit quote amount to use for the optional initial buy.
         uint256 buyQuoteAmount;
     }
 
@@ -101,12 +100,13 @@ interface IBondingCurve {
     error ModuleAlreadySet(bytes32 moduleId);
     error InsufficientTokenOut();
     error DuplicateVault();
+    error InvalidBalanceDelta(address token, address account, uint256 requiredBalance, uint256 currentBalance);
 
     function create(CreateTokenParams calldata params) external payable returns (address token, uint256 tokenOut);
 
-    function buy(address to, address token) external returns (uint256 tokenOut);
+    function buy(address to, address token, uint256 quoteIn) external returns (uint256 tokenOut);
 
-    function sell(address to, address token) external returns (uint256 quoteOut);
+    function sell(address to, address token, uint256 tokenIn) external returns (uint256 quoteOut);
 
     function getCurve(address token) external view returns (Curve memory);
 

@@ -18,6 +18,31 @@ import {IAccessManaged} from "@openzeppelin/contracts/access/manager/IAccessMana
 import {UniswapV3Factory} from "@uniswap/v3-core/contracts/UniswapV3Factory.sol";
 import {QuoterV2} from "@uniswap/v3-periphery/contracts/lens/QuoterV2.sol";
 import {V3SwapAdapter} from "../../src/adapters/V3SwapAdapter.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+
+contract ToggleFeeOnTransferQuote is ERC20 {
+    bool public feeEnabled;
+
+    constructor() ERC20("Toggle Tax Quote", "TTQ") {}
+
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+
+    function setFeeEnabled(bool enabled) external {
+        feeEnabled = enabled;
+    }
+
+    function _update(address from, address to, uint256 value) internal override {
+        if (feeEnabled && from != address(0) && to != address(0)) {
+            uint256 fee = value / 100;
+            super._update(from, to, value - fee);
+            super._update(from, address(0xdead), fee);
+            return;
+        }
+        super._update(from, to, value);
+    }
+}
 
 contract GiwaRouterTest is SetUp {
     MockERC20 lvmon;
@@ -44,8 +69,7 @@ contract GiwaRouterTest is SetUp {
             defaultDeployFee,
             defaultGraduateFee,
             defaultCurveProtocolFee,
-            defaultDexProtocolFee,
-            0
+            defaultDexProtocolFee
         );
         protocolManager.setV3QuoteConfig(address(wmon), DEFAULT_V3_FEE_TIER, DEFAULT_LP_FEE_PROTOCOL_SHARE_BPS);
         protocolManager.addQuoteToken(
@@ -56,8 +80,7 @@ contract GiwaRouterTest is SetUp {
             defaultDeployFee,
             defaultGraduateFee,
             defaultCurveProtocolFee,
-            defaultDexProtocolFee,
-            0
+            defaultDexProtocolFee
         );
         protocolManager.setV3QuoteConfig(address(lvmon), DEFAULT_V3_FEE_TIER, DEFAULT_LP_FEE_PROTOCOL_SHARE_BPS);
 
@@ -85,12 +108,15 @@ contract GiwaRouterTest is SetUp {
                 ))
         );
 
+        vm.startPrank(admin);
+        bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), address(giwaRouter));
+        vm.stopPrank();
+
         // Fund MockWMON with ETH for native tests
         vm.deal(address(wmon), 1000 ether);
 
-        // Transfer deployFee to bondingCurve before create (balance detection)
         wmon.mint(address(this), defaultDeployFee);
-        wmon.transfer(address(bondingCurve), defaultDeployFee);
+        wmon.approve(address(bondingCurve), defaultDeployFee);
         // Create token
         (token,) = bondingCurve.create(_nadFunDefaultParams());
 
@@ -387,6 +413,127 @@ contract GiwaRouterTest is SetUp {
         assertEq(IERC20(token).balanceOf(user1), expectedTokenOut, "User token balance should match");
         assertEq(wmon.balanceOf(user1), amountIn - expectedQuoteIn, "User should keep unspent quote");
         assertEq(wmon.balanceOf(address(giwaRouter)), 0, "Router should hold no quote");
+        assertEq(wmon.allowance(address(giwaRouter), address(bondingCurve)), 0, "Curve allowance reset");
+    }
+
+    function test_buy_bondingCurve_doesNotSweepCurveOrRouterDonations() public {
+        uint256 curveDonation = 3 ether;
+        uint256 routerDonation = 5 ether;
+        uint256 amountIn = 2 ether;
+        wmon.mint(user2, curveDonation + routerDonation);
+        vm.startPrank(user2);
+        wmon.transfer(address(bondingCurve), curveDonation);
+        wmon.transfer(address(giwaRouter), routerDonation);
+        vm.stopPrank();
+
+        wmon.mint(user1, amountIn);
+        vm.startPrank(user1);
+        wmon.approve(address(giwaRouter), amountIn);
+        giwaRouter.buy(
+            IGiwaRouter.BuyParams({
+                amountIn: amountIn, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1
+            })
+        );
+        vm.stopPrank();
+
+        IBondingCurve.Curve memory curve = bondingCurve.getCurve(token);
+        uint256 trackedQuote = curve.virtualQuoteReserve - curve.initialQuoteReserve;
+        assertEq(wmon.balanceOf(address(bondingCurve)), trackedQuote + curveDonation, "curve donation remains");
+        assertEq(wmon.balanceOf(address(giwaRouter)), routerDonation, "router donation remains");
+    }
+
+    function test_sell_bondingCurve_doesNotSweepLaunchTokenDonations() public {
+        uint256 buyAmount = 4 ether;
+        wmon.mint(user1, buyAmount);
+        vm.startPrank(user1);
+        wmon.approve(address(giwaRouter), buyAmount);
+        uint256 tokenOut = giwaRouter.buy(
+            IGiwaRouter.BuyParams({
+                amountIn: buyAmount, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1
+            })
+        );
+
+        uint256 curveDonation = tokenOut / 5;
+        uint256 routerDonation = tokenOut / 5;
+        uint256 tokenIn = tokenOut / 5;
+        IERC20(token).transfer(address(bondingCurve), curveDonation);
+        IERC20(token).transfer(address(giwaRouter), routerDonation);
+        uint256 curveBalanceBefore = IERC20(token).balanceOf(address(bondingCurve));
+        IERC20(token).approve(address(giwaRouter), tokenIn);
+        giwaRouter.sell(
+            IGiwaRouter.SellParams({
+                amountIn: tokenIn, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1
+            })
+        );
+        vm.stopPrank();
+
+        assertEq(
+            IERC20(token).balanceOf(address(bondingCurve)),
+            curveBalanceBefore + tokenIn,
+            "curve launch-token donation remains"
+        );
+        assertEq(IERC20(token).balanceOf(address(giwaRouter)), routerDonation, "router launch-token donation remains");
+        assertEq(IERC20(token).allowance(address(giwaRouter), address(bondingCurve)), 0, "Curve allowance reset");
+    }
+
+    function test_buy_bondingCurve_taxedQuoteInputRevertsAndRollsBack() public {
+        (ToggleFeeOnTransferQuote taxedQuote, address taxedToken) = _createToggleTaxQuotedToken();
+        uint256 amountIn = 2 ether;
+        taxedQuote.mint(user1, amountIn);
+        taxedQuote.setFeeEnabled(true);
+        IBondingCurve.Curve memory curveBefore = bondingCurve.getCurve(taxedToken);
+
+        vm.startPrank(user1);
+        taxedQuote.approve(address(giwaRouter), amountIn);
+        vm.expectPartialRevert(IGiwaRouter.InvalidBalanceDelta.selector);
+        giwaRouter.buy(
+            IGiwaRouter.BuyParams({
+                amountIn: amountIn, amountOutMin: 0, token: taxedToken, to: user1, deadline: block.timestamp + 1
+            })
+        );
+        vm.stopPrank();
+
+        assertEq(taxedQuote.balanceOf(user1), amountIn, "taxed pull rolls back payer balance");
+        assertEq(
+            bondingCurve.getCurve(taxedToken).virtualQuoteReserve,
+            curveBefore.virtualQuoteReserve,
+            "taxed pull rolls back curve state"
+        );
+    }
+
+    function test_sell_bondingCurve_shortCreditRevertsAndRollsBack() public {
+        (ToggleFeeOnTransferQuote taxedQuote, address taxedToken) = _createToggleTaxQuotedToken();
+        uint256 buyAmount = 4 ether;
+        taxedQuote.mint(user1, buyAmount);
+        vm.startPrank(user1);
+        taxedQuote.approve(address(giwaRouter), buyAmount);
+        uint256 tokenOut = giwaRouter.buy(
+            IGiwaRouter.BuyParams({
+                amountIn: buyAmount, amountOutMin: 0, token: taxedToken, to: user1, deadline: block.timestamp + 1
+            })
+        );
+        uint256 tokenIn = tokenOut / 2;
+        IERC20(taxedToken).approve(address(giwaRouter), tokenIn);
+        uint256 tokenBalanceBefore = IERC20(taxedToken).balanceOf(user1);
+        uint256 quoteBalanceBefore = taxedQuote.balanceOf(user1);
+        IBondingCurve.Curve memory curveBefore = bondingCurve.getCurve(taxedToken);
+        taxedQuote.setFeeEnabled(true);
+
+        vm.expectPartialRevert(IBondingCurve.InvalidBalanceDelta.selector);
+        giwaRouter.sell(
+            IGiwaRouter.SellParams({
+                amountIn: tokenIn, amountOutMin: 0, token: taxedToken, to: user1, deadline: block.timestamp + 1
+            })
+        );
+        vm.stopPrank();
+
+        assertEq(IERC20(taxedToken).balanceOf(user1), tokenBalanceBefore, "failed sell rolls back token input");
+        assertEq(taxedQuote.balanceOf(user1), quoteBalanceBefore, "failed sell rolls back quote output");
+        assertEq(
+            bondingCurve.getCurve(taxedToken).virtualQuoteReserve,
+            curveBefore.virtualQuoteReserve,
+            "short credit rolls back curve state"
+        );
     }
 
     function test_buyWithNative_bondingCurve_exactAmount() public {
@@ -664,7 +811,6 @@ contract GiwaRouterTest is SetUp {
             symbol: "RT",
             tokenURI: "",
             quoteToken: address(wmon),
-            creatorFeeRate: 500,
             vaults: vaults,
             salt: keccak256("giwaRouterTest"),
             dexType: ITokenRegistry.DexType.UniswapV3,
@@ -675,11 +821,37 @@ contract GiwaRouterTest is SetUp {
 
     function _createLvmonQuotedToken() internal returns (address lvmonQuotedToken) {
         lvmon.mint(address(this), defaultDeployFee);
-        lvmon.transfer(address(bondingCurve), defaultDeployFee);
+        lvmon.approve(address(bondingCurve), defaultDeployFee);
         IBondingCurve.CreateTokenParams memory params = _nadFunDefaultParams();
         params.quoteToken = address(lvmon);
         params.salt = keccak256("giwaRouterLvmonTest");
         (lvmonQuotedToken,) = bondingCurve.create(params);
         vm.warp(block.timestamp + 100 minutes);
+    }
+
+    function _createToggleTaxQuotedToken() internal returns (ToggleFeeOnTransferQuote taxedQuote, address taxedToken) {
+        taxedQuote = new ToggleFeeOnTransferQuote();
+        vm.startPrank(admin);
+        protocolManager.addQuoteToken(
+            address(taxedQuote),
+            virtualReserve,
+            virtualTokenReserve,
+            minTokenReserve,
+            defaultDeployFee,
+            defaultGraduateFee,
+            defaultCurveProtocolFee,
+            defaultDexProtocolFee
+        );
+        protocolManager.setV3QuoteConfig(address(taxedQuote), DEFAULT_V3_FEE_TIER, DEFAULT_LP_FEE_PROTOCOL_SHARE_BPS);
+        vm.stopPrank();
+
+        taxedQuote.mint(address(this), defaultDeployFee);
+        taxedQuote.approve(address(bondingCurve), defaultDeployFee);
+        IBondingCurve.CreateTokenParams memory params = _nadFunDefaultParams();
+        params.quoteToken = address(taxedQuote);
+        params.salt = keccak256("giwaRouterTaxedQuoteTest");
+        (taxedToken,) = bondingCurve.create(params);
+        vm.warp(block.timestamp + 100 minutes);
+        vm.roll(block.number + 10);
     }
 }

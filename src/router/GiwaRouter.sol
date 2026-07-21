@@ -111,8 +111,11 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
     {
         uint256 deployFee = IProtocolManager(authority()).deployFee(params.quoteToken);
         uint256 quoteRequired = deployFee + params.buyQuoteAmount;
+        IERC20 quoteToken = IERC20(params.quoteToken);
+        uint256 routerBalanceBefore = quoteToken.balanceOf(address(this));
 
-        IERC20(params.quoteToken).safeTransferFrom(msg.sender, address(_bondingCurve), quoteRequired);
+        _pullExact(quoteToken, msg.sender, quoteRequired);
+        quoteToken.forceApprove(address(_bondingCurve), quoteRequired);
 
         (token, tokenOut) = _bondingCurve.create(
             IBondingCurve.CreateTokenParams({
@@ -127,6 +130,8 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
                 buyQuoteAmount: params.buyQuoteAmount
             })
         );
+        quoteToken.forceApprove(address(_bondingCurve), 0);
+        _requireBalanceEquals(quoteToken, address(this), routerBalanceBefore);
 
         emit Create(token, msg.sender);
     }
@@ -143,9 +148,11 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
         uint256 deployFee = IProtocolManager(authority()).deployFee(quoteToken);
         uint256 quoteRequired = deployFee + params.buyQuoteAmount;
         require(msg.value >= quoteRequired, "Insufficient native");
+        IERC20 quote = IERC20(quoteToken);
+        uint256 routerBalanceBefore = quote.balanceOf(address(this));
 
         _fundQuoteFromNative(quoteToken, quoteRequired);
-        IERC20(quoteToken).safeTransfer(address(_bondingCurve), quoteRequired);
+        quote.forceApprove(address(_bondingCurve), quoteRequired);
 
         (token, tokenOut) = _bondingCurve.create(
             IBondingCurve.CreateTokenParams({
@@ -160,6 +167,8 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
                 buyQuoteAmount: params.buyQuoteAmount
             })
         );
+        quote.forceApprove(address(_bondingCurve), 0);
+        _requireBalanceEquals(quote, address(this), routerBalanceBefore);
 
         uint256 refund = msg.value - quoteRequired;
         if (refund > 0) _transferNative(msg.sender, refund);
@@ -217,12 +226,16 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
             );
             refund = msg.value - quoteIn;
         } else {
+            IERC20 quoteToken = IERC20(address(_wrappedNative));
+            uint256 routerBalanceBefore = quoteToken.balanceOf(address(this));
             uint256 tokenOut = _bondingCurve.getAmountOut(params.token, msg.value, true);
             quoteIn = tokenOut == 0 ? msg.value : _bondingCurve.getAmountIn(params.token, tokenOut, true);
             if (quoteIn > msg.value) quoteIn = msg.value;
             _wrappedNative.deposit{value: quoteIn}();
-            IERC20(address(_wrappedNative)).safeTransfer(address(_bondingCurve), quoteIn);
-            amountOut = _bondingCurve.buy(params.to, params.token);
+            quoteToken.forceApprove(address(_bondingCurve), quoteIn);
+            amountOut = _bondingCurve.buy(params.to, params.token, quoteIn);
+            quoteToken.forceApprove(address(_bondingCurve), 0);
+            _requireBalanceEquals(quoteToken, address(this), routerBalanceBefore);
             refund = msg.value - quoteIn;
         }
 
@@ -407,14 +420,18 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
             );
         } else {
             address quoteToken = _getQuoteToken(params.token);
+            IERC20 quote = IERC20(quoteToken);
+            uint256 routerBalanceBefore = quote.balanceOf(address(this));
             amountIn = _bondingCurve.getAmountIn(params.token, params.amountOut, true);
             if (amountIn > params.amountInMax) revert ExcessiveInput();
-            IERC20(quoteToken).safeTransferFrom(msg.sender, address(this), params.amountInMax);
-            IERC20(quoteToken).safeTransfer(address(_bondingCurve), amountIn);
-            uint256 tokenOut = _bondingCurve.buy(params.to, params.token);
+            _pullExact(quote, msg.sender, params.amountInMax);
+            quote.forceApprove(address(_bondingCurve), amountIn);
+            uint256 tokenOut = _bondingCurve.buy(params.to, params.token, amountIn);
+            quote.forceApprove(address(_bondingCurve), 0);
             if (tokenOut < params.amountOut) revert InsufficientOutput();
             uint256 refund = params.amountInMax - amountIn;
-            if (refund > 0) IERC20(quoteToken).safeTransfer(msg.sender, refund);
+            _pushExact(quote, msg.sender, refund);
+            _requireBalanceEquals(quote, address(this), routerBalanceBefore);
         }
 
         emit Buy(msg.sender, params.token, amountIn, params.amountOut, graduated);
@@ -448,11 +465,15 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
                 })
             );
         } else {
+            IERC20 quoteToken = IERC20(address(_wrappedNative));
+            uint256 routerBalanceBefore = quoteToken.balanceOf(address(this));
             amountIn = _bondingCurve.getAmountIn(params.token, params.amountOut, true);
             if (amountIn > msg.value) revert ExcessiveInput();
             _wrappedNative.deposit{value: amountIn}();
-            IERC20(address(_wrappedNative)).safeTransfer(address(_bondingCurve), amountIn);
-            uint256 tokenOut = _bondingCurve.buy(params.to, params.token);
+            quoteToken.forceApprove(address(_bondingCurve), amountIn);
+            uint256 tokenOut = _bondingCurve.buy(params.to, params.token, amountIn);
+            quoteToken.forceApprove(address(_bondingCurve), 0);
+            _requireBalanceEquals(quoteToken, address(this), routerBalanceBefore);
             if (tokenOut < params.amountOut) revert InsufficientOutput();
         }
 
@@ -623,17 +644,21 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
             (quoteIn, tokenOut) = _buyV3(request);
         } else {
             address quoteToken = _getQuoteToken(request.token);
+            IERC20 quote = IERC20(quoteToken);
+            uint256 routerBalanceBefore = quote.balanceOf(address(this));
             uint256 tokenOutFromCurve = _bondingCurve.getAmountOut(request.token, request.amountIn, true);
             quoteIn = tokenOutFromCurve == 0
                 ? request.amountIn
                 : _bondingCurve.getAmountIn(request.token, tokenOutFromCurve, true);
             if (quoteIn > request.amountIn) quoteIn = request.amountIn;
-            IERC20(quoteToken).safeTransferFrom(request.payer, address(this), request.amountIn);
-            IERC20(quoteToken).safeTransfer(address(_bondingCurve), quoteIn);
-            tokenOut = _bondingCurve.buy(request.recipient, request.token);
+            _pullExact(quote, request.payer, request.amountIn);
+            quote.forceApprove(address(_bondingCurve), quoteIn);
+            tokenOut = _bondingCurve.buy(request.recipient, request.token, quoteIn);
+            quote.forceApprove(address(_bondingCurve), 0);
             if (tokenOut < request.amountOutMin) revert InsufficientOutput();
             uint256 quoteRefund = request.amountIn - quoteIn;
-            if (quoteRefund > 0) IERC20(quoteToken).safeTransfer(request.payer, quoteRefund);
+            _pushExact(quote, request.payer, quoteRefund);
+            _requireBalanceEquals(quote, address(this), routerBalanceBefore);
         }
 
         emit Buy(request.payer, request.token, quoteIn, tokenOut, graduated);
@@ -643,17 +668,31 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
         bool graduated = _isGraduated(request.token);
         uint256 tokenIn = request.amountIn;
         address recipient = request.recipient;
+        IERC20 nativeQuoteToken;
+        uint256 nativeQuoteBalanceBefore;
+        if (native && !graduated) {
+            nativeQuoteToken = IERC20(_getQuoteToken(request.token));
+            nativeQuoteBalanceBefore = nativeQuoteToken.balanceOf(address(this));
+        }
         if (native) request.recipient = address(this);
 
         if (graduated) {
             (tokenIn, quoteOut) = _sellV3(request);
         } else {
-            IERC20(request.token).safeTransferFrom(request.payer, address(_bondingCurve), request.amountIn);
-            quoteOut = _bondingCurve.sell(request.recipient, request.token);
+            IERC20 launchToken = IERC20(request.token);
+            uint256 routerTokenBalanceBefore = launchToken.balanceOf(address(this));
+            _pullExact(launchToken, request.payer, request.amountIn);
+            launchToken.forceApprove(address(_bondingCurve), request.amountIn);
+            quoteOut = _bondingCurve.sell(request.recipient, request.token, request.amountIn);
+            launchToken.forceApprove(address(_bondingCurve), 0);
+            _requireBalanceEquals(launchToken, address(this), routerTokenBalanceBefore);
         }
 
         if (quoteOut < request.amountOutMin) revert InsufficientOutput();
-        if (native) _unwrapAndTransferNative(recipient, quoteOut);
+        if (native) {
+            _unwrapAndTransferNative(recipient, quoteOut);
+            if (!graduated) _requireBalanceEquals(nativeQuoteToken, address(this), nativeQuoteBalanceBefore);
+        }
         emit Sell(request.payer, request.token, tokenIn, quoteOut, graduated);
     }
 
@@ -661,6 +700,12 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
         bool graduated = _isGraduated(request.token);
         uint256 quoteOut;
         address recipient = request.recipient;
+        IERC20 nativeQuoteToken;
+        uint256 nativeQuoteBalanceBefore;
+        if (native && !graduated) {
+            nativeQuoteToken = IERC20(_getQuoteToken(request.token));
+            nativeQuoteBalanceBefore = nativeQuoteToken.balanceOf(address(this));
+        }
         if (native) request.recipient = address(this);
 
         if (graduated) {
@@ -668,12 +713,20 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
         } else {
             tokenIn = _bondingCurve.getAmountIn(request.token, request.amountOut, false);
             if (tokenIn > request.amountInMax) revert ExcessiveInput();
-            IERC20(request.token).safeTransferFrom(request.payer, address(_bondingCurve), tokenIn);
-            quoteOut = _bondingCurve.sell(request.recipient, request.token);
+            IERC20 launchToken = IERC20(request.token);
+            uint256 routerTokenBalanceBefore = launchToken.balanceOf(address(this));
+            _pullExact(launchToken, request.payer, tokenIn);
+            launchToken.forceApprove(address(_bondingCurve), tokenIn);
+            quoteOut = _bondingCurve.sell(request.recipient, request.token, tokenIn);
+            launchToken.forceApprove(address(_bondingCurve), 0);
+            _requireBalanceEquals(launchToken, address(this), routerTokenBalanceBefore);
             if (quoteOut < request.amountOut) revert InsufficientOutput();
         }
 
-        if (native) _unwrapAndTransferNative(recipient, quoteOut);
+        if (native) {
+            _unwrapAndTransferNative(recipient, quoteOut);
+            if (!graduated) _requireBalanceEquals(nativeQuoteToken, address(this), nativeQuoteBalanceBefore);
+        }
         emit Sell(request.payer, request.token, tokenIn, quoteOut, graduated);
     }
 
@@ -868,7 +921,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
     }
 
     function _pullExact(IERC20 token, address from, uint256 amount) private {
-        if (from == address(this)) return;
+        if (amount == 0 || from == address(this)) return;
         uint256 senderBalanceBefore = token.balanceOf(from);
         uint256 routerBalanceBefore = token.balanceOf(address(this));
         token.safeTransferFrom(from, address(this), amount);
@@ -904,6 +957,13 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
             revert InvalidBalanceDelta(address(token), account, type(uint256).max, token.balanceOf(account));
         }
         uint256 requiredBalance = balanceBefore + amount;
+        uint256 currentBalance = token.balanceOf(account);
+        if (currentBalance != requiredBalance) {
+            revert InvalidBalanceDelta(address(token), account, requiredBalance, currentBalance);
+        }
+    }
+
+    function _requireBalanceEquals(IERC20 token, address account, uint256 requiredBalance) private view {
         uint256 currentBalance = token.balanceOf(account);
         if (currentBalance != requiredBalance) {
             revert InvalidBalanceDelta(address(token), account, requiredBalance, currentBalance);

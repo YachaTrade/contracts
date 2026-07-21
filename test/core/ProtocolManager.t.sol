@@ -21,7 +21,7 @@ contract ProtocolManagerTest is SetUp {
         assertEq(protocolManager.feeReceiver(), feeReceiver);
     }
 
-    function test_removedCreatorTradeFeeAndSettlementSelectors_areUnavailable() public {
+    function test_removedLegacyFeeAndFactorySelectors_areUnavailable() public {
         uint16[] memory rates = new uint16[](1);
         rates[0] = 100;
 
@@ -35,6 +35,10 @@ contract ProtocolManagerTest is SetUp {
             .call(abi.encodeWithSignature("setSettlementThreshold(address,uint256)", address(quoteToken), 1 ether));
         (bool readThreshold,) = address(protocolManager)
             .staticcall(abi.encodeWithSignature("settlementThreshold(address)", address(quoteToken)));
+        (bool setFactoryFeeTo,) = address(protocolManager)
+            .call(abi.encodeWithSignature("setFactoryFeeTo(address,address)", address(1), address(2)));
+        (bool setFactoryImplementation,) = address(protocolManager)
+            .call(abi.encodeWithSignature("setFactoryImplementation(address,address)", address(1), address(2)));
         vm.stopPrank();
 
         assertFalse(setRates, "creator fee-rate setter must be removed");
@@ -42,6 +46,8 @@ contract ProtocolManagerTest is SetUp {
         assertFalse(readRate, "creator fee-rate getter must be removed");
         assertFalse(setThreshold, "settlement threshold setter must be removed");
         assertFalse(readThreshold, "settlement threshold getter must be removed");
+        assertFalse(setFactoryFeeTo, "legacy factory fee setter must be removed");
+        assertFalse(setFactoryImplementation, "legacy factory implementation setter must be removed");
     }
 
     function test_initialize_feesMatchDefaults() public view {
