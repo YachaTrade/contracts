@@ -107,7 +107,7 @@ interface IDividendVault is IVault {
     /// @notice GiwaRouter used directly for registered launch-token buy hops.
     function router() external view returns (address);
 
-    /// @notice NadSwap adapter lane for general NadFunPair pool swaps, including vanilla pools and cross-quote bridge legs.
+    /// @notice Legacy adapter lane retained for existing external conversion routes.
     function nadSwapAdapter() external view returns (IDexAdapter);
 
     /// @notice Uniswap V2 adapter lane used for allowed external V2 path hops.

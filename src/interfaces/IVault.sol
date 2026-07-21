@@ -21,7 +21,7 @@ interface IVault is IERC165 {
 
     /// @notice Per-token setup called by BondingCurve during token creation.
     /// @dev Only vaults that need per-token configuration implement this.
-    ///      BurnVault/LPVault: no-op. CreatorFeeVault: registers recipient.
+    ///      Vaults without per-token configuration may use a no-op. CreatorFeeVault registers a recipient.
     /// @param token The token being created
     /// @param data Vault-specific setup data (e.g., abi.encode(recipient) for CreatorFeeVault)
     function setup(address token, bytes calldata data) external;

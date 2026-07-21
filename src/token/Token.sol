@@ -8,13 +8,12 @@ import {
 import {IToken} from "../interfaces/IToken.sol";
 import {TOKEN_TOTAL_SUPPLY} from "../libraries/Constants.sol";
 
-// Token -- Simple ERC20 + Permit for NadFun v2
+// Token -- Simple ERC20 + Permit for bonding-curve launches
 //
 //
 
-/// @title Token -- Simple ERC20 + Permit for NadFun v2
+/// @title Token -- Simple ERC20 + Permit for bonding-curve launches
 /// @notice Deployed as ERC-1167 clone. No fee-on-transfer.
-///         Fee collection happens at the NadFunPair and BondingCurve level.
 contract Token is ERC20Upgradeable, ERC20PermitUpgradeable, IToken {
     uint256 public constant TOTAL_SUPPLY = TOKEN_TOTAL_SUPPLY;
 

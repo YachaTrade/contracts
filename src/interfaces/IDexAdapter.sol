@@ -2,8 +2,8 @@
 pragma solidity ^0.8.24;
 
 /// @title IDexAdapter — Pluggable DEX adapter interface
-/// @notice Each DEX version (NadSwap V2, V3, V4) implements this interface.
-///         Consumers (DexRouter, LPManager, BurnVault, LPVault) interact with
+/// @notice Each supported DEX integration implements this interface.
+///         Consumers interact with
 ///         DEX pairs/pools exclusively through this abstraction.
 ///
 /// @dev Push pattern: caller transfers tokens to the adapter before calling.
@@ -11,7 +11,7 @@ pragma solidity ^0.8.24;
 interface IDexAdapter {
     /// @notice Execute a token swap on a pair/pool
     /// @dev Caller must have transferred amountIn of tokenIn to this adapter before calling
-    /// @param data Arbitrary data passed to pair (enables flash swaps via INadFunCallee callback)
+    /// @param data Arbitrary data passed to the pair or pool callback
     function swap(address pair, address tokenIn, address tokenOut, uint256 amountIn, address to, bytes calldata data)
         external
         returns (uint256 amountOut);
