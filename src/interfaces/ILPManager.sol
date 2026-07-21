@@ -7,6 +7,14 @@ import {ITokenRegistry} from "./ITokenRegistry.sol";
 /// @notice Liquidity management interface used during graduation and LP accounting.
 
 interface ILPManager {
+    struct AllocateParams {
+        address token;
+        uint256 quoteAmount;
+        uint256 tokenAmount;
+        uint256 virtualQuoteReserve;
+        uint256 virtualTokenReserve;
+        uint256 graduateFee;
+    }
     /// @notice Canonical V3 pool data passed to the direct liquidity actor.
     struct PoolData {
         address pool;
@@ -20,6 +28,7 @@ interface ILPManager {
         int24 bondingTick;
         bool quoteIsToken0;
     }
+    error LegacyLiquidityDisabled();
 
     event Allocate(
         address indexed token,
@@ -42,6 +51,7 @@ interface ILPManager {
         ITokenRegistry.DexType dexType,
         address pair
     ) external returns (uint256 liquidity);
+
 
     function claimFees(address token) external returns (uint256 amount0, uint256 amount1);
 
