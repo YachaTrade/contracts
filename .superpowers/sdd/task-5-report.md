@@ -14,7 +14,7 @@ The pre-implementation RED run failed to compile because `AllocateParams`, V3 al
 
 ## Validation
 
-`forge build` passes. The focused `test/modules/LPManagerV3.t.sol` suite now has 9 passing tests (including 257 fuzz runs), with proxy-backed actor wiring and a mock allocation/increase lifecycle covering canonical metadata, call-scoped allowance reset, actor usage, remainder delivery, stored positions, and AccessManager selector authorization. Real Uniswap pool fee accrual remains deferred to later integration coverage.
+`forge build` passes. The focused `test/modules/LPManagerV3.t.sol` suite now has 12 passing tests (including 257 fuzz runs), with proxy-backed actor wiring and a mock allocation/increase lifecycle covering both token orders, canonical-pool rejection, duplicate-position rejection, call-scoped allowance reset, actor usage, remainder delivery, stored positions, and AccessManager selector authorization. Real Uniswap pool fee accrual remains deferred to later integration coverage.
 
 ## Follow-up fixes
 
