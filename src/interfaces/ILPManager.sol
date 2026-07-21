@@ -7,6 +7,20 @@ import {ITokenRegistry} from "./ITokenRegistry.sol";
 /// @notice Liquidity management interface used during graduation and LP accounting.
 
 interface ILPManager {
+    /// @notice Canonical V3 pool data passed to the direct liquidity actor.
+    struct PoolData {
+        address pool;
+        address token0;
+        address token1;
+        address quoteToken;
+        uint160 sqrtPrice;
+        int24 currentTick;
+        int24 tickSpacing;
+        int24 alignedTick;
+        int24 bondingTick;
+        bool quoteIsToken0;
+    }
+
     event Allocate(
         address indexed token,
         address indexed pair,
