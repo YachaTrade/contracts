@@ -29,9 +29,10 @@ address constant GIWA_WETH = 0x4200000000000000000000000000000000000006;
 
 /// @title Deploy -- full canonical Uniswap V3 protocol deployment script
 /// @notice Deploys all contracts in correct order, initializes and configures them.
-/// @dev Environment variables (required):  PRIVATE_KEY, DEPLOYER, LV_MON, FEE_RECEIVER, MULTISIG, V3_FACTORY,
+/// @dev Environment variables (required):  PRIVATE_KEY, DEPLOYER, MULTISIG_PRIVATE_KEY, MULTISIG,
+///      CHAIN_ID, FEE_RECEIVER, V3_FACTORY,
 ///      VIRTUAL_RESERVE, VIRTUAL_TOKEN_RESERVE, MIN_TOKEN_RESERVE, DEPLOY_FEE, GRADUATE_FEE,
-///      CURVE_PROTOCOL_FEE_RATE, DEX_PROTOCOL_FEE_RATE, SETTLEMENT_THRESHOLD, V3_FEE_TIER,
+///      CURVE_PROTOCOL_FEE_RATE, SETTLEMENT_THRESHOLD, V3_FEE_TIER,
 ///      LP_FEE_PROTOCOL_SHARE_BPS, SNIPING_PENALTY_TABLE, CREATOR_FEE_RATES,
 ///      CREATOR_FEE_VAULT_METADATA_URI
 ///      Environment variables (optional):  CREATOR_MANAGER, SETTLER
@@ -53,7 +54,6 @@ contract Deploy is Script {
 
     struct ProtocolDeploymentConfig {
         QuoteTokenConfig quoteToken;
-        uint16 lvmonDexProtocolFeeRate;
         uint256[] snipingPenaltyTable;
         uint16[] creatorFeeRates;
     }
@@ -79,17 +79,20 @@ contract Deploy is Script {
 
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
+        uint256 multisigPrivateKey = vm.envUint("MULTISIG_PRIVATE_KEY");
         address deployerEnv = vm.envAddress("DEPLOYER");
-        address lvmon = vm.envAddress("LV_MON");
         address feeReceiver = vm.envAddress("FEE_RECEIVER");
         address creatorManager = vm.envOr("CREATOR_MANAGER", address(0));
         address settler = vm.envOr("SETTLER", address(0));
         address multisig = vm.envAddress("MULTISIG");
 
         address deployer = vm.addr(deployerPrivateKey);
+        require(block.chainid == vm.envUint("CHAIN_ID"), "Deploy: CHAIN_ID mismatch");
         require(deployer == deployerEnv, "Deploy: PRIVATE_KEY does not match DEPLOYER env");
+        require(feeReceiver != address(0), "Deploy: FEE_RECEIVER required");
         require(multisig != address(0), "Deploy: MULTISIG required");
         require(multisig != deployer, "Deploy: MULTISIG must differ from deployer");
+        require(vm.addr(multisigPrivateKey) == multisig, "Deploy: MULTISIG_PRIVATE_KEY mismatch");
 
         address v3Factory = vm.envAddress("V3_FACTORY");
         require(v3Factory.code.length > 0, "Deploy: invalid V3_FACTORY");
@@ -104,9 +107,8 @@ contract Deploy is Script {
         Deployed memory d;
         d.v3Factory = v3Factory;
 
-        // ── 1. Canonical WETH predeploy + ProtocolManager ───────────
-        (d.weth, d.protocolManager) =
-            _deployCanonicalWethAndProtocolManager(deployer, feeReceiver, lvmon, protocolConfig);
+        // ── 1. Reuse canonical WETH predeploy + ProtocolManager ──────
+        (d.weth, d.protocolManager) = _deployCanonicalWethAndProtocolManager(deployer, feeReceiver, protocolConfig);
 
         // ── 2. Token implementation (clone template) ─────────────────
         d.tokenImpl = address(new Token());
@@ -194,18 +196,16 @@ contract Deploy is Script {
     function _deployCanonicalWethAndProtocolManager(
         address admin,
         address feeReceiver,
-        address lvmon,
         ProtocolDeploymentConfig memory config
     ) internal returns (address weth, address protocolManager) {
         weth = _canonicalWeth();
-        protocolManager = _deployProtocolManager(admin, feeReceiver, weth, lvmon, config);
+        protocolManager = _deployProtocolManager(admin, feeReceiver, weth, config);
     }
 
     function _deployProtocolManager(
         address admin,
         address feeReceiver,
         address weth,
-        address lvmon,
         ProtocolDeploymentConfig memory config
     ) internal returns (address) {
         address proxy = _deployProxy(
@@ -213,12 +213,7 @@ contract Deploy is Script {
         );
 
         ProtocolManager pm = ProtocolManager(proxy);
-        _addQuoteToken(pm, weth, config.quoteToken, 0);
-        pm.setV3QuoteConfig(weth, config.quoteToken.v3FeeTier, config.quoteToken.lpFeeProtocolShareBps);
-
-        // LV_MON remains an independent quote registration. The WETH-only V3
-        // configuration must not be copied to it implicitly.
-        _addQuoteToken(pm, lvmon, config.quoteToken, config.lvmonDexProtocolFeeRate);
+        _addV3QuoteToken(pm, weth, config.quoteToken);
         pm.setSnipingPenaltyTable(config.snipingPenaltyTable);
 
         pm.setAllowedCreatorFeeRates(config.creatorFeeRates);
@@ -226,13 +221,8 @@ contract Deploy is Script {
         return proxy;
     }
 
-    function _addQuoteToken(
-        ProtocolManager pm,
-        address quoteToken,
-        QuoteTokenConfig memory config,
-        uint16 dexProtocolFeeRate
-    ) internal {
-        pm.addQuoteToken(
+    function _addV3QuoteToken(ProtocolManager pm, address quoteToken, QuoteTokenConfig memory config) internal {
+        pm.addV3QuoteToken(
             quoteToken,
             config.virtualReserve,
             config.virtualTokenReserve,
@@ -240,14 +230,15 @@ contract Deploy is Script {
             config.deployFee,
             config.graduateFee,
             config.curveProtocolFeeRate,
-            dexProtocolFeeRate,
-            config.settlementThreshold
+            0,
+            config.settlementThreshold,
+            config.v3FeeTier,
+            config.lpFeeProtocolShareBps
         );
     }
 
     function _protocolDeploymentConfig() internal view returns (ProtocolDeploymentConfig memory config) {
         config.quoteToken = _quoteTokenConfig();
-        config.lvmonDexProtocolFeeRate = _readUint16("DEX_PROTOCOL_FEE_RATE");
         config.snipingPenaltyTable = _snipingPenaltyTable();
         config.creatorFeeRates = _creatorFeeRates();
     }
@@ -483,12 +474,10 @@ contract Deploy is Script {
     }
 
     function _verifyProtocolConfig(Deployed memory d) internal view {
-        address lvmon = vm.envAddress("LV_MON");
-
         ProtocolManager pm = ProtocolManager(d.protocolManager);
         QuoteTokenConfig memory expectedConfig = _quoteTokenConfig();
 
-        require(pm.feeReceiver() != address(0), "Verify: feeReceiver not set");
+        require(pm.feeReceiver() == vm.envAddress("FEE_RECEIVER"), "Verify: feeReceiver mismatch");
         _verifyQuoteTokenConfig(pm, d.weth, expectedConfig, 0);
         IProtocolManager.QuoteConfig memory wethConfig = pm.getConfig(d.weth);
         require(wethConfig.v3FeeTier == expectedConfig.v3FeeTier, "Verify: WETH V3 fee tier mismatch");
@@ -496,11 +485,6 @@ contract Deploy is Script {
             wethConfig.lpFeeProtocolShareBps == expectedConfig.lpFeeProtocolShareBps,
             "Verify: WETH LP fee share mismatch"
         );
-
-        _verifyQuoteTokenConfig(pm, lvmon, expectedConfig, _readUint16("DEX_PROTOCOL_FEE_RATE"));
-        IProtocolManager.QuoteConfig memory lvmonConfig = pm.getConfig(lvmon);
-        require(lvmonConfig.v3FeeTier == 0, "Verify: LV_MON V3 fee tier configured");
-        require(lvmonConfig.lpFeeProtocolShareBps == 0, "Verify: LV_MON LP fee share configured");
 
         uint256[] memory expectedTable = _snipingPenaltyTable();
         require(pm.snipingPenaltyTableLength() == expectedTable.length, "Verify: snipingPenaltyTable length mismatch");
@@ -623,7 +607,6 @@ contract Deploy is Script {
         console.log("Deployment complete!");
         console.log("========================================");
         _logEnvAddress("WETH_ADDRESS", d.weth);
-        _logEnvAddress("LV_MON", vm.envAddress("LV_MON"));
         _logEnvAddress("TOKEN_IMPL", d.tokenImpl);
         _logEnvAddress("PROTOCOL_MANAGER", d.protocolManager);
         _logEnvAddress("TOKEN_REGISTRY", d.tokenRegistry);

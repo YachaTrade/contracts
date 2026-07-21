@@ -20,14 +20,13 @@ import {IVaultRegistry} from "../../src/interfaces/IVaultRegistry.sol";
 import {GiwaRouter} from "../../src/router/GiwaRouter.sol";
 import {CreatorFeeVault} from "../../src/vault/CreatorFeeVault.sol";
 import {VaultRegistry} from "../../src/vault/VaultRegistry.sol";
-import {MockERC20} from "../mocks/MockERC20.sol";
 
 contract DeployHarness is Deploy {
-    function deployCanonicalWethAndProtocolManager(address admin, address feeReceiver, address lvmon)
+    function deployCanonicalWethAndProtocolManager(address admin, address feeReceiver)
         external
         returns (address weth, address protocolManager)
     {
-        return _deployCanonicalWethAndProtocolManager(admin, feeReceiver, lvmon, _testConfig());
+        return _deployCanonicalWethAndProtocolManager(admin, feeReceiver, _testConfig());
     }
 
     function canonicalWeth() external view returns (address) {
@@ -38,13 +37,14 @@ contract DeployHarness is Deploy {
         return _readUint24(key);
     }
 
-    function deployCanonicalV3Graph(address v3Factory, address lvmon, address creatorManager)
-        external
-        returns (Deployed memory d)
-    {
+    function transferAdmin(Deployed memory deployed, address newAdmin) external {
+        _transferAdminToMultisig(deployed, newAdmin, address(this));
+    }
+
+    function deployCanonicalV3Graph(address v3Factory, address creatorManager) external returns (Deployed memory d) {
         d.v3Factory = v3Factory;
         (d.weth, d.protocolManager) =
-            _deployCanonicalWethAndProtocolManager(address(this), address(0xFEE), lvmon, _testConfig());
+            _deployCanonicalWethAndProtocolManager(address(this), address(0xFEE), _testConfig());
         d.tokenImpl = address(this);
         d.tokenRegistry = _deployTokenRegistry(d.protocolManager);
         d.lpManager = _deployLPManager(d.protocolManager, d.tokenRegistry);
@@ -78,7 +78,6 @@ contract DeployHarness is Deploy {
             v3FeeTier: 3000,
             lpFeeProtocolShareBps: 5000
         });
-        config.lvmonDexProtocolFeeRate = 777;
         config.snipingPenaltyTable = new uint256[](1);
         config.creatorFeeRates = new uint16[](1);
         config.creatorFeeRates[0] = 100;
@@ -93,12 +92,11 @@ contract ProtocolWethQuoteTest is Test {
     }
 
     function test_canonicalWethPredeployIsReusedWithoutCreate() public {
-        MockERC20 lvmon = new MockERC20("LV MON", "LV_MON", 18);
         DeployHarness harness = new DeployHarness();
         uint64 nonceBefore = vm.getNonce(address(harness));
 
         (address weth, address protocolManagerAddress) =
-            harness.deployCanonicalWethAndProtocolManager(address(harness), FEE_RECEIVER, address(lvmon));
+            harness.deployCanonicalWethAndProtocolManager(address(harness), FEE_RECEIVER);
 
         assertEq(weth, 0x4200000000000000000000000000000000000006);
         assertEq(weth, harness.canonicalWeth());
@@ -129,14 +127,12 @@ contract ProtocolWethQuoteTest is Test {
     }
 
     function test_deploymentHarnessWiresCanonicalV3AndOnlyCreatorFeeVault() public {
-        MockERC20 lvmon = new MockERC20("LV MON", "LV_MON", 18);
         UniswapV3Factory factory = new UniswapV3Factory();
         DeployHarness harness = new DeployHarness();
         address creatorManager = address(0xC0FFEE);
 
         vm.recordLogs();
-        Deploy.Deployed memory deployed =
-            harness.deployCanonicalV3Graph(address(factory), address(lvmon), creatorManager);
+        Deploy.Deployed memory deployed = harness.deployCanonicalV3Graph(address(factory), creatorManager);
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         _assertRouting(deployed, address(factory));
@@ -151,6 +147,23 @@ contract ProtocolWethQuoteTest is Test {
             uint8(VaultRegistry(deployed.vaultRegistry).getVaultType(deployed.creatorFeeVault)),
             uint8(IVaultRegistry.VaultType.Creator)
         );
+    }
+
+    function test_deploymentHarnessTransfersAllAdminAuthority() public {
+        UniswapV3Factory factory = new UniswapV3Factory();
+        DeployHarness harness = new DeployHarness();
+        Deploy.Deployed memory deployed = harness.deployCanonicalV3Graph(address(factory), address(0));
+        address newAdmin = makeAddr("testnetMultisigEoa");
+
+        harness.transferAdmin(deployed, newAdmin);
+
+        ProtocolManager protocolManager = ProtocolManager(deployed.protocolManager);
+        BondingCurve bondingCurve = BondingCurve(payable(deployed.bondingCurve));
+        assertEq(protocolManager.owner(), newAdmin);
+        assertTrue(bondingCurve.hasRole(bondingCurve.DEFAULT_ADMIN_ROLE(), newAdmin));
+        assertTrue(bondingCurve.hasRole(bondingCurve.GUARDIAN_ROLE(), newAdmin));
+        assertFalse(bondingCurve.hasRole(bondingCurve.DEFAULT_ADMIN_ROLE(), address(harness)));
+        assertFalse(bondingCurve.hasRole(bondingCurve.GUARDIAN_ROLE(), address(harness)));
     }
 
     function _assertRouting(Deploy.Deployed memory deployed, address factory) private view {
