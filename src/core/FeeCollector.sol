@@ -9,7 +9,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IFeeCollector} from "../interfaces/IFeeCollector.sol";
 import {IProtocolManager} from "../interfaces/IProtocolManager.sol";
-import {INadFunRouter} from "../interfaces/INadFunRouter.sol";
+import {IGiwaRouter} from "../interfaces/IGiwaRouter.sol";
 import {INadFunPair} from "../dex/interfaces/INadFunPair.sol";
 
 interface ICreatorFeeProcessorV2 {
@@ -25,7 +25,7 @@ contract FeeCollector is IFeeCollector, UUPSUpgradeable, AccessManagedUpgradeabl
 
     ICreatorFeeProcessorV2 private _creatorFeeProcessor;
     address private _bondingCurve;
-    INadFunRouter private _router;
+    IGiwaRouter private _router;
 
     mapping(address pair => FeeConfig) private _configs;
     mapping(address pair => uint256) private _accumulatedFees;
@@ -50,7 +50,7 @@ contract FeeCollector is IFeeCollector, UUPSUpgradeable, AccessManagedUpgradeabl
         __AccessManaged_init(protocolManager_);
         _creatorFeeProcessor = ICreatorFeeProcessorV2(creatorFeeProcessor_);
         _bondingCurve = bondingCurve_;
-        _router = INadFunRouter(router_);
+        _router = IGiwaRouter(router_);
     }
 
     /// @inheritdoc IFeeCollector
@@ -147,7 +147,7 @@ contract FeeCollector is IFeeCollector, UUPSUpgradeable, AccessManagedUpgradeabl
         emit Settle(config.baseToken, pair, creatorFee, creatorFee);
     }
 
-    function _getSettlementAmountOut(FeeConfig storage config, uint256 quoteIn) internal view returns (uint256) {
+    function _getSettlementAmountOut(FeeConfig storage config, uint256 quoteIn) internal returns (uint256) {
         return _router.getAmountOut(config.baseToken, quoteIn, true);
     }
 

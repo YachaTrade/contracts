@@ -3,15 +3,14 @@ pragma solidity ^0.8.24;
 
 import {SetUp} from "../SetUp.t.sol";
 import {IBondingCurve} from "../../src/interfaces/IBondingCurve.sol";
-import {INadFunRouter} from "../../src/interfaces/INadFunRouter.sol";
+import {IGiwaRouter} from "../../src/interfaces/IGiwaRouter.sol";
 import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
-import {NadFunRouter} from "../../src/router/NadFunRouter.sol";
+import {GiwaRouter} from "../../src/router/GiwaRouter.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockWMON} from "../mocks/MockWMON.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-contract NadFunRouterNativeQuoteGuardTest is SetUp {
-    NadFunRouter internal nativeRouter;
+contract GiwaRouterNativeQuoteGuardTest is SetUp {
     MockERC20 internal usdc;
     address internal foreignQuoteToken;
 
@@ -25,19 +24,20 @@ contract NadFunRouterNativeQuoteGuardTest is SetUp {
         protocolManager.addQuoteToken(address(usdc), 15_000e6, 1_000_000_000 ether, 800_000_000 ether, 0, 0, 0, 0, 0);
         bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), address(this));
 
-        NadFunRouter routerImpl = new NadFunRouter();
-        nativeRouter = NadFunRouter(
+        GiwaRouter routerImpl = new GiwaRouter();
+        giwaRouter = GiwaRouter(
             payable(address(
                     new ERC1967Proxy(
                         address(routerImpl),
                         abi.encodeCall(
-                            NadFunRouter.initialize,
+                            GiwaRouter.initialize,
                             (
                                 address(protocolManager),
                                 address(bondingCurve),
                                 address(tokenRegistry),
                                 address(wmon),
-                                address(0)
+                                address(v3SwapAdapter),
+                                address(quoterV2)
                             )
                         )
                     )
@@ -54,9 +54,9 @@ contract NadFunRouterNativeQuoteGuardTest is SetUp {
         vm.deal(user1, 1 ether);
 
         vm.prank(user1);
-        vm.expectRevert(INadFunRouter.InvalidNativeQuoteToken.selector);
-        nativeRouter.buyWithNative{value: 1 ether}(
-            INadFunRouter.BuyWithNativeParams({
+        vm.expectRevert(IGiwaRouter.InvalidNativeQuoteToken.selector);
+        giwaRouter.buyWithNative{value: 1 ether}(
+            IGiwaRouter.BuyWithNativeParams({
                 amountOutMin: 0, token: foreignQuoteToken, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -66,10 +66,48 @@ contract NadFunRouterNativeQuoteGuardTest is SetUp {
         vm.deal(user1, 1 ether);
 
         vm.prank(user1);
-        vm.expectRevert(INadFunRouter.InvalidNativeQuoteToken.selector);
-        nativeRouter.exactOutBuyWithNative{value: 1 ether}(
-            INadFunRouter.ExactOutBuyWithNativeParams({
+        vm.expectRevert(IGiwaRouter.InvalidNativeQuoteToken.selector);
+        giwaRouter.exactOutBuyWithNative{value: 1 ether}(
+            IGiwaRouter.ExactOutBuyWithNativeParams({
                 amountOut: 1 ether, token: foreignQuoteToken, to: user1, deadline: block.timestamp + 1
+            })
+        );
+    }
+
+    function test_sellToNative_revertsForForeignQuoteTokenBeforeTransfer() public {
+        vm.prank(user1);
+        vm.expectRevert(IGiwaRouter.InvalidNativeQuoteToken.selector);
+        giwaRouter.sellToNative(
+            IGiwaRouter.SellToNativeParams({
+                amountIn: 1 ether, amountOutMin: 0, token: foreignQuoteToken, to: user1, deadline: block.timestamp + 1
+            })
+        );
+    }
+
+    function test_sellToNativeWithPermit_revertsForForeignQuoteTokenBeforePermit() public {
+        vm.prank(user1);
+        vm.expectRevert(IGiwaRouter.InvalidNativeQuoteToken.selector);
+        giwaRouter.sellToNativeWithPermit(
+            IGiwaRouter.SellToNativeWithPermitParams({
+                amountIn: 1 ether,
+                amountOutMin: 0,
+                amountAllowance: 1 ether,
+                token: foreignQuoteToken,
+                to: user1,
+                deadline: block.timestamp + 1,
+                v: 27,
+                r: bytes32(0),
+                s: bytes32(0)
+            })
+        );
+    }
+
+    function test_exactOutSellToNative_revertsForForeignQuoteTokenBeforeTransfer() public {
+        vm.prank(user1);
+        vm.expectRevert(IGiwaRouter.InvalidNativeQuoteToken.selector);
+        giwaRouter.exactOutSellToNative(
+            IGiwaRouter.ExactOutSellToNativeParams({
+                amountInMax: 1 ether, amountOut: 1, token: foreignQuoteToken, to: user1, deadline: block.timestamp + 1
             })
         );
     }

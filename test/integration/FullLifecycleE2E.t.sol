@@ -7,7 +7,7 @@ import {IFeeCollector} from "../../src/interfaces/IFeeCollector.sol";
 import {IToken} from "../../src/interfaces/IToken.sol";
 import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
 import {INadFunPair} from "../../src/dex/interfaces/INadFunPair.sol";
-import {INadFunRouter} from "../../src/interfaces/INadFunRouter.sol";
+import {IGiwaRouter} from "../../src/interfaces/IGiwaRouter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {NadFunFactory} from "../../src/dex/NadFunFactory.sol";
 import {NadFunPair} from "../../src/dex/NadFunPair.sol";
@@ -218,12 +218,12 @@ contract FullLifecycleE2EV2 is SetUp {
         uint256 deployFee = protocolManager.deployFee(address(quoteToken));
         quoteToken.mint(creator, deployFee);
         vm.prank(creator);
-        quoteToken.approve(address(nadFunRouter), deployFee);
+        quoteToken.approve(address(giwaRouter), deployFee);
 
         vm.prank(creator);
         vm.expectRevert(IBondingCurve.DuplicateVault.selector);
-        nadFunRouter.create(
-            INadFunRouter.CreateParams({
+        giwaRouter.create(
+            IGiwaRouter.CreateParams({
                 name: "DuplicateVault",
                 symbol: "DV",
                 tokenURI: "",
@@ -409,23 +409,19 @@ contract FullLifecycleE2EV2 is SetUp {
     // ═══════════════════════════════════════════════════════════════
 
     function _dexBuy(address buyer, address token, uint256 quote) internal returns (uint256 tokenOut) {
-        _mintAndApprove(buyer, address(nadFunRouter), quote);
+        address pair = tokenRegistry.getPair(token);
+        quoteToken.mint(buyer, quote);
         vm.prank(buyer);
-        tokenOut = nadFunRouter.buy(
-            INadFunRouter.BuyParams({
-                amountIn: quote, amountOutMin: 0, token: token, to: buyer, deadline: block.timestamp + 1
-            })
-        );
+        quoteToken.transfer(address(nadSwapAdapter), quote);
+        vm.prank(buyer);
+        tokenOut = nadSwapAdapter.swap(pair, address(quoteToken), token, quote, buyer, "");
     }
 
     function _dexSell(address seller, address token, uint256 tokenAmount) internal returns (uint256 quoteOut) {
+        address pair = tokenRegistry.getPair(token);
         vm.prank(seller);
-        IERC20(token).approve(address(nadFunRouter), tokenAmount);
+        IERC20(token).transfer(address(nadSwapAdapter), tokenAmount);
         vm.prank(seller);
-        quoteOut = nadFunRouter.sell(
-            INadFunRouter.SellParams({
-                amountIn: tokenAmount, amountOutMin: 0, token: token, to: seller, deadline: block.timestamp + 1
-            })
-        );
+        quoteOut = nadSwapAdapter.swap(pair, token, address(quoteToken), tokenAmount, seller, "");
     }
 }

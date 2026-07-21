@@ -6,7 +6,7 @@
 
 Central fee management contract with per-pair storage. Collects trading fees and settles accumulated creator fees through CreatorFeeProcessor.
 
-BondingCurve calls `setup()` on token creation to register a pair's fee config. On each trade, the pair (or BondingCurve) transfers quoteToken to this contract and calls `collectFee()`. The active protocol fee share is forwarded immediately to the ProtocolManager feeReceiver, while creator fees are accumulated per pair. `settle()` is restricted to authorized settlers and runs once the accumulated creator fee meets the quote token's threshold.
+BondingCurve calls `setup()` on token creation to register a pair's fee config. On each retained V2/curve trade, the pair (or BondingCurve) transfers quoteToken and calls `collectFee(pair, protocolFee, creatorFee)`. The received balance delta must cover those explicit components; protocol fee plus excess is forwarded immediately to the current ProtocolManager feeReceiver, while creator fee accumulates per pair. `settle(pair, minAmountOut)` is restricted to authorized settlers.
 
 ---
 
@@ -16,7 +16,7 @@ BondingCurve calls `setup()` on token creation to register a pair's fee config. 
 
 | Variable | Type | Purpose |
 |----------|------|---------|
-| `_creatorFeeProcessor` | `ICreatorFeeProcessorV2` | V2 CreatorFeeProcessor for settlement |
+| `_creatorFeeProcessor` | `ICreatorFeeProcessorV2` | Local minimal interface used for CreatorFeeProcessor settlement |
 | `_bondingCurve` | `address` | Authorized caller for `setup()` |
 
 ### Per-Pair Storage
@@ -48,11 +48,11 @@ struct FeeConfig {
 
 | Function | Access | Description |
 |----------|--------|-------------|
-| `initialize(protocolManager_, creatorFeeProcessor_, bondingCurve_)` | external (initializer) | Proxy initializer; wires authority plus core addresses |
+| `initialize(protocolManager_, creatorFeeProcessor_, bondingCurve_, router_)` | external (initializer) | Proxy initializer; wires authority, core addresses, and GiwaRouter settlement quoting |
 | `setup(pair, baseToken, quoteToken, creatorFeeRate, curveProtocolFeeRate, dexProtocolFeeRate)` | external (onlyBondingCurve) | Register per-pair fee config; reverts if already configured |
 | `getFeeConfig(pair)` | view | Returns the full `FeeConfig` for a pair |
-| `collectFee(pair)` | external | Balance delta fee collection: msg.sender must be pair or bondingCurve. Uses curve or dex protocol fee rate depending on caller, forwards protocol share immediately, accumulates creator share. |
-| `settle(pair)` | external (restricted) | Settle accumulated creator fees to CreatorFeeProcessor if above threshold. Works in both bonding and post-graduation phases. |
+| `collectFee(pair, protocolFee, creatorFee)` | external | Validates caller and that the received balance delta covers the explicit components; sends protocol fee plus excess to feeReceiver and accumulates creator fee. |
+| `settle(pair, minAmountOut)` | external (restricted) | Settle accumulated creator fees if above threshold and the router quote meets the caller's minimum. |
 | `isSettling(pair)` | view | Whether pair is currently in settling state |
 | `accumulatedFee(pair)` | view | Accumulated creator fee for a pair |
 | `settlementThreshold(pair)` | view | Current settlement threshold for the pair's quote token |
@@ -65,32 +65,26 @@ struct FeeConfig {
 ## Key Logic: collectFee Flow
 
 ```
-Caller (pair or bondingCurve) transfers quoteToken to FeeCollector, then calls collectFee(pair)
+Caller (pair or bondingCurve) transfers quoteToken to FeeCollector, then calls collectFee(pair, protocolFee, creatorFee)
 
 1. Auth check: msg.sender must be pair itself or bondingCurve (revert NotAuthorized otherwise)
 2. Look up pair config (revert if not configured)
-3. Determine amount via balance delta: currentBalance - _trackedBalance[quoteToken]
-4. Pick active protocol fee rate:
-   - bondingCurve caller -> curveProtocolFeeRate
-   - pair caller -> dexProtocolFeeRate
-5. Split amount by rate ratio (using mulDivUp for protocol share):
-   protocolAmount = amount * activeProtocolFeeRate / (creatorFeeRate + activeProtocolFeeRate)
-   creatorFeeAmount = amount - protocolAmount
-6. Transfer protocolAmount to feeReceiver immediately
-7. Accumulate creatorFeeAmount in _accumulatedFees[pair]
-8. Update _trackedBalance[quoteToken] to current balance
+3. Compute feeReceived via balance delta and require feeReceived >= protocolFee + creatorFee
+4. Transfer protocolFee + any excess received to the current feeReceiver
+5. Accumulate the explicit creatorFee in _accumulatedFees[pair]
+6. Update _trackedBalance[quoteToken] after the transfer
 ```
 
 ## Key Logic: settle Flow
 
 ```
-Authorized settler calls settle(pair)
+Authorized settler calls settle(pair, minAmountOut)
 
-1. Check _accumulatedFees[pair] >= settlementThreshold (silent return if below)
-2. Zero out _accumulatedFees[pair] and decrement tracked balance (CEI pattern)
-3. Mark pair as settling (_settling[pair] = true)
+1. Reject a pair that is currently lock-guarded; return if accumulated fee is below threshold
+2. Mark pair as settling and, when non-zero, require the GiwaRouter settlement quote >= minAmountOut
+3. Zero accumulated fee and decrement tracked balance (CEI)
 4. Approve and call creatorFeeProcessor.processCreatorFee(baseToken, quoteToken, amount)
-5. Unmark pair as settling (_settling[pair] = false)
+5. Unmark pair as settling
 ```
 
 Settlement works in both bonding and post-graduation phases. During settling, BondingCurve's `_calculateFees` and `_getTotalFeeRate` return 0 fees for the pair, and NadFunPair skips fee collection — preventing recursive fee accumulation during vault buybacks.
@@ -115,3 +109,5 @@ Settlement works in both bonding and post-graduation phases. During settling, Bo
 | `InvalidRates()` | creatorFeeRate, curveProtocolFeeRate, and dexProtocolFeeRate are all zero |
 | `NotAuthorized()` | Caller is not pair or bondingCurve |
 | `PairLocked()` | Pair is inside its lock-guarded operation |
+| `InvalidFeeAmount()` | Received balance delta is below the declared fee components |
+| `InsufficientOutput()` | Router settlement quote is below `minAmountOut` |

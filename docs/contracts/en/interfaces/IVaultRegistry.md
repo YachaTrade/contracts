@@ -3,7 +3,7 @@
 **Path:** `src/interfaces/IVaultRegistry.sol`
 **Type:** Interface
 
-Admin-only vault registry interface. Only the owner can register vault singleton addresses with a designated VaultType. Admin can deactivate vulnerable vault types. Keyed by vault address to prevent duplicate registrations.
+Authority-restricted vault registry interface. The ProtocolManager owner or selector-authorized operators can register and activate/deactivate vault singleton addresses. Keyed by vault address to prevent duplicate registrations.
 
 ---
 
@@ -12,7 +12,7 @@ Admin-only vault registry interface. Only the owner can register vault singleton
 ### VaultType
 
 ```solidity
-enum VaultType { Custom, Burn, LP, Creator, Gift }
+enum VaultType { Custom, Burn, LP, Creator, Gift, Dividend }
 ```
 
 ---
@@ -37,8 +37,8 @@ struct VaultInfo {
 
 | Function | Returns | Description |
 |----------|---------|-------------|
-| `register(vault, name, description, vaultType)` | — | Register new vault (onlyOwner) |
-| `setActive(vault, active)` | — | Activate/deactivate vault (onlyOwner) |
+| `register(vault, name, description, vaultType)` | — | Register new vault (implementation is `restricted`) |
+| `setActive(vault, active)` | — | Activate/deactivate vault (implementation is `restricted`) |
 | `isActive(vault)` | `bool` | Whether vault is registered and active |
 | `getVaultInfo(vault)` | `VaultInfo` | Full vault info |
 | `isRegistered(vault)` | `bool` | Whether vault is registered (regardless of active status) |
@@ -50,8 +50,8 @@ struct VaultInfo {
 
 | Event | Parameters |
 |-------|------------|
-| `VaultRegistered` | `address indexed vault, string name, address creator, VaultType vaultType` |
-| `VaultDeactivated` | `address indexed vault, bool active` |
+| `Register` | `address indexed vault, string name, address creator, VaultType vaultType` |
+| `Deactivate` | `address indexed vault, bool active` |
 
 ## Errors
 

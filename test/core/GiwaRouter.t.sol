@@ -1,26 +1,26 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-/// @notice Test suite for NadFunRouter.
+/// @notice Test suite for GiwaRouter.
 
-import {console} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {SetUp} from "../SetUp.t.sol";
 import {IBondingCurve} from "../../src/interfaces/IBondingCurve.sol";
-import {NadFunRouter} from "../../src/router/NadFunRouter.sol";
-import {INadFunRouter} from "../../src/interfaces/INadFunRouter.sol";
+import {GiwaRouter} from "../../src/router/GiwaRouter.sol";
+import {IGiwaRouter} from "../../src/interfaces/IGiwaRouter.sol";
 import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockWMON} from "../mocks/MockWMON.sol";
-import {MockLvMonMinter} from "../mocks/MockLvMonMinter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {INadFunPair} from "../../src/dex/interfaces/INadFunPair.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {Initializable} from "@openzeppelin-upgradeable/contracts/proxy/utils/Initializable.sol";
+import {IAccessManaged} from "@openzeppelin/contracts/access/manager/IAccessManaged.sol";
+import {UniswapV3Factory} from "@uniswap/v3-core/contracts/UniswapV3Factory.sol";
+import {QuoterV2} from "@uniswap/v3-periphery/contracts/lens/QuoterV2.sol";
+import {V3SwapAdapter} from "../../src/adapters/V3SwapAdapter.sol";
 
-contract NadFunRouterTest is SetUp {
-    NadFunRouter router;
+contract GiwaRouterTest is SetUp {
     MockERC20 lvmon;
-    MockLvMonMinter lvmonMinter;
 
     address vault;
     address token;
@@ -31,7 +31,6 @@ contract NadFunRouterTest is SetUp {
 
         wmon = new MockWMON();
         lvmon = new MockERC20("Liquid Staked MON", "LVMON", 18);
-        lvmonMinter = new MockLvMonMinter(admin, address(0), address(wmon), address(lvmon));
 
         // Replace quoteToken with MockWMON, keep real modules
         vm.startPrank(admin);
@@ -63,20 +62,21 @@ contract NadFunRouterTest is SetUp {
         bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), address(this));
         vm.stopPrank();
 
-        // Deploy NadFunRouter (UUPS proxy)
-        NadFunRouter routerImpl = new NadFunRouter();
-        router = NadFunRouter(
+        // Deploy GiwaRouter (UUPS proxy)
+        GiwaRouter routerImpl = new GiwaRouter();
+        giwaRouter = GiwaRouter(
             payable(address(
                     new ERC1967Proxy(
                         address(routerImpl),
                         abi.encodeCall(
-                            NadFunRouter.initialize,
+                            GiwaRouter.initialize,
                             (
                                 address(protocolManager),
                                 address(bondingCurve),
                                 address(tokenRegistry),
                                 address(wmon),
-                                address(lvmonMinter)
+                                address(v3SwapAdapter),
+                                address(quoterV2)
                             )
                         )
                     )
@@ -103,10 +103,10 @@ contract NadFunRouterTest is SetUp {
 
         wmon.mint(user1, maxQuoteIn);
         vm.startPrank(user1);
-        wmon.approve(address(router), maxQuoteIn);
+        wmon.approve(address(giwaRouter), maxQuoteIn);
 
-        uint256 amountIn = router.exactOutBuy(
-            INadFunRouter.ExactOutBuyParams({
+        uint256 amountIn = giwaRouter.exactOutBuy(
+            IGiwaRouter.ExactOutBuyParams({
                 amountInMax: maxQuoteIn,
                 amountOut: desiredTokens,
                 token: token,
@@ -130,8 +130,8 @@ contract NadFunRouterTest is SetUp {
         vm.deal(user1, maxNativeIn);
 
         vm.prank(user1);
-        uint256 amountIn = router.exactOutBuyWithNative{value: maxNativeIn}(
-            INadFunRouter.ExactOutBuyWithNativeParams({
+        uint256 amountIn = giwaRouter.exactOutBuyWithNative{value: maxNativeIn}(
+            IGiwaRouter.ExactOutBuyWithNativeParams({
                 amountOut: desiredTokens, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -142,29 +142,19 @@ contract NadFunRouterTest is SetUp {
         assertEq(user1.balance, maxNativeIn - amountIn, "Native refund should match");
     }
 
-    function test_exactOutBuyWithNative_lvmonQuote_mintsLvmon() public {
+    function test_exactOutBuyWithNative_lvmonQuote_reverts() public {
         address lvmonQuotedToken = _createLvmonQuotedToken();
         uint256 tokenOut = 1000 ether;
         uint256 nativeInMax = 5 ether;
 
-        uint256 quoteIn = bondingCurve.getAmountIn(lvmonQuotedToken, tokenOut, true);
-
         vm.deal(user1, nativeInMax);
         vm.prank(user1);
-        uint256 quoteInSpent = router.exactOutBuyWithNative{value: nativeInMax}(
-            INadFunRouter.ExactOutBuyWithNativeParams({
+        vm.expectRevert(IGiwaRouter.InvalidNativeQuoteToken.selector);
+        giwaRouter.exactOutBuyWithNative{value: nativeInMax}(
+            IGiwaRouter.ExactOutBuyWithNativeParams({
                 amountOut: tokenOut, token: lvmonQuotedToken, to: user1, deadline: block.timestamp + 1
             })
         );
-
-        assertEq(quoteInSpent, quoteIn, "Quote spent should match getAmountIn");
-        assertGe(IERC20(lvmonQuotedToken).balanceOf(user1), tokenOut, "Should receive at least desired tokens");
-        assertApproxEqAbs(
-            IERC20(lvmonQuotedToken).balanceOf(user1), tokenOut, 1e15, "Surplus from rounding should be small"
-        );
-        assertEq(user1.balance, nativeInMax - quoteInSpent, "Native refund should match");
-        assertEq(lvmon.balanceOf(address(router)), 0, "Router should hold no LVMON");
-        assertEq(address(lvmonMinter).balance, quoteInSpent, "LVMON minter should receive spent native");
     }
 
     function test_exactOutBuy_bondingCurve_doesNotSweepPreexistingQuoteBalance() public {
@@ -174,14 +164,14 @@ contract NadFunRouterTest is SetUp {
 
         wmon.mint(user2, donation);
         vm.prank(user2);
-        wmon.transfer(address(router), donation);
+        wmon.transfer(address(giwaRouter), donation);
 
         wmon.mint(user1, maxQuoteIn);
         vm.startPrank(user1);
-        wmon.approve(address(router), maxQuoteIn);
+        wmon.approve(address(giwaRouter), maxQuoteIn);
 
-        uint256 amountIn = router.exactOutBuy(
-            INadFunRouter.ExactOutBuyParams({
+        uint256 amountIn = giwaRouter.exactOutBuy(
+            IGiwaRouter.ExactOutBuyParams({
                 amountInMax: maxQuoteIn,
                 amountOut: desiredTokens,
                 token: token,
@@ -192,7 +182,7 @@ contract NadFunRouterTest is SetUp {
         vm.stopPrank();
 
         assertEq(wmon.balanceOf(user1), maxQuoteIn - amountIn, "User should receive only this call's refund");
-        assertEq(wmon.balanceOf(address(router)), donation, "Router should retain pre-existing quote balance");
+        assertEq(wmon.balanceOf(address(giwaRouter)), donation, "Router should retain pre-existing quote balance");
     }
 
     function test_exactOutBuyWithNative_bondingCurve_doesNotSweepPreexistingWmon() public {
@@ -202,18 +192,18 @@ contract NadFunRouterTest is SetUp {
 
         wmon.mint(user2, donation);
         vm.prank(user2);
-        wmon.transfer(address(router), donation);
+        wmon.transfer(address(giwaRouter), donation);
 
         vm.deal(user1, maxNativeIn);
         vm.prank(user1);
-        uint256 amountIn = router.exactOutBuyWithNative{value: maxNativeIn}(
-            INadFunRouter.ExactOutBuyWithNativeParams({
+        uint256 amountIn = giwaRouter.exactOutBuyWithNative{value: maxNativeIn}(
+            IGiwaRouter.ExactOutBuyWithNativeParams({
                 amountOut: desiredTokens, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
 
         assertEq(user1.balance, maxNativeIn - amountIn, "User should receive only this call's native refund");
-        assertEq(wmon.balanceOf(address(router)), donation, "Router should retain pre-existing WMON balance");
+        assertEq(wmon.balanceOf(address(giwaRouter)), donation, "Router should retain pre-existing WMON balance");
     }
 
     function test_exactOutBuy_excessiveInput_reverts() public {
@@ -222,11 +212,11 @@ contract NadFunRouterTest is SetUp {
 
         wmon.mint(user1, tooLittle);
         vm.startPrank(user1);
-        wmon.approve(address(router), tooLittle);
+        wmon.approve(address(giwaRouter), tooLittle);
 
-        vm.expectRevert(INadFunRouter.ExcessiveInput.selector);
-        router.exactOutBuy(
-            INadFunRouter.ExactOutBuyParams({
+        vm.expectRevert(IGiwaRouter.ExcessiveInput.selector);
+        giwaRouter.exactOutBuy(
+            IGiwaRouter.ExactOutBuyParams({
                 amountInMax: tooLittle, amountOut: desiredTokens, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -236,11 +226,11 @@ contract NadFunRouterTest is SetUp {
     function test_exactOutBuy_expiredDeadline_reverts() public {
         wmon.mint(user1, 1 ether);
         vm.startPrank(user1);
-        wmon.approve(address(router), 1 ether);
+        wmon.approve(address(giwaRouter), 1 ether);
 
-        vm.expectRevert(INadFunRouter.ExpiredDeadline.selector);
-        router.exactOutBuy(
-            INadFunRouter.ExactOutBuyParams({
+        vm.expectRevert(IGiwaRouter.ExpiredDeadline.selector);
+        giwaRouter.exactOutBuy(
+            IGiwaRouter.ExactOutBuyParams({
                 amountInMax: 1 ether, amountOut: 100 ether, token: token, to: user1, deadline: block.timestamp - 1
             })
         );
@@ -251,19 +241,20 @@ contract NadFunRouterTest is SetUp {
         uint256 buyAmount = 2 ether;
         wmon.mint(user1, buyAmount);
         vm.startPrank(user1);
-        wmon.approve(address(router), buyAmount);
-        uint256 tokensOwned = router.buy(
-            INadFunRouter.BuyParams({
+        wmon.approve(address(giwaRouter), buyAmount);
+        uint256 tokensOwned = giwaRouter.buy(
+            IGiwaRouter.BuyParams({
                 amountIn: buyAmount, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
 
         uint256 desiredQuoteOut = 0.5 ether;
-        IERC20(token).approve(address(router), tokensOwned);
+        IERC20(token).approve(address(giwaRouter), tokensOwned);
 
         uint256 quoteBefore = wmon.balanceOf(user1);
-        uint256 quoteOut = router.exactOutSell(
-            INadFunRouter.ExactOutSellParams({
+        uint256 tokenBefore = IERC20(token).balanceOf(user1);
+        uint256 tokenIn = giwaRouter.exactOutSell(
+            IGiwaRouter.ExactOutSellParams({
                 amountInMax: tokensOwned,
                 amountOut: desiredQuoteOut,
                 token: token,
@@ -273,10 +264,7 @@ contract NadFunRouterTest is SetUp {
         );
         vm.stopPrank();
 
-        assertGe(quoteOut, desiredQuoteOut, "Should receive at least desired quote");
-        assertApproxEqAbs(
-            quoteOut, desiredQuoteOut, 1, "Should receive desired quote (1 wei tolerance for fee rounding)"
-        );
+        assertEq(tokenIn, tokenBefore - IERC20(token).balanceOf(user1), "Should return launch-token input used");
         assertGe(
             wmon.balanceOf(user1) - quoteBefore, desiredQuoteOut, "Balance should increase by at least desiredQuoteOut"
         );
@@ -287,19 +275,19 @@ contract NadFunRouterTest is SetUp {
         wmon.mint(user1, buyAmount);
 
         vm.startPrank(user1);
-        wmon.approve(address(router), buyAmount);
-        uint256 tokensOwned = router.buy(
-            INadFunRouter.BuyParams({
+        wmon.approve(address(giwaRouter), buyAmount);
+        uint256 tokensOwned = giwaRouter.buy(
+            IGiwaRouter.BuyParams({
                 token: token, amountIn: buyAmount, amountOutMin: 0, to: user1, deadline: block.timestamp + 1
             })
         );
 
-        IERC20(token).approve(address(router), tokensOwned);
+        IERC20(token).approve(address(giwaRouter), tokensOwned);
         bytes32 sellTopic = keccak256("Sell(address,address,uint256,uint256)");
 
         vm.recordLogs();
-        router.sell(
-            INadFunRouter.SellParams({
+        giwaRouter.sell(
+            IGiwaRouter.SellParams({
                 token: token, amountIn: tokensOwned, amountOutMin: 0, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -323,19 +311,20 @@ contract NadFunRouterTest is SetUp {
         uint256 buyAmount = 2 ether;
         wmon.mint(user1, buyAmount);
         vm.startPrank(user1);
-        wmon.approve(address(router), buyAmount);
-        uint256 tokensOwned = router.buy(
-            INadFunRouter.BuyParams({
+        wmon.approve(address(giwaRouter), buyAmount);
+        uint256 tokensOwned = giwaRouter.buy(
+            IGiwaRouter.BuyParams({
                 amountIn: buyAmount, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
 
         uint256 desiredNativeOut = 0.5 ether;
-        IERC20(token).approve(address(router), tokensOwned);
+        IERC20(token).approve(address(giwaRouter), tokensOwned);
 
         uint256 nativeBefore = user1.balance;
-        uint256 nativeOut = router.exactOutSellToNative(
-            INadFunRouter.ExactOutSellToNativeParams({
+        uint256 tokenBefore = IERC20(token).balanceOf(user1);
+        uint256 tokenIn = giwaRouter.exactOutSellToNative(
+            IGiwaRouter.ExactOutSellToNativeParams({
                 amountInMax: tokensOwned,
                 amountOut: desiredNativeOut,
                 token: token,
@@ -345,16 +334,11 @@ contract NadFunRouterTest is SetUp {
         );
         vm.stopPrank();
 
-        assertGe(nativeOut, desiredNativeOut, "Should receive at least desired native");
-        assertApproxEqAbs(
-            nativeOut, desiredNativeOut, 1, "Should receive desired native (1 wei tolerance for fee rounding)"
-        );
+        assertEq(tokenIn, tokenBefore - IERC20(token).balanceOf(user1), "Should return launch-token input used");
         assertGe(user1.balance - nativeBefore, desiredNativeOut, "Native balance should increase by at least desired");
     }
 
-    function test_exactOutSellToNative_graduated_sendsFullDexOutput() public {
-        uint256 targetDustReserve = 30_000_000_000_000_000;
-        uint256 desiredNativeOut = 10 ether;
+    function test_exactOutSellToNative_graduatedV2Metadata_revertsInvalidV3Pool() public {
         uint256 graduationAmount = 800_000 ether;
 
         wmon.mint(user1, graduationAmount);
@@ -365,57 +349,31 @@ contract NadFunRouterTest is SetUp {
 
         assertTrue(bondingCurve.getCurve(token).graduated, "Token should be graduated");
 
-        address pair = bondingCurve.getCurve(token).pair;
-        uint256 tokenReserveBefore = _tokenReserve(pair, token);
-        uint256 skewAmountOut = tokenReserveBefore - targetDustReserve;
-        uint256 quoteRequired = INadFunPair(pair).getAmountIn(token, skewAmountOut);
-
-        wmon.mint(user1, quoteRequired);
         vm.startPrank(user1);
-        wmon.transfer(pair, quoteRequired);
-        _swapOut(pair, token, skewAmountOut, user1);
-        vm.stopPrank();
-
-        uint256 tokenUsed = router.getAmountIn(token, desiredNativeOut, false);
-        uint256 expectedNativeOut = router.getAmountOut(token, tokenUsed, false);
-        assertGt(expectedNativeOut, desiredNativeOut, "Skewed pair should produce native surplus");
-
-        uint256 nativeBefore = user1.balance;
-        uint256 routerWmonBefore = wmon.balanceOf(address(router));
-
-        vm.startPrank(user1);
-        IERC20(token).approve(address(router), tokenUsed);
-        uint256 nativeOut = router.exactOutSellToNative(
-            INadFunRouter.ExactOutSellToNativeParams({
-                amountInMax: tokenUsed,
-                amountOut: desiredNativeOut,
-                token: token,
-                to: user1,
-                deadline: block.timestamp + 1
+        IERC20(token).approve(address(giwaRouter), 1 ether);
+        vm.expectRevert(IGiwaRouter.InvalidV3Pool.selector);
+        giwaRouter.exactOutSellToNative(
+            IGiwaRouter.ExactOutSellToNativeParams({
+                amountInMax: 1 ether, amountOut: 1, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
         vm.stopPrank();
-
-        assertEq(nativeOut, expectedNativeOut, "Router should return the full DEX output");
-        assertEq(user1.balance - nativeBefore, expectedNativeOut, "Seller should receive the full native output");
-        assertEq(wmon.balanceOf(address(router)) - routerWmonBefore, 0, "Router should not retain surplus WMON");
-        assertEq(address(router).balance, 0, "Router should not retain native");
     }
 
     function test_exactOutSell_excessiveInput_reverts() public {
         wmon.mint(user1, 0.01 ether);
         vm.startPrank(user1);
-        wmon.approve(address(router), 0.01 ether);
-        uint256 tokensOwned = router.buy(
-            INadFunRouter.BuyParams({
+        wmon.approve(address(giwaRouter), 0.01 ether);
+        uint256 tokensOwned = giwaRouter.buy(
+            IGiwaRouter.BuyParams({
                 amountIn: 0.01 ether, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
 
-        IERC20(token).approve(address(router), tokensOwned);
+        IERC20(token).approve(address(giwaRouter), tokensOwned);
         vm.expectRevert();
-        router.exactOutSell(
-            INadFunRouter.ExactOutSellParams({
+        giwaRouter.exactOutSell(
+            IGiwaRouter.ExactOutSellParams({
                 amountInMax: tokensOwned, amountOut: 100 ether, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -436,10 +394,10 @@ contract NadFunRouterTest is SetUp {
         if (expectedQuoteIn > amountIn) expectedQuoteIn = amountIn;
 
         vm.startPrank(user1);
-        wmon.approve(address(router), amountIn);
+        wmon.approve(address(giwaRouter), amountIn);
 
-        uint256 amountOut = router.buy(
-            INadFunRouter.BuyParams({
+        uint256 amountOut = giwaRouter.buy(
+            IGiwaRouter.BuyParams({
                 amountIn: amountIn, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -448,7 +406,7 @@ contract NadFunRouterTest is SetUp {
         assertEq(amountOut, expectedTokenOut, "Token out should match getAmountOut");
         assertEq(IERC20(token).balanceOf(user1), expectedTokenOut, "User token balance should match");
         assertEq(wmon.balanceOf(user1), amountIn - expectedQuoteIn, "User should keep unspent quote");
-        assertEq(wmon.balanceOf(address(router)), 0, "Router should hold no quote");
+        assertEq(wmon.balanceOf(address(giwaRouter)), 0, "Router should hold no quote");
     }
 
     function test_buyWithNative_bondingCurve_exactAmount() public {
@@ -462,40 +420,29 @@ contract NadFunRouterTest is SetUp {
 
         vm.deal(user1, amountIn);
         vm.prank(user1);
-        uint256 amountOut = router.buyWithNative{value: amountIn}(
-            INadFunRouter.BuyWithNativeParams({amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1})
+        uint256 amountOut = giwaRouter.buyWithNative{value: amountIn}(
+            IGiwaRouter.BuyWithNativeParams({amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1})
         );
 
         assertEq(amountOut, expectedTokenOut, "Token out should match getAmountOut");
         assertEq(IERC20(token).balanceOf(user1), expectedTokenOut, "User token balance should match");
         assertEq(user1.balance, expectedRefund, "User should receive exact native refund");
-        assertEq(wmon.balanceOf(address(router)), 0, "Router should hold no WMON");
-        assertEq(address(router).balance, 0, "Router should hold no native");
+        assertEq(wmon.balanceOf(address(giwaRouter)), 0, "Router should hold no WMON");
+        assertEq(address(giwaRouter).balance, 0, "Router should hold no native");
     }
 
-    function test_buyWithNative_lvmonQuote_mintsLvmon() public {
+    function test_buyWithNative_lvmonQuote_reverts() public {
         address lvmonQuotedToken = _createLvmonQuotedToken();
         uint256 nativeIn = 2 ether;
 
-        uint256 tokenOut = bondingCurve.getAmountOut(lvmonQuotedToken, nativeIn, true);
-        uint256 quoteIn = bondingCurve.getAmountIn(lvmonQuotedToken, tokenOut, true);
-        if (quoteIn > nativeIn) quoteIn = nativeIn;
-        uint256 nativeRefund = nativeIn - quoteIn;
-
         vm.deal(user1, nativeIn);
         vm.prank(user1);
-        uint256 tokenOutReceived = router.buyWithNative{value: nativeIn}(
-            INadFunRouter.BuyWithNativeParams({
+        vm.expectRevert(IGiwaRouter.InvalidNativeQuoteToken.selector);
+        giwaRouter.buyWithNative{value: nativeIn}(
+            IGiwaRouter.BuyWithNativeParams({
                 amountOutMin: 0, token: lvmonQuotedToken, to: user1, deadline: block.timestamp + 1
             })
         );
-
-        assertEq(tokenOutReceived, tokenOut, "Token out should match getAmountOut");
-        assertEq(IERC20(lvmonQuotedToken).balanceOf(user1), tokenOut, "User token balance should match");
-        assertEq(user1.balance, nativeRefund, "User should receive native refund");
-        assertEq(lvmon.balanceOf(address(router)), 0, "Router should hold no LVMON");
-        assertEq(address(router).balance, 0, "Router should hold no native");
-        assertEq(address(lvmonMinter).balance, quoteIn, "LVMON minter should receive spent native");
     }
 
     // ═══════════════════════════════════════════════
@@ -511,9 +458,9 @@ contract NadFunRouterTest is SetUp {
 
         wmon.mint(user1, quoteNeeded);
         vm.startPrank(user1);
-        wmon.approve(address(router), quoteNeeded);
-        router.buy(
-            INadFunRouter.BuyParams({
+        wmon.approve(address(giwaRouter), quoteNeeded);
+        giwaRouter.buy(
+            IGiwaRouter.BuyParams({
                 amountIn: quoteNeeded, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -525,24 +472,24 @@ contract NadFunRouterTest is SetUp {
         uint256 exactNeeded = bondingCurve.getAmountIn(token, remainingTokens, true);
         uint256 excessAmount = exactNeeded * 10;
 
-        // Pre-calculate: router should only spend exactNeeded, not excessAmount
+        // Pre-calculate: giwaRouter should only spend exactNeeded, not excessAmount
         uint256 expectedTokenOut = bondingCurve.getAmountOut(token, excessAmount, true);
         uint256 expectedQuoteIn = bondingCurve.getAmountIn(token, expectedTokenOut, true);
         if (expectedQuoteIn > excessAmount) expectedQuoteIn = excessAmount;
 
         wmon.mint(user2, excessAmount);
         vm.startPrank(user2);
-        wmon.approve(address(router), excessAmount);
+        wmon.approve(address(giwaRouter), excessAmount);
         uint256 expectedRefund = excessAmount - expectedQuoteIn;
 
         vm.expectEmit(true, true, false, true, address(wmon));
-        emit IERC20.Transfer(user2, address(router), excessAmount);
+        emit IERC20.Transfer(user2, address(giwaRouter), excessAmount);
         vm.expectEmit(true, true, false, true, address(wmon));
-        emit IERC20.Transfer(address(router), address(bondingCurve), expectedQuoteIn);
+        emit IERC20.Transfer(address(giwaRouter), address(bondingCurve), expectedQuoteIn);
         vm.expectEmit(true, true, false, true, address(wmon));
-        emit IERC20.Transfer(address(router), user2, expectedRefund);
-        router.buy(
-            INadFunRouter.BuyParams({
+        emit IERC20.Transfer(address(giwaRouter), user2, expectedRefund);
+        giwaRouter.buy(
+            IGiwaRouter.BuyParams({
                 amountIn: excessAmount, amountOutMin: 0, token: token, to: user2, deadline: block.timestamp + 1
             })
         );
@@ -550,7 +497,49 @@ contract NadFunRouterTest is SetUp {
 
         assertEq(IERC20(token).balanceOf(user2), expectedTokenOut, "User should receive capped token amount");
         assertEq(wmon.balanceOf(user2), expectedRefund, "User should receive exact quote refund");
-        assertEq(wmon.balanceOf(address(router)), 0, "Router should hold no quote");
+        assertEq(wmon.balanceOf(address(giwaRouter)), 0, "Router should hold no quote");
+    }
+
+    function test_buy_bondingCurve_checksSlippageBeforeRefund() public {
+        IBondingCurve.Curve memory curve = bondingCurve.getCurve(token);
+        uint256 availableTokens = curve.virtualTokenReserve - curve.minTokenReserve;
+        uint256 quoteNeeded = bondingCurve.getAmountIn(token, availableTokens * 90 / 100, true);
+
+        wmon.mint(user1, quoteNeeded);
+        vm.startPrank(user1);
+        wmon.approve(address(giwaRouter), quoteNeeded);
+        giwaRouter.buy(
+            IGiwaRouter.BuyParams({
+                amountIn: quoteNeeded, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1
+            })
+        );
+        vm.stopPrank();
+
+        IBondingCurve.Curve memory curveAfter = bondingCurve.getCurve(token);
+        uint256 remainingTokens = curveAfter.virtualTokenReserve - curveAfter.minTokenReserve;
+        uint256 exactQuoteIn = bondingCurve.getAmountIn(token, remainingTokens, true);
+        uint256 quoteInMax = exactQuoteIn * 10;
+        uint256 tokenOut = bondingCurve.getAmountOut(token, quoteInMax, true);
+        uint256 quoteIn = bondingCurve.getAmountIn(token, tokenOut, true);
+        if (quoteIn > quoteInMax) quoteIn = quoteInMax;
+        uint256 refund = quoteInMax - quoteIn;
+
+        wmon.mint(user2, quoteInMax);
+        vm.prank(user2);
+        wmon.approve(address(giwaRouter), quoteInMax);
+        vm.mockCallRevert(
+            address(wmon),
+            abi.encodeCall(IERC20.transfer, (user2, refund)),
+            abi.encodeWithSignature("RefundAttempted()")
+        );
+
+        vm.prank(user2);
+        vm.expectRevert(IGiwaRouter.InsufficientOutput.selector);
+        giwaRouter.buy(
+            IGiwaRouter.BuyParams({
+                amountIn: quoteInMax, amountOutMin: tokenOut + 1, token: token, to: user2, deadline: block.timestamp + 1
+            })
+        );
     }
 
     function test_buyWithNative_nearGraduation_refundsExcess() public {
@@ -562,8 +551,8 @@ contract NadFunRouterTest is SetUp {
 
         vm.deal(user1, quoteNeeded);
         vm.prank(user1);
-        router.buyWithNative{value: quoteNeeded}(
-            INadFunRouter.BuyWithNativeParams({amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1})
+        giwaRouter.buyWithNative{value: quoteNeeded}(
+            IGiwaRouter.BuyWithNativeParams({amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1})
         );
 
         // Send 10x what's needed for remaining tokens
@@ -580,33 +569,33 @@ contract NadFunRouterTest is SetUp {
 
         vm.deal(user2, excessAmount);
         vm.prank(user2);
-        router.buyWithNative{value: excessAmount}(
-            INadFunRouter.BuyWithNativeParams({amountOutMin: 0, token: token, to: user2, deadline: block.timestamp + 1})
+        giwaRouter.buyWithNative{value: excessAmount}(
+            IGiwaRouter.BuyWithNativeParams({amountOutMin: 0, token: token, to: user2, deadline: block.timestamp + 1})
         );
 
         assertEq(IERC20(token).balanceOf(user2), expectedTokenOut, "User should receive capped token amount");
         assertEq(user2.balance, expectedRefund, "User should receive exact native refund");
-        assertEq(address(router).balance, 0, "Router should hold no native");
-        assertEq(wmon.balanceOf(address(router)), 0, "Router should hold no WMON");
+        assertEq(address(giwaRouter).balance, 0, "Router should hold no native");
+        assertEq(wmon.balanceOf(address(giwaRouter)), 0, "Router should hold no WMON");
     }
 
     // ── Unified quote — phase-aware getAmountOut / getAmountIn ──────
 
-    function test_getAmountOut_preGraduation_matchesBondingCurve() public view {
+    function test_getAmountOut_preGraduation_matchesBondingCurve() public {
         uint256 amountIn = 0.5 ether;
-        uint256 unified = router.getAmountOut(token, amountIn, true);
+        uint256 unified = giwaRouter.getAmountOut(token, amountIn, true);
         uint256 direct = bondingCurve.getAmountOut(token, amountIn, true);
         assertEq(unified, direct, "Pre-graduation getAmountOut should delegate to BondingCurve");
     }
 
-    function test_getAmountIn_preGraduation_matchesBondingCurve() public view {
+    function test_getAmountIn_preGraduation_matchesBondingCurve() public {
         uint256 amountOut = 1_000 ether;
-        uint256 unified = router.getAmountIn(token, amountOut, true);
+        uint256 unified = giwaRouter.getAmountIn(token, amountOut, true);
         uint256 direct = bondingCurve.getAmountIn(token, amountOut, true);
         assertEq(unified, direct, "Pre-graduation getAmountIn should delegate to BondingCurve");
     }
 
-    function test_getAmountOut_postGraduation_matchesDex() public {
+    function test_getAmountOut_postGraduationV2Metadata_revertsInvalidV3Pool() public {
         // Graduate the token by pushing enough quote through BondingCurve.
         uint256 graduationAmount = 800_000 ether;
         wmon.mint(user1, graduationAmount);
@@ -616,10 +605,235 @@ contract NadFunRouterTest is SetUp {
         vm.stopPrank();
         assertTrue(bondingCurve.getCurve(token).graduated, "Setup: token must graduate");
 
-        uint256 amountIn = 0.1 ether;
-        uint256 unified = router.getAmountOut(token, amountIn, true);
-        uint256 direct = router.getDexAmountOut(token, amountIn, true);
-        assertEq(unified, direct, "Post-graduation getAmountOut should delegate to DEX");
+        vm.expectRevert(IGiwaRouter.InvalidV3Pool.selector);
+        giwaRouter.getAmountOut(token, 0.1 ether, true);
+    }
+
+    function test_graduatedV2Metadata_allTradeAndQuoteEntrypointsRevertInvalidV3Pool() public {
+        uint256 graduationAmount = 800_000 ether;
+        wmon.mint(user1, graduationAmount);
+        vm.startPrank(user1);
+        wmon.transfer(address(bondingCurve), graduationAmount);
+        bondingCurve.buy(user1, token);
+        vm.stopPrank();
+        assertTrue(bondingCurve.getCurve(token).graduated, "Setup: token must graduate");
+
+        uint256 deadline = block.timestamp + 1;
+        wmon.approve(address(giwaRouter), type(uint256).max);
+        IERC20(token).approve(address(giwaRouter), type(uint256).max);
+        vm.deal(address(this), 2 ether);
+
+        _expectInvalidV3Pool(
+            abi.encodeCall(
+                GiwaRouter.buy,
+                (IGiwaRouter.BuyParams({amountIn: 1, amountOutMin: 0, token: token, to: user1, deadline: deadline}))
+            ),
+            0
+        );
+        _expectInvalidV3Pool(
+            abi.encodeCall(
+                GiwaRouter.buyWithNative,
+                (IGiwaRouter.BuyWithNativeParams({amountOutMin: 0, token: token, to: user1, deadline: deadline}))
+            ),
+            1
+        );
+        _expectInvalidV3Pool(
+            abi.encodeCall(
+                GiwaRouter.buyWithPermit,
+                (IGiwaRouter.BuyWithPermitParams({
+                        amountIn: 1,
+                        amountOutMin: 0,
+                        amountAllowance: 1,
+                        token: token,
+                        to: user1,
+                        deadline: deadline,
+                        v: 27,
+                        r: bytes32(0),
+                        s: bytes32(0)
+                    }))
+            ),
+            0
+        );
+        _expectInvalidV3Pool(
+            abi.encodeCall(
+                GiwaRouter.sell,
+                (IGiwaRouter.SellParams({amountIn: 1, amountOutMin: 0, token: token, to: user1, deadline: deadline}))
+            ),
+            0
+        );
+        _expectInvalidV3Pool(
+            abi.encodeCall(
+                GiwaRouter.sellToNative,
+                (IGiwaRouter.SellToNativeParams({
+                        amountIn: 1, amountOutMin: 0, token: token, to: user1, deadline: deadline
+                    }))
+            ),
+            0
+        );
+        _expectInvalidV3Pool(
+            abi.encodeCall(
+                GiwaRouter.sellWithPermit,
+                (IGiwaRouter.SellWithPermitParams({
+                        amountIn: 1,
+                        amountOutMin: 0,
+                        amountAllowance: 1,
+                        token: token,
+                        to: user1,
+                        deadline: deadline,
+                        v: 27,
+                        r: bytes32(0),
+                        s: bytes32(0)
+                    }))
+            ),
+            0
+        );
+        _expectInvalidV3Pool(
+            abi.encodeCall(
+                GiwaRouter.sellToNativeWithPermit,
+                (IGiwaRouter.SellToNativeWithPermitParams({
+                        amountIn: 1,
+                        amountOutMin: 0,
+                        amountAllowance: 1,
+                        token: token,
+                        to: user1,
+                        deadline: deadline,
+                        v: 27,
+                        r: bytes32(0),
+                        s: bytes32(0)
+                    }))
+            ),
+            0
+        );
+        _expectInvalidV3Pool(
+            abi.encodeCall(
+                GiwaRouter.exactOutBuy,
+                (IGiwaRouter.ExactOutBuyParams({
+                        amountInMax: 1, amountOut: 1, token: token, to: user1, deadline: deadline
+                    }))
+            ),
+            0
+        );
+        _expectInvalidV3Pool(
+            abi.encodeCall(
+                GiwaRouter.exactOutBuyWithNative,
+                (IGiwaRouter.ExactOutBuyWithNativeParams({amountOut: 1, token: token, to: user1, deadline: deadline}))
+            ),
+            1
+        );
+        _expectInvalidV3Pool(
+            abi.encodeCall(
+                GiwaRouter.exactOutSell,
+                (IGiwaRouter.ExactOutSellParams({
+                        amountInMax: 1, amountOut: 1, token: token, to: user1, deadline: deadline
+                    }))
+            ),
+            0
+        );
+        _expectInvalidV3Pool(
+            abi.encodeCall(
+                GiwaRouter.exactOutSellToNative,
+                (IGiwaRouter.ExactOutSellToNativeParams({
+                        amountInMax: 1, amountOut: 1, token: token, to: user1, deadline: deadline
+                    }))
+            ),
+            0
+        );
+        _expectInvalidV3Pool(abi.encodeCall(GiwaRouter.getAmountOut, (token, 1, true)), 0);
+        _expectInvalidV3Pool(abi.encodeCall(GiwaRouter.getAmountIn, (token, 1, true)), 0);
+        _expectInvalidV3Pool(abi.encodeCall(GiwaRouter.getDexAmountOut, (token, 1, true)), 0);
+        _expectInvalidV3Pool(abi.encodeCall(GiwaRouter.getDexAmountIn, (token, 1, true)), 0);
+    }
+
+    function _expectInvalidV3Pool(bytes memory callData, uint256 value) internal {
+        (bool success, bytes memory revertData) = address(giwaRouter).call{value: value}(callData);
+        assertFalse(success, "graduated V2 metadata path must revert");
+        assertEq(revertData, abi.encodeWithSelector(IGiwaRouter.InvalidV3Pool.selector));
+    }
+
+    function test_initialize_revertsForEveryZeroDependency() public {
+        address[6] memory dependencies = _validDependencies();
+        for (uint256 i; i < dependencies.length; ++i) {
+            address dependency = dependencies[i];
+            dependencies[i] = address(0);
+            _expectInvalidDependency(dependencies);
+            dependencies[i] = dependency;
+        }
+    }
+
+    function test_initialize_revertsForEveryNonContractDependency() public {
+        address[6] memory dependencies = _validDependencies();
+        for (uint256 i; i < dependencies.length; ++i) {
+            address dependency = dependencies[i];
+            dependencies[i] = makeAddr(string.concat("nonContractDependency", vm.toString(i)));
+            assertEq(dependencies[i].code.length, 0, "test dependency must have no code");
+            _expectInvalidDependency(dependencies);
+            dependencies[i] = dependency;
+        }
+    }
+
+    function test_initialize_revertsWhenAdapterRegistryDoesNotMatch() public {
+        V3SwapAdapter mismatchedAdapter = new V3SwapAdapter(address(v3Factory), address(protocolManager));
+        address[6] memory dependencies = _validDependencies();
+        dependencies[4] = address(mismatchedAdapter);
+        _expectInvalidDependency(dependencies);
+    }
+
+    function test_initialize_revertsWhenQuoterFactoryDoesNotMatchAdapter() public {
+        UniswapV3Factory otherFactory = new UniswapV3Factory();
+        QuoterV2 mismatchedQuoter = new QuoterV2(address(otherFactory), address(wmon));
+        address[6] memory dependencies = _validDependencies();
+        dependencies[5] = address(mismatchedQuoter);
+        _expectInvalidDependency(dependencies);
+    }
+
+    function test_initialize_revertsOnImplementation() public {
+        GiwaRouter implementation = new GiwaRouter();
+        address[6] memory dependencies = _validDependencies();
+
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        implementation.initialize(
+            dependencies[0], dependencies[1], dependencies[2], dependencies[3], dependencies[4], dependencies[5]
+        );
+    }
+
+    function test_dependencyGetters_returnConfiguredDependencies() public view {
+        assertEq(giwaRouter.authority(), address(protocolManager));
+        assertEq(giwaRouter.bondingCurve(), address(bondingCurve));
+        assertEq(giwaRouter.tokenRegistry(), address(tokenRegistry));
+        assertEq(giwaRouter.wrappedNative(), address(wmon));
+        assertEq(giwaRouter.v3SwapAdapter(), address(v3SwapAdapter));
+        assertEq(giwaRouter.quoterV2(), address(quoterV2));
+    }
+
+    function test_setAuthority_remainsUnavailable() public {
+        vm.prank(address(protocolManager));
+        vm.expectRevert(
+            abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, address(protocolManager))
+        );
+        giwaRouter.setAuthority(makeAddr("replacementAuthority"));
+    }
+
+    function _validDependencies() internal view returns (address[6] memory dependencies) {
+        dependencies = [
+            address(protocolManager),
+            address(bondingCurve),
+            address(tokenRegistry),
+            address(wmon),
+            address(v3SwapAdapter),
+            address(quoterV2)
+        ];
+    }
+
+    function _expectInvalidDependency(address[6] memory dependencies) internal {
+        GiwaRouter implementation = new GiwaRouter();
+        vm.expectRevert(IGiwaRouter.InvalidDependency.selector);
+        new ERC1967Proxy(
+            address(implementation),
+            abi.encodeCall(
+                GiwaRouter.initialize,
+                (dependencies[0], dependencies[1], dependencies[2], dependencies[3], dependencies[4], dependencies[5])
+            )
+        );
     }
 
     function _nadFunDefaultParams() internal view returns (IBondingCurve.CreateTokenParams memory params) {
@@ -633,7 +847,7 @@ contract NadFunRouterTest is SetUp {
             quoteToken: address(wmon),
             creatorFeeRate: 500,
             vaults: vaults,
-            salt: keccak256("nadFunRouterTest"),
+            salt: keccak256("giwaRouterTest"),
             dexType: ITokenRegistry.DexType.UniswapV2,
             creator: address(this),
             buyQuoteAmount: 0
@@ -645,21 +859,8 @@ contract NadFunRouterTest is SetUp {
         lvmon.transfer(address(bondingCurve), defaultDeployFee);
         IBondingCurve.CreateTokenParams memory params = _nadFunDefaultParams();
         params.quoteToken = address(lvmon);
-        params.salt = keccak256("nadFunRouterLvmonTest");
+        params.salt = keccak256("giwaRouterLvmonTest");
         (lvmonQuotedToken,) = bondingCurve.create(params);
         vm.warp(block.timestamp + 100 minutes);
-    }
-
-    function _tokenReserve(address pairAddr, address tokenAddr) internal view returns (uint256 reserve) {
-        (uint112 r0, uint112 r1,) = INadFunPair(pairAddr).getReserves();
-        reserve = INadFunPair(pairAddr).token0() == tokenAddr ? uint256(r0) : uint256(r1);
-    }
-
-    function _swapOut(address pairAddr, address tokenOut, uint256 amountOut, address to) internal {
-        if (INadFunPair(pairAddr).token0() == tokenOut) {
-            INadFunPair(pairAddr).swap(amountOut, 0, to, "");
-        } else {
-            INadFunPair(pairAddr).swap(0, amountOut, to, "");
-        }
     }
 }

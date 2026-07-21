@@ -74,7 +74,7 @@ struct VaultSlot {
 ## Key Logic: processCreatorFee Flow
 
 ```
-FeeCollector.settle()
+FeeCollector.settle(pair, minAmountOut)
   -> approve(creatorFeeProcessor, amount)
   -> CreatorFeeProcessor.processCreatorFee(token, quoteToken, amount)
 
@@ -84,10 +84,10 @@ FeeCollector.settle()
    for each vault[i]:
      |- amount = creatorFeeQuote * vault[i].bps / BPS (last gets remainder)
      |- safeTransfer(vault[i].vault, amount)
-     +- try vault[i].afterDeposit(token, quoteToken, amount)
+     +- vault[i].afterDeposit(token, quoteToken, amount)
 ```
 
-Each vault handles its own logic (burn, LP, dividend, direct transfer, etc.). CreatorFeeProcessor has no built-in knowledge of burn, LP, or dividend logic.
+Each vault handles its own logic (burn, LP, dividend, direct transfer, etc.). CreatorFeeProcessor has no built-in knowledge of that logic, and the callback is direct: any vault failure reverts the full distribution and the caller's settlement transaction.
 
 ### Pull Pattern
 

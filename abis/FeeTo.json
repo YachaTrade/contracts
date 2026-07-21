@@ -366,6 +366,11 @@
   },
   {
     "type": "error",
+    "name": "ExpiredDeadline",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "FailedCall",
     "inputs": []
   },

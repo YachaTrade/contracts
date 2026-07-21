@@ -236,6 +236,16 @@
             "internalType": "uint256"
           },
           {
+            "name": "v3FeeTier",
+            "type": "uint24",
+            "internalType": "uint24"
+          },
+          {
+            "name": "lpFeeProtocolShareBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
             "name": "active",
             "type": "bool",
             "internalType": "bool"
@@ -446,6 +456,25 @@
   },
   {
     "type": "function",
+    "name": "lpFeeProtocolShareBps",
+    "inputs": [
+      {
+        "name": "quoteToken",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "owner",
     "inputs": [],
     "outputs": [
@@ -626,6 +655,29 @@
   },
   {
     "type": "function",
+    "name": "setV3QuoteConfig",
+    "inputs": [
+      {
+        "name": "quoteToken",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "v3FeeTier_",
+        "type": "uint24",
+        "internalType": "uint24"
+      },
+      {
+        "name": "lpFeeProtocolShareBps_",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "settlementThreshold",
     "inputs": [
       {
@@ -771,6 +823,25 @@
     ],
     "outputs": [],
     "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "v3FeeTier",
+    "inputs": [
+      {
+        "name": "quoteToken",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint24",
+        "internalType": "uint24"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "event",
@@ -1042,6 +1113,31 @@
     "anonymous": false
   },
   {
+    "type": "event",
+    "name": "V3QuoteConfigUpdate",
+    "inputs": [
+      {
+        "name": "quoteToken",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "v3FeeTier",
+        "type": "uint24",
+        "indexed": false,
+        "internalType": "uint24"
+      },
+      {
+        "name": "lpFeeProtocolShareBps",
+        "type": "uint16",
+        "indexed": false,
+        "internalType": "uint16"
+      }
+    ],
+    "anonymous": false
+  },
+  {
     "type": "error",
     "name": "AddressEmptyCode",
     "inputs": [
@@ -1075,7 +1171,17 @@
   },
   {
     "type": "error",
+    "name": "InvalidFeeTier",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "InvalidInitialization",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidLpFeeShare",
     "inputs": []
   },
   {

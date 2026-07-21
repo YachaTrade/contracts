@@ -89,10 +89,48 @@
   },
   {
     "type": "function",
+    "name": "getPool",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "getQuoteToken",
     "inputs": [
       {
         "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getTokenByPool",
+    "inputs": [
+      {
+        "name": "pool",
         "type": "address",
         "internalType": "address"
       }
@@ -128,6 +166,11 @@
             "internalType": "address"
           },
           {
+            "name": "pool",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
             "name": "quoteToken",
             "type": "address",
             "internalType": "address"
@@ -136,6 +179,11 @@
             "name": "dexType",
             "type": "uint8",
             "internalType": "enum ITokenRegistry.DexType"
+          },
+          {
+            "name": "feeTier",
+            "type": "uint24",
+            "internalType": "uint24"
           }
         ]
       }
@@ -223,6 +271,34 @@
         "name": "dexType",
         "type": "uint8",
         "internalType": "enum ITokenRegistry.DexType"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "registerV3",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "pool",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "quoteToken",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "feeTier",
+        "type": "uint24",
+        "internalType": "uint24"
       }
     ],
     "outputs": [],
@@ -398,7 +474,17 @@
   },
   {
     "type": "error",
+    "name": "InvalidPool",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NotInitializing",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "PoolAlreadyRegistered",
     "inputs": []
   },
   {

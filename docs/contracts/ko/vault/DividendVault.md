@@ -5,7 +5,7 @@
 **Pattern:** UUPS Proxy (Singleton)
 **Inheritance:** `IDividendVault`, `UUPSUpgradeable`, `AccessManagedUpgradeable`, `ReentrancyGuard`
 
-다수 배당 토큰 분배 볼트. CreatorFeeProcessor로부터 creator fee(quoteToken)를 수신하고, creator가 설정한 1~10개의 배당 토큰으로 BPS 비율에 따라 분할을 **기록**한다 — quoteToken 슬롯은 즉시 적립되고, 나머지 슬라이스는 `pendingSwap`에 누적된다. 누적된 슬라이스는 이후 **operator bot이 변환**한다 — 단일 진입점 `executeConversion`의 명시적 hop 경로. V2 nad.fun 토큰은 졸업 여부와 무관하게 **router hop**(`hop.adapter == router`)으로 변환되고(커브/DEX 분기는 `NadFunRouter`가 내부 처리), 일반 NadFunPair 풀은 `nadSwapAdapter` 레인으로, 외부 시장은 Uniswap 어댑터 레인으로 변환된다. 분배는 기존과 동일: 오프체인 스냅샷 → 글로벌 Merkle root → 홀더 본인 claim. 싱글톤으로 배포되어 모든 토큰에 공유된다.
+다수 배당 토큰 분배 볼트. CreatorFeeProcessor로부터 creator fee(quoteToken)를 수신하고, creator가 설정한 1~10개의 배당 토큰으로 BPS 비율에 따라 분할을 **기록**한다 — quoteToken 슬롯은 즉시 적립되고, 나머지 슬라이스는 `pendingSwap`에 누적된다. 누적 슬라이스는 이후 **operator bot이 변환**한다. **router hop**(`hop.adapter == router`)은 본딩 phase 또는 등록된 canonical-V3 토큰에 GiwaRouter를 호출한다. 명시적 레거시 NadFunPair 풀은 `nadSwapAdapter` 레인으로, 외부 시장은 Uniswap adapter 레인으로 변환된다. 분배는 기존과 동일하며 singleton UUPS proxy 하나가 모든 토큰에 공유된다.
 
 컨트랙트는 **라우팅 지식을 보유하지 않는다**: 경로 구성은 전적으로 오프체인 bot의 몫이다. 온체인은 방어만 담당한다 — 어댑터 allowlist, path 끝점 검증, 중간 hop 전량 소비 가드, 실값 `amountOutMin`, pending 슬롯 상한, 원자성.
 
@@ -32,14 +32,14 @@
 | `tokenRegistryV2` | `ITokenRegistry` | public | source quote 조회와 배당 토큰 입장 검증(`setup`)에 사용하는 V2 registry |
 | `creatorFeeProcessor` | `address` | public | `afterDeposit` 호출 권한 |
 | `bondingCurve` | `address` | public | `setup` 호출 권한 |
-| `router` | `address` | public | NadFunRouter — `executeConversion`의 router hop이 V2 토큰 변환(본딩·졸업 무관, 분기는 라우터)에 `buy`를 호출. `initialize`로 배선되며 `setAdapters` 레인이 아님 |
+| `router` | `address` | public | GiwaRouter — `executeConversion`의 router hop이 본딩 phase 또는 등록된 canonical-V3 토큰에 `buy`를 호출. `initialize`로 배선되며 `setAdapters` 레인이 아님 |
 | `bondingCurveV1` | `IBondingCurveV1` | public | V1 BondingCurve (`src/integration/interfaces/IBondingCurveV1.sol`) — 입장 게이트의 진실 소스: `createdAt != 0` = V1 멤버십 (졸업 후에도 유지), `isGraduated` = 단방향 졸업 플래그 |
 | `nadSwapAdapter` | `IDexAdapter` | public | 볼트 보유 allowlist 레인 — 일반 NadFunPair 풀 hop용 (USDC/WMON 같은 vanilla 풀, cross-quote 중간 다리 — 라우터는 토큰 주소로만 사므로 임의 풀을 못 함) (0 = 레인 비활성) |
 | `uniswapV2Adapter` | `IDexAdapter` | public | 볼트 보유 allowlist 레인 — 외부 Uniswap V2 pair hop용 (0 = 레인 비활성) |
 | `uniswapV3Adapter` | `IDexAdapter` | public | 볼트 보유 allowlist 레인 — Capricorn CL / Uniswap V3 pool hop용 (0 = 레인 비활성) |
 | `wmon` | `address` | public | claim 시 native 언래핑에만 쓰이는 WMON 싱글톤 (0 = 언래핑 비활성) |
 
-> **hop은 두 종류, 둘 다 자금 안전:** `executeConversion`은 각 hop을 두 갈래로 디스패치한다 — **router hop**(`hop.adapter == router`)은 `NadFunRouter.buy`를 직접 호출하고(router는 init 시 배선된 신뢰 주소라 이 비교가 곧 router-lane allowlist), **adapter hop**(else)은 세 보유 레인(`nadSwapAdapter`/`uniswapV2Adapter`/`uniswapV3Adapter`, `setAdapters`로 배선)을 토큰 push **전에** 평탄(flat) if로 검사한다(`UnknownAdapter`). bot이 공급한 path에 잘못된 어댑터가 들어와도 자금을 받을 수 없고, 미설정(zero) 레인은 매칭되지 않는다(router는 nonzero라 `address(0)`은 `UnknownAdapter`로 떨어짐). 새 어댑터 종류 지원은 보유 레인 + 평탄 분기를 추가하는 컨트랙트 업그레이드가 필요. NadFunRouter는 `IDexAdapter`로 **감싸지 않는다** — 풀 주소가 없고 `transferFrom` pull 패턴이며 졸업 분기를 소유하는 상위 라우터라, 풀-어댑터 틀에 끼우는 대신 vault가 직접 호출한다. `nadSwapAdapter`(NadFunPair AMM 어댑터)는 라우터가 닿지 못하는 일반/vanilla NadFunPair 풀을 담당한다.
+> **hop은 두 종류, 둘 다 자금 안전:** `executeConversion`은 **router hop**(`hop.adapter == router`)에서 `GiwaRouter.buy`를 직접 호출하고, **adapter hop**에서는 세 보유 레인(`nadSwapAdapter`/`uniswapV2Adapter`/`uniswapV3Adapter`)을 토큰 push 전에 검사한다(`UnknownAdapter`). 잘못된 adapter나 미설정 lane은 자금을 받을 수 없다. GiwaRouter는 pull pattern과 lifecycle dispatch를 가진 상위 router이므로 `IDexAdapter`로 감싸지 않는다. `nadSwapAdapter`는 GiwaRouter의 졸업 후 V3 경로가 거부하는 명시적 레거시 NadFunPair 풀을 담당한다.
 
 ### Dividend config
 
@@ -69,7 +69,7 @@
 
 > **V1 입장 게이트:** `setAllowedDividendToken(token, true)`는 codeless 주소를 `NotContract`로,
 > V1 BondingCurve가 "생성됐지만 미졸업"으로 보고하는 V1 토큰을 `V1TokenNotGraduated`로 거부한다.
-> 졸업 전 V1 토큰은 변환 lane이 없어(Capricorn CL pool 부재, router hop은 V2 전용) 입장을
+> 졸업 전 V1 토큰은 변환 lane이 없어(Capricorn CL pool 부재, GiwaRouter도 V1 lifecycle metadata를 라우팅하지 않음) 입장을
 > 허용하면 `pendingSwap` quote가 졸업 — 영원히 안 올 수도 있는 — 때까지 잠긴다. code 체크는
 > CREATE2 예측 주소 우회를 봉쇄한다: V1은 `create()`에서 토큰 코드 배포와 `createdAt` 기록이
 > 원자적이므로, 아직 생성되지 않은 V1 주소가 "외부 ERC20"으로 통과할 수 없다. 졸업은 단방향이라
@@ -104,7 +104,7 @@
 
 | 필드 | 타입 | 설명 |
 |------|------|------|
-| `adapter` | `IDexAdapter` | hop 디스패치 키. `router`와 같으면 router hop(`NadFunRouter.buy`), 아니면 `nadSwapAdapter`/`uniswapV2Adapter`/`uniswapV3Adapter` 중 하나여야 함 (아니면 `UnknownAdapter`) |
+| `adapter` | `IDexAdapter` | hop 디스패치 키. `router`와 같으면 router hop(`GiwaRouter.buy`), 아니면 `nadSwapAdapter`/`uniswapV2Adapter`/`uniswapV3Adapter` 중 하나여야 함 (아니면 `UnknownAdapter`) |
 | `pair` | `address` | adapter hop의 NadFunPair / V2 pair / V3 pool 주소. **router hop에선 무시**(라우터는 토큰으로 시장을 해석 — 풀 주소 없음). bot 공급 — 자금 보호는 pair 검증이 아니라 디스패치 키 + `amountOutMin`이 담당 |
 | `tokenOut` | `address` | 이 hop의 출력 토큰; 마지막 hop의 `tokenOut`은 대상 배당 토큰과 일치해야 함 (`InvalidPath`) |
 
@@ -220,12 +220,12 @@ operator bot -> executeConversion(ConversionOrder[] orders)   [restricted, nonRe
 
 ---
 
-## 핵심 로직: router hop (V2 배당 토큰)
+## 핵심 로직: router hop (본딩 또는 등록 canonical V3)
 
-V2 배당 토큰은 — 본딩이든 졸업이든 — 동일한 `executeConversion` hop 루프의 **router hop**으로
-변환된다: bot이 `hop.adapter == router`로 인코딩하면 루프가 `NadFunRouter.buy`를 직접 호출한다
-(어댑터 wrapper 없음). 졸업 분기(본딩커브 vs DEX)와 exact-in 환불 계산을 라우터가 소유하므로
-볼트는 졸업 상태를 보지 않고, 주문 생성과 실행 사이에 토큰이 졸업해도 변환이 revert하지 않는다.
+**router hop**은 본딩 phase 토큰 또는 canonical Uniswap V3로 등록된 졸업 토큰에 유효하다.
+bot이 `hop.adapter == router`로 인코딩하면 루프가 `GiwaRouter.buy`를 직접 호출한다.
+졸업한 레거시 V2 토큰은 `nadSwapAdapter` lane을 사용해야 하며 GiwaRouter는 해당 metadata를 거부한다.
+주문 생성과 실행 사이에 졸업 상태가 바뀌면 bot은 현재 route를 다시 resolve해 재시도해야 한다.
 
 ```
 hop.adapter == router 인 hop:
@@ -237,8 +237,8 @@ hop.adapter == router 인 hop:
   # refund하므로, vault의 잔액-델타 consumed 회계가 실소비 quote만큼만 pendingSwap을 차감 — 중계 없음.
 ```
 
-`hop.pair`는 router hop에서 무시된다(라우터는 토큰으로 시장을 해석 — 풀 주소 없음).
-졸업 임계점 부분 체결은 여느 첫-hop 부분 체결과 똑같이 동작한다: 환불은 vault에 남고 미소비
+`hop.pair`는 router hop에서 무시된다(라우터가 token metadata로 시장을 resolve한다).
+본딩 졸업 임계점 또는 V3 price limit 부분 체결은 첫-hop 부분 체결과 똑같이 동작한다: 환불은 vault에 남고 미소비
 슬라이스는 이후 order를 위해 `pendingSwap`에 잔존한다. 첫 hop이 아닌 위치에서 같은 환불이
 발생하면 `PathResidue`로 revert되므로(중간 토큰은 pending 회계 밖), 본딩 buy로 끝나는
 cross-quote 경로는 입력을 전량 소비할 때만 정산된다.

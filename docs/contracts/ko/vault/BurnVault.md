@@ -4,7 +4,7 @@
 **Pattern:** UUPS Proxy
 **Inheritance:** `IVault`, `UUPSUpgradeable`, `AccessManagedUpgradeable`
 
-바이백 앤 번(Buyback & Burn) Vault. CreatorFeeProcessor로부터 quoteToken을 받아 token으로 스왑한 후 `0xdead`로 전송하여 영구 소각. 본딩 phase에서는 NadFunRouter.buy()를 사용해 clamped buy 환불/잔액 보존 로직을 타고, 졸업 후에는 DEX 어댑터를 통해 스왑. 싱글톤으로 배포되어 모든 token에 대해 하나의 인스턴스가 공유됨.
+바이백 앤 번(Buyback & Burn) Vault. CreatorFeeProcessor로부터 quoteToken을 받아 token으로 스왑한 후 `0xdead`로 전송하여 영구 소각. 본딩 phase에서는 GiwaRouter.buy()를 사용해 clamped buy 환불/잔액 보존 로직을 타고, 졸업 후에는 등록 DEX 어댑터를 통해 스왑. singleton UUPS proxy로 배포되어 모든 token에 대해 하나의 인스턴스가 공유됨.
 
 ---
 
@@ -40,7 +40,7 @@
 
 ```
 CreatorFeeProcessor -> transfer(quoteToken, vault, amount)
-CreatorFeeProcessor -> try vault.afterDeposit(token, quoteToken, amount)
+CreatorFeeProcessor -> vault.afterDeposit(token, quoteToken, amount)
   |-- balanceOf(quoteToken) 확인 → 0이면 return
   |-- isGraduated() 체크:
   |   |-- true (졸업 후):
@@ -55,7 +55,7 @@ CreatorFeeProcessor -> try vault.afterDeposit(token, quoteToken, amount)
   +-- emit Burn
 ```
 
-스왑 실패 시 revert. CreatorFeeProcessor의 try/catch가 afterDeposit을 감싸므로 전체 크리에이터 수수료 분배 파이프라인은 보호됨.
+`afterDeposit`은 pending quote를 기록한 뒤 `executePendingBuyback`을 self-call `try/catch`로 실행한다. swap/buy 실패는 self-call만 롤백되고 catch되며, pending quote는 이후 재시도를 위해 유지되어 상위 creator-fee settlement는 완료될 수 있다.
 
 ---
 

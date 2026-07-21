@@ -4,7 +4,7 @@
 **Pattern:** UUPS Upgradeable
 **Inheritance:** `ITokenRegistry`, `UUPSUpgradeable`, `AccessManagedUpgradeable`
 
-Token metadata registry and DexType-to-adapter mapping. Stores per-token DEX pair, quote token, and DEX type. Registration is gated by the current authority policy rather than a local allowlist.
+Token metadata registry and DexType-to-adapter mapping. Stores legacy pair plus canonical V3 pool/reverse lookup, quote token, DEX type, and fee tier. Registration is gated by the current authority policy rather than a local allowlist.
 
 ---
 
@@ -12,8 +12,9 @@ Token metadata registry and DexType-to-adapter mapping. Stores per-token DEX pai
 
 | Variable | Type | Visibility | Purpose |
 |----------|------|------------|---------|
-| `_tokens` | `mapping(address => TokenInfo)` | private | Token address to metadata (pair, quoteToken, dexType) |
+| `_tokens` | `mapping(address => TokenInfo)` | private | Token metadata (pair, pool, quoteToken, dexType, feeTier) |
 | `_adapters` | `mapping(DexType => IDexAdapter)` | private | DEX type to adapter contract |
+| `_tokensByPool` | `mapping(address => address)` | private | Canonical V3 pool to launch-token reverse lookup |
 
 ---
 
@@ -24,7 +25,10 @@ Token metadata registry and DexType-to-adapter mapping. Stores per-token DEX pai
 | Function | Access | Description |
 |----------|--------|-------------|
 | `register(token, pair, quoteToken, dexType)` | restricted | Register token metadata (one-time, no re-registration) |
+| `registerV3(token, pool, quoteToken, feeTier)` | restricted | Register canonical V3 metadata after code/reverse-lookup validation |
 | `getPair(token)` | view | Get DEX pair address for a token |
+| `getPool(token)` | view | Get canonical V3 pool for a token |
+| `getTokenByPool(pool)` | view | Reverse-resolve launch token for a canonical V3 pool |
 | `getQuoteToken(token)` | view | Get quote token address |
 | `getDexType(token)` | view | Get DEX type (V2, V3, V4) |
 | `getTokenInfo(token)` | view | Get full TokenInfo struct |
@@ -45,3 +49,6 @@ Token metadata registry and DexType-to-adapter mapping. Stores per-token DEX pai
 | Error | Description |
 |-------|-------------|
 | `AlreadyRegistered()` | Token is already registered |
+| `PoolAlreadyRegistered()` | Canonical pool already maps to another token |
+| `InvalidPool()` | Pool address has no deployed code |
+| `ZeroAddress()` | Required token/pool/quote address is zero |

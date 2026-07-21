@@ -22,6 +22,8 @@ struct QuoteConfig {
     uint16 curveProtocolFeeRate; // Bonding curve protocol fee (BPS) per quote token
     uint16 dexProtocolFeeRate;   // DEX protocol fee (BPS) per quote token
     uint256 settlementThreshold;  // Creator fee settlement threshold per quote token
+    uint24 v3FeeTier;             // Canonical Uniswap V3 fee tier
+    uint16 lpFeeProtocolShareBps; // Protocol share of collected V3 LP fees
     bool active;                 // Whether creation with this quote is allowed
 }
 ```
@@ -39,6 +41,8 @@ struct QuoteConfig {
 | `dexProtocolFeeRate(quoteToken)` | `uint16` | DEX protocol fee (BPS) per quote token |
 | `deployFee(quoteToken)` | `uint256` | Token deploy fee per quote token |
 | `graduateFee(quoteToken)` | `uint256` | Graduation fee per quote token |
+| `v3FeeTier(quoteToken)` | `uint24` | Canonical V3 fee tier per quote token |
+| `lpFeeProtocolShareBps(quoteToken)` | `uint16` | Protocol share of collected V3 LP fees |
 
 ### Fee Setters (admin only)
 
@@ -51,9 +55,10 @@ struct QuoteConfig {
 |----------|---------|-------------|
 | `isCreatorFeeRateAllowed(rate)` | `bool` | Check if creator fee rate is whitelisted |
 | `settlementThreshold(quoteToken)` | `uint256` | Creator fee settlement threshold for a quote token |
-| `setAllowedCreatorFeeRates(rates)` | — | Add allowed creator fee rates |
-| `removeCreatorFeeRate(rate)` | — | Remove a creator fee rate from allowed list |
+| `setAllowedCreatorFeeRates(rates)` | — | Add rates to the existing creator-fee allowlist; does not replace or clear existing entries |
+| `removeCreatorFeeRate(rate)` | — | Remove one creator fee rate from the allowlist |
 | `setSettlementThreshold(quoteToken, threshold)` | — | Set settlement threshold for a quote token |
+| `setV3QuoteConfig(quoteToken, v3FeeTier, lpFeeProtocolShareBps)` | — | Set canonical V3 fee tier and LP-fee protocol share |
 
 ### Sniping Penalty Config
 
@@ -71,6 +76,13 @@ struct QuoteConfig {
 |----------|---------|-------------|
 | `setOperatorPermission(operator, target, selector, allowed)` | — | Grant/revoke selector-scoped operator permission for an AccessManaged target |
 | `isOperatorAllowed(operator, target, selector)` | `bool` | Check selector-scoped operator permission |
+
+### Factory Management
+
+| Function | Description |
+|----------|-------------|
+| `setFactoryFeeTo(factory, feeTo)` | Set the retained NadFunFactory fee receiver |
+| `setFactoryImplementation(factory, implementation)` | Set the retained NadFunPair implementation |
 
 ### Quote Token Management
 
@@ -95,11 +107,11 @@ struct QuoteConfig {
 | `FeeReceiverUpdate(address)` | Fee receiver changed |
 | `CreatorFeeRatesUpdate(uint16[])` | Creator fee rate whitelist changed |
 | `SettlementThresholdUpdate(address, uint256)` | Quote token settlement threshold changed |
+| `V3QuoteConfigUpdate(address, uint24, uint16)` | Quote token V3 fee tier / LP-fee share changed |
 | `SnipingPenaltyTableUpdate(uint256[] penaltyTable)` | Per-block sniping penalty table replaced |
 | `QuoteTokenAdd(address, uint256, uint256, uint256, uint256, uint256, uint16, uint16, uint256)` | New quote token registered |
 | `QuoteTokenRemove(address)` | Quote token deactivated |
 | `QuoteTokenUpdate(address, uint256, uint256, uint256, uint256, uint256, uint16, uint16, uint256)` | Quote token config updated |
-| `GiftSignerUpdate(address, address)` | GiftVault signer changed |
 | `OperatorPermissionUpdated(address, address, bytes4, bool)` | Selector-scoped operator permission changed |
 
 ## Errors
@@ -108,4 +120,6 @@ struct QuoteConfig {
 |-------|-------------|
 | `QuoteTokenNotAllowed()` | Unregistered quote token used |
 | `QuoteTokenAlreadyAdded()` | Duplicate quote token registration |
+| `InvalidFeeTier()` | V3 fee tier is invalid |
+| `InvalidLpFeeShare()` | V3 LP-fee protocol share exceeds BPS |
 | `ZeroAddress()` | Zero address provided |

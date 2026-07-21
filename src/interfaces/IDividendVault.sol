@@ -91,8 +91,8 @@ interface IDividendVault is IVault {
     function setAllowedDividendToken(address token, bool allowed) external;
 
     /// @notice Operator converts a pending source quote slice through an explicit hop path.
-    /// @dev Registered V2 tokens use the router hop (hop.adapter == router) regardless of graduation state;
-    ///      NadFunRouter dispatches internally between bonding curve and DEX execution.
+    /// @dev Registered launch tokens use the router hop (hop.adapter == router); GiwaRouter dispatches
+    ///      internally between bonding-curve and canonical V3 execution.
     function executeConversion(ConversionOrder[] calldata orders) external;
 
     /// @notice Get the dividend configuration for a source token.
@@ -104,7 +104,7 @@ interface IDividendVault is IVault {
     /// @notice WMON singleton used for native unwrap on claim. 0 disables unwrap.
     function wmon() external view returns (address);
 
-    /// @notice NadFunRouter used directly for registered V2 token buy hops.
+    /// @notice GiwaRouter used directly for registered launch-token buy hops.
     function router() external view returns (address);
 
     /// @notice NadSwap adapter lane for general NadFunPair pool swaps, including vanilla pools and cross-quote bridge legs.
