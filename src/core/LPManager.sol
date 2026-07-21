@@ -3,7 +3,9 @@ pragma solidity ^0.8.24;
 import {ILPManager} from "../interfaces/ILPManager.sol";
 import {ITokenRegistry} from "../interfaces/ITokenRegistry.sol";
 import {IProtocolManager} from "../interfaces/IProtocolManager.sol";
+import {ICreatorFeeProcessor} from "../interfaces/ICreatorFeeProcessor.sol";
 import {IV3LiquidityActor} from "../interfaces/IV3LiquidityActor.sol";
+import {IV3SwapAdapter} from "../interfaces/IV3SwapAdapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IUniswapV3Factory} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Factory.sol";
@@ -11,10 +13,15 @@ import {IUniswapV3Pool} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Po
 import {FullMath} from "@uniswap/v3-core/contracts/libraries/FullMath.sol";
 import {TickMath} from "@uniswap/v3-core/contracts/libraries/TickMath.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {BPS} from "../libraries/Constants.sol";
 import {UUPSUpgradeable} from "@openzeppelin-upgradeable/contracts/proxy/utils/UUPSUpgradeable.sol";
 import {
     AccessManagedUpgradeable
 } from "@openzeppelin-upgradeable/contracts/access/manager/AccessManagedUpgradeable.sol";
+
+interface ICreatorFeeProcessorGraph {
+    function protocolManager() external view returns (address);
+}
 
 contract LPManager is ILPManager, UUPSUpgradeable, AccessManagedUpgradeable {
     using SafeERC20 for IERC20;
@@ -24,9 +31,13 @@ contract LPManager is ILPManager, UUPSUpgradeable, AccessManagedUpgradeable {
     address public v3LiquidityActor;
     mapping(address => ILPManager.PoolData) private _pools;
     bool private _entered;
+    address public creatorFeeProcessor;
+    address public v3SwapAdapter;
     error InvalidFactory();
     error InvalidPool();
     error InvalidConfig();
+    error InvalidBatch();
+    error DuplicateToken(address token);
     error UnauthorizedCaller();
     error BalanceDelta();
     event V3Allocation(address indexed token, address indexed pool, uint256 tokenUsed, uint256 quoteUsed);
@@ -35,9 +46,26 @@ contract LPManager is ILPManager, UUPSUpgradeable, AccessManagedUpgradeable {
         _disableInitializers();
     }
 
-    function initialize(address protocolManager_, address tokenRegistry_) external initializer {
+    function initialize(
+        address protocolManager_,
+        address tokenRegistry_,
+        address creatorFeeProcessor_,
+        address v3SwapAdapter_
+    ) external initializer {
+        if (
+            protocolManager_.code.length == 0 || tokenRegistry_.code.length == 0
+                || creatorFeeProcessor_.code.length == 0 || v3SwapAdapter_.code.length == 0
+        ) revert InvalidConfig();
+        try ICreatorFeeProcessorGraph(creatorFeeProcessor_).protocolManager() returns (address processorManager) {
+            if (processorManager != protocolManager_) revert InvalidConfig();
+        } catch {
+            revert InvalidConfig();
+        }
+        if (IV3SwapAdapter(v3SwapAdapter_).tokenRegistry() != tokenRegistry_) revert InvalidConfig();
         __AccessManaged_init(protocolManager_);
         _tokenRegistry = tokenRegistry_;
+        creatorFeeProcessor = creatorFeeProcessor_;
+        v3SwapAdapter = v3SwapAdapter_;
     }
     modifier nonReentrant() {
         if (_entered) revert UnauthorizedCaller();
@@ -54,6 +82,7 @@ contract LPManager is ILPManager, UUPSUpgradeable, AccessManagedUpgradeable {
         if (IV3LiquidityActor(actor).owner() != address(this) || IV3LiquidityActor(actor).factory() != factory) {
             revert InvalidFactory();
         }
+        if (IV3SwapAdapter(v3SwapAdapter).factory() != factory) revert InvalidFactory();
         v3LiquidityActor = actor;
         v3Factory = factory;
     }
@@ -68,6 +97,133 @@ contract LPManager is ILPManager, UUPSUpgradeable, AccessManagedUpgradeable {
 
     function claimFees(address) external pure returns (uint256, uint256) {
         revert LegacyLiquidityDisabled();
+    }
+
+    function collect(address[] calldata tokens) external restricted nonReentrant {
+        uint256 length = tokens.length;
+        if (length == 0) revert InvalidBatch();
+
+        for (uint256 i; i < length; ++i) {
+            for (uint256 j; j < i; ++j) {
+                if (tokens[i] == tokens[j]) revert DuplicateToken(tokens[i]);
+            }
+        }
+
+        for (uint256 i; i < length; ++i) {
+            _collect(tokens[i]);
+        }
+    }
+
+    function _collect(address token) private {
+        ILPManager.PoolData memory live = _validatedStoredPool(token);
+        uint256 tokenBalanceEntry = IERC20(token).balanceOf(address(this));
+        uint256 quoteBalanceEntry = IERC20(live.quoteToken).balanceOf(address(this));
+        (uint256 tokenFee, uint256 directQuoteFee) = _collectRawFees(token, live, tokenBalanceEntry, quoteBalanceEntry);
+        uint256 swappedQuote = _swapCollectedToken(token, live, tokenFee, tokenBalanceEntry);
+        (uint256 protocolQuote, uint256 creatorQuote) =
+            _distributeCollectedQuote(token, live.quoteToken, directQuoteFee + swappedQuote);
+
+        _requireBalance(IERC20(token), tokenBalanceEntry);
+        _requireBalance(IERC20(live.quoteToken), quoteBalanceEntry);
+        emit V3FeesCollected(
+            token, live.quoteToken, tokenFee, directQuoteFee, swappedQuote, protocolQuote, creatorQuote
+        );
+    }
+
+    function _validatedStoredPool(address token) private view returns (ILPManager.PoolData memory live) {
+        ILPManager.PoolData memory stored = _pools[token];
+        if (stored.pool == address(0)) revert InvalidPool();
+        live = _loadPoolData(token);
+        if (live.pool != stored.pool) revert InvalidPool();
+    }
+
+    function _collectRawFees(
+        address token,
+        ILPManager.PoolData memory poolData,
+        uint256 tokenBalanceEntry,
+        uint256 quoteBalanceEntry
+    ) private returns (uint256 tokenFee, uint256 directQuoteFee) {
+        IERC20 launchToken = IERC20(token);
+        IERC20 quoteToken = IERC20(poolData.quoteToken);
+        (uint256 amount0, uint256 amount1) = IV3LiquidityActor(v3LiquidityActor).collectFees(poolData.pool);
+        tokenFee = poolData.quoteIsToken0 ? amount1 : amount0;
+        directQuoteFee = poolData.quoteIsToken0 ? amount0 : amount1;
+        _requireBalanceIncrease(launchToken, address(this), tokenBalanceEntry, tokenFee);
+        _requireBalanceIncrease(quoteToken, address(this), quoteBalanceEntry, directQuoteFee);
+    }
+
+    function _distributeCollectedQuote(address token, address quoteTokenAddress, uint256 totalQuote)
+        private
+        returns (uint256 protocolQuote, uint256 creatorQuote)
+    {
+        IProtocolManager.QuoteConfig memory config = IProtocolManager(authority()).getConfig(quoteTokenAddress);
+        if (!config.active || config.lpFeeProtocolShareBps > BPS) revert InvalidConfig();
+
+        protocolQuote = totalQuote * config.lpFeeProtocolShareBps / BPS;
+        creatorQuote = totalQuote - protocolQuote;
+        IERC20 quoteToken = IERC20(quoteTokenAddress);
+        if (protocolQuote != 0) {
+            _pushExact(quoteToken, IProtocolManager(authority()).feeReceiver(), protocolQuote);
+        }
+        if (creatorQuote != 0) {
+            quoteToken.forceApprove(creatorFeeProcessor, creatorQuote);
+            ICreatorFeeProcessor(creatorFeeProcessor).processCreatorFee(token, quoteTokenAddress, creatorQuote);
+        }
+        quoteToken.forceApprove(creatorFeeProcessor, 0);
+    }
+
+    function _swapCollectedToken(
+        address token,
+        ILPManager.PoolData memory poolData,
+        uint256 tokenFee,
+        uint256 tokenBalanceEntry
+    ) private returns (uint256 swappedQuote) {
+        if (tokenFee == 0) return 0;
+
+        IERC20 launchToken = IERC20(token);
+        IERC20 quoteToken = IERC20(poolData.quoteToken);
+        uint256 quoteBalanceBefore = quoteToken.balanceOf(address(this));
+        launchToken.forceApprove(v3SwapAdapter, tokenFee);
+        (uint256 amountIn, uint256 amountOut) = IV3SwapAdapter(v3SwapAdapter)
+            .exactInput(
+                IV3SwapAdapter.ExactInputParams({
+                    token: token,
+                    tokenIn: token,
+                    amountIn: tokenFee,
+                    amountOutMin: 0,
+                    recipient: address(this),
+                    sqrtPriceLimitX96: poolData.quoteIsToken0
+                        ? TickMath.MAX_SQRT_RATIO - 1
+                        : TickMath.MIN_SQRT_RATIO + 1,
+                    deadline: block.timestamp
+                })
+            );
+        launchToken.forceApprove(v3SwapAdapter, 0);
+        if (amountIn != tokenFee) revert BalanceDelta();
+        _requireBalance(launchToken, tokenBalanceEntry);
+        _requireBalanceIncrease(quoteToken, address(this), quoteBalanceBefore, amountOut);
+        return amountOut;
+    }
+
+    function _pushExact(IERC20 token, address recipient, uint256 amount) private {
+        uint256 senderBalanceBefore = token.balanceOf(address(this));
+        uint256 recipientBalanceBefore = token.balanceOf(recipient);
+        token.safeTransfer(recipient, amount);
+        if (senderBalanceBefore < amount) revert BalanceDelta();
+        _requireBalance(token, senderBalanceBefore - amount);
+        _requireBalanceIncrease(token, recipient, recipientBalanceBefore, amount);
+    }
+
+    function _requireBalanceIncrease(IERC20 token, address account, uint256 balanceBefore, uint256 amount)
+        private
+        view
+    {
+        if (amount > type(uint256).max - balanceBefore) revert BalanceDelta();
+        if (token.balanceOf(account) != balanceBefore + amount) revert BalanceDelta();
+    }
+
+    function _requireBalance(IERC20 token, uint256 balance) private view {
+        if (token.balanceOf(address(this)) != balance) revert BalanceDelta();
     }
 
     function allocate(AllocateParams calldata p) external restricted nonReentrant {
