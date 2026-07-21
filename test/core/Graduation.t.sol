@@ -7,18 +7,9 @@ import {SetUp} from "../SetUp.t.sol";
 import {IBondingCurve} from "../../src/interfaces/IBondingCurve.sol";
 import {IToken} from "../../src/interfaces/IToken.sol";
 import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
+import {ILPManager} from "../../src/interfaces/ILPManager.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-
-import {INadFunPair} from "../../src/dex/interfaces/INadFunPair.sol";
-
-/// @dev Minimal V2 pair interface for reserve checks
-interface IUniswapV2Pair {
-    function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast);
-    function token0() external view returns (address);
-    function token1() external view returns (address);
-    function balanceOf(address) external view returns (uint256);
-    function totalSupply() external view returns (uint256);
-}
+import {IUniswapV3Pool} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
 
 /// @notice Verifies auto-graduation fires when virtualTokenReserve reaches minTokenReserve.
 contract GraduationTest is SetUp {
@@ -117,10 +108,8 @@ contract GraduationTest is SetUp {
         bondingCurve.getAmountIn(token, 1 ether, false);
     }
 
-    /// @notice DEX listing price should match bonding curve price at graduation.
-    /// @dev After graduation, verifies the real V2 pair has liquidity with correct price ratio.
-    function test_graduation_priceMatchesCurve() public {
-        // Graduate
+    /// @notice Graduation allocates both permanent positions in the snapshotted canonical V3 pool.
+    function test_graduation_allocatesCanonicalV3Liquidity() public {
         _mintAndTransfer(user1, 800_000 ether);
         vm.prank(user1);
         bondingCurve.buy(user1, token);
@@ -128,28 +117,19 @@ contract GraduationTest is SetUp {
         IBondingCurve.Curve memory info = bondingCurve.getCurve(token);
         assertTrue(info.graduated, "Token should be graduated");
 
-        // Find the NadFunPair and verify reserves
-        address pairAddr = nadFunFactory.getPair(token, address(quoteToken));
-        assertNotEq(pairAddr, address(0), "V2 pair should exist after graduation");
-
-        (uint256 tokenReserve, uint256 quoteReserve) = _getPairReserves(pairAddr, token);
-        assertGt(tokenReserve, 0, "Token reserve should be non-zero");
-        assertGt(quoteReserve, 0, "Quote reserve should be non-zero");
-
-        // quoteBalance = real quote collected, then graduate fee deducted
-        uint256 quoteAfterFee = (info.virtualQuoteReserve - info.initialQuoteReserve) - info.graduateFee;
-        uint256 expectedListingTokens = quoteAfterFee * info.virtualTokenReserve / info.virtualQuoteReserve;
-
-        assertEq(tokenReserve, expectedListingTokens, "Listing token amount should match graduation math");
-        assertEq(quoteReserve, quoteAfterFee, "Listing quote amount should match graduation math");
-
-        // DEX price should match curve price (same ratio)
-        assertApproxEqAbs(
-            tokenReserve * info.virtualQuoteReserve,
-            quoteReserve * info.virtualTokenReserve,
-            info.virtualQuoteReserve,
-            "DEX listing price should match curve price"
+        ITokenRegistry.TokenInfo memory registryInfo = tokenRegistry.getTokenInfo(token);
+        assertEq(registryInfo.pool, info.pair, "curve uses registry pool");
+        assertEq(
+            registryInfo.pool,
+            v3Factory.getPool(token, address(quoteToken), registryInfo.feeTier),
+            "factory uses registry fee snapshot"
         );
+        (bytes32 quoteKey,,, uint128 quoteLiquidity, bytes32 tokenKey,,, uint128 tokenLiquidity) =
+            lpManager.getPositions(token);
+        assertNotEq(quoteKey, bytes32(0), "quote position exists");
+        assertNotEq(tokenKey, bytes32(0), "token position exists");
+        assertGt(quoteLiquidity, 0, "quote position has liquidity");
+        assertGt(tokenLiquidity, 0, "token position has liquidity");
     }
 
     function test_graduation_usesCreationGraduateFeeSnapshot() public {
@@ -178,10 +158,27 @@ contract GraduationTest is SetUp {
         assertTrue(info.graduated, "Token should still graduate after config fee increase");
         assertEq(info.graduateFee, defaultGraduateFee, "Existing curve should keep creation-time graduate fee");
 
-        address pairAddr = nadFunFactory.getPair(token, address(quoteToken));
-        (, uint256 quoteReserve) = _getPairReserves(pairAddr, token);
-        uint256 quoteAfterFee = (info.virtualQuoteReserve - info.initialQuoteReserve) - defaultGraduateFee;
-        assertEq(quoteReserve, quoteAfterFee, "Graduation should use snapshotted graduate fee");
+        ITokenRegistry.TokenInfo memory registryInfo = tokenRegistry.getTokenInfo(token);
+        IUniswapV3Pool pool = IUniswapV3Pool(registryInfo.pool);
+        bool quoteIsToken0 = pool.token0() == address(quoteToken);
+        int24 expectedBondingTick = lpManager.calculateBondingTick(
+            ILPManager.AllocateParams({
+                token: token,
+                quoteAmount: 0,
+                tokenAmount: 0,
+                virtualQuoteReserve: info.initialQuoteReserve,
+                virtualTokenReserve: info.initialTokenReserve,
+                graduateFee: defaultGraduateFee
+            }),
+            quoteIsToken0,
+            pool.tickSpacing()
+        );
+        (, int24 quoteLower, int24 quoteUpper,,,,,) = lpManager.getPositions(token);
+        assertEq(
+            quoteIsToken0 ? quoteUpper : quoteLower,
+            expectedBondingTick,
+            "V3 bonding range should use snapshotted graduate fee"
+        );
     }
 
     function test_updateQuoteToken_revertsWhenGraduateFeeExceedsGraduationQuote() public {
@@ -198,21 +195,6 @@ contract GraduationTest is SetUp {
             defaultDexProtocolFee,
             settlementThreshold
         );
-    }
-
-    /// @dev Helper to get pair reserves in (tokenReserve, quoteReserve) order
-    function _getPairReserves(address pairAddr, address tokenAddr)
-        internal
-        view
-        returns (uint256 tokenReserve, uint256 quoteReserve)
-    {
-        IUniswapV2Pair pair = IUniswapV2Pair(pairAddr);
-        (uint112 r0, uint112 r1,) = pair.getReserves();
-        if (pair.token0() == tokenAddr) {
-            return (uint256(r0), uint256(r1));
-        } else {
-            return (uint256(r1), uint256(r0));
-        }
     }
 
     /// @notice Excess tokens should be sent to feeReceiver during graduation.
@@ -248,77 +230,6 @@ contract GraduationTest is SetUp {
         );
     }
 
-    /// @notice Attacker donates quote tokens to the pre-created pair before graduation.
-    ///         The donation must be swept to feeReceiver so the pool opens on a clean reserve
-    ///         state and the launch price is not skewed.
-    function test_graduation_sweepsDonatedQuoteToFeeReceiver() public {
-        address pair = nadFunFactory.getPair(token, address(quoteToken));
-        assertNotEq(pair, address(0), "Precondition: pair exists pre-graduation");
-
-        // Attacker donates quote directly to the pair before graduation.
-        uint256 donation = 1_234 ether;
-        address attacker = makeAddr("attacker");
-        quoteToken.mint(attacker, donation);
-        vm.prank(attacker);
-        quoteToken.transfer(pair, donation);
-
-        assertEq(quoteToken.balanceOf(pair), donation, "Precondition: pair holds donation");
-
-        uint256 feeReceiverBefore = quoteToken.balanceOf(protocolManager.feeReceiver());
-
-        // Trigger graduation
-        _mintAndTransfer(user1, 800_000 ether);
-        vm.prank(user1);
-        bondingCurve.buy(user1, token);
-
-        IBondingCurve.Curve memory info = bondingCurve.getCurve(token);
-        assertTrue(info.graduated, "Token should be graduated");
-
-        // Pair's quote reserve should equal graduation-computed amount, with no donation residue
-        (, uint256 quoteReserve) = _getPairReserves(pair, token);
-        uint256 quoteAfterFee = (info.virtualQuoteReserve - info.initialQuoteReserve) - info.graduateFee;
-        assertEq(quoteReserve, quoteAfterFee, "Pair quote reserve must match graduation math (donation not counted)");
-
-        // feeReceiver picks up the donation as part of its post-graduation balance delta.
-        // (feeReceiver also receives graduateFee and excess tokens, but the donation should be
-        // *at least* included in its quote balance increase.)
-        uint256 feeReceiverDelta = quoteToken.balanceOf(protocolManager.feeReceiver()) - feeReceiverBefore;
-        assertGe(feeReceiverDelta, donation, "FeeReceiver should recover the donation");
-    }
-
-    /// @notice Attacker tries to defeat the pre-addLiquidity skim by donating quote and calling
-    ///         `pair.sync()`, so reserves absorb the donation and `skim()` would be a no-op.
-    ///         `sync()` must revert pre-launch (totalSupply == 0), preserving the skim defense.
-    function test_graduation_sync_revertsPreLaunch() public {
-        address pair = nadFunFactory.getPair(token, address(quoteToken));
-
-        uint256 donation = 100 ether;
-        address attacker = makeAddr("attacker");
-        quoteToken.mint(attacker, donation);
-        vm.startPrank(attacker);
-        quoteToken.transfer(pair, donation);
-        vm.expectRevert("NadFunPair: NOT_LAUNCHED");
-        INadFunPair(pair).sync();
-        vm.stopPrank();
-
-        // Graduation should still sweep the donation cleanly via skim.
-        uint256 feeReceiverBefore = quoteToken.balanceOf(protocolManager.feeReceiver());
-        _mintAndTransfer(user1, 800_000 ether);
-        vm.prank(user1);
-        bondingCurve.buy(user1, token);
-
-        IBondingCurve.Curve memory info = bondingCurve.getCurve(token);
-        assertTrue(info.graduated, "Token should be graduated");
-        (, uint256 quoteReserve) = _getPairReserves(pair, token);
-        uint256 quoteAfterFee = (info.virtualQuoteReserve - info.initialQuoteReserve) - info.graduateFee;
-        assertEq(quoteReserve, quoteAfterFee, "Pair quote reserve must match graduation math");
-        assertGe(
-            quoteToken.balanceOf(protocolManager.feeReceiver()) - feeReceiverBefore,
-            donation,
-            "FeeReceiver should recover the donation"
-        );
-    }
-
     function _graduationParams() internal view returns (IBondingCurve.CreateTokenParams memory params) {
         IBondingCurve.VaultAllocation[] memory vaults = new IBondingCurve.VaultAllocation[](1);
         vaults[0] =
@@ -332,7 +243,7 @@ contract GraduationTest is SetUp {
             creatorFeeRate: 500,
             vaults: vaults,
             salt: keccak256("graduation"),
-            dexType: ITokenRegistry.DexType.UniswapV2,
+            dexType: ITokenRegistry.DexType.UniswapV3,
             creator: address(this),
             buyQuoteAmount: 0
         });

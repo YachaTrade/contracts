@@ -9,13 +9,11 @@ import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
 import {INadFunPair} from "../../src/dex/interfaces/INadFunPair.sol";
 import {IGiwaRouter} from "../../src/interfaces/IGiwaRouter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {NadFunFactory} from "../../src/dex/NadFunFactory.sol";
-import {NadFunPair} from "../../src/dex/NadFunPair.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 
-/// @title FullLifecycleE2EV2 -- End-to-end integration test for the full token lifecycle
+/// @title FullLifecycleE2E -- End-to-end integration test for the full V3 token lifecycle
 /// @notice Covers: create -> buy on curve -> graduate -> trade on DEX -> settlement -> vault distribution
-contract FullLifecycleE2EV2 is SetUp {
+contract FullLifecycleE2E is SetUp {
     // ═══════════════════════════════════════════════════════════════
     // Full Lifecycle: create -> curve buy -> graduate -> DEX trade
     //                 -> settlement -> vault distribution
@@ -49,9 +47,11 @@ contract FullLifecycleE2EV2 is SetUp {
         assertFalse(IToken(token).isGraduated(), "Should not be graduated yet");
 
         IBondingCurve.Curve memory curve = bondingCurve.getCurve(token);
-        address pair = nadFunFactory.getPair(token, address(quoteToken));
-        assertTrue(pair != address(0), "Pair should exist");
-        assertEq(curve.pair, pair, "Curve pair should match factory pair");
+        ITokenRegistry.TokenInfo memory info = tokenRegistry.getTokenInfo(token);
+        address pair = info.pool;
+        assertTrue(pair != address(0), "Pool should exist");
+        assertEq(curve.pair, pair, "Curve pool should match registry pool");
+        assertEq(pair, v3Factory.getPool(token, address(quoteToken), info.feeTier), "canonical V3 pool");
 
         IFeeCollector.FeeConfig memory feeConfig = feeCollector.getFeeConfig(pair);
         assertEq(feeConfig.creatorFeeRate, defaultCreatorFeeRate, "FeeCollector creatorFeeRate mismatch");
@@ -65,7 +65,7 @@ contract FullLifecycleE2EV2 is SetUp {
         vm.warp(block.timestamp + 100 minutes);
         vm.roll(block.number + 10);
 
-        address pair = nadFunFactory.getPair(token, address(quoteToken));
+        address pair = tokenRegistry.getPool(token);
         uint256 fcBalBefore = quoteToken.balanceOf(address(feeCollector));
         uint256 feeRecvBefore = quoteToken.balanceOf(feeReceiver);
 
@@ -97,19 +97,17 @@ contract FullLifecycleE2EV2 is SetUp {
     }
 
     function _verifyDexPairState(address token) internal view {
-        address pair = nadFunFactory.getPair(token, address(quoteToken));
-        (uint112 r0, uint112 r1,) = INadFunPair(pair).getReserves();
-        assertTrue(uint256(r0) > 0, "Pair reserve0 should be > 0");
-        assertTrue(uint256(r1) > 0, "Pair reserve1 should be > 0");
-
-        uint256 lpAtDead = IERC20(pair).balanceOf(address(0xdead));
-        assertTrue(lpAtDead > 0, "LP tokens should be locked at 0xdead");
-
-        assertEq(tokenRegistry.getPair(token), pair, "TokenRegistry pair should match");
+        address pool = tokenRegistry.getPool(token);
+        (bytes32 quoteKey,,, uint128 quoteLiquidity, bytes32 tokenKey,,, uint128 tokenLiquidity) =
+            lpManager.getPositions(token);
+        assertNotEq(quoteKey, bytes32(0), "quote position exists");
+        assertNotEq(tokenKey, bytes32(0), "token position exists");
+        assertGt(quoteLiquidity, 0, "quote liquidity exists");
+        assertGt(tokenLiquidity, 0, "token liquidity exists");
+        assertEq(tokenRegistry.getPair(token), pool, "TokenRegistry pair alias should match pool");
     }
 
     function _verifyDexTrading(address token) internal {
-        address pair = nadFunFactory.getPair(token, address(quoteToken));
         uint256 feeRecvBefore = quoteToken.balanceOf(feeReceiver);
 
         // DEX buy
@@ -117,7 +115,7 @@ contract FullLifecycleE2EV2 is SetUp {
         assertTrue(dexTokenOut > 0, "Should receive tokens from DEX buy");
         assertEq(IERC20(token).balanceOf(user3), dexTokenOut, "User3 balance should match DEX buy");
 
-        // collectFee splits: protocol fee → feeReceiver instantly, creator fee → accumulated then auto-settled
+        // The V3 router sends its protocol fee directly to the current fee receiver.
         uint256 feeRecvAfterBuy = quoteToken.balanceOf(feeReceiver);
         assertTrue(feeRecvAfterBuy > feeRecvBefore, "FeeReceiver should get protocol fee from DEX buy");
 
@@ -131,89 +129,36 @@ contract FullLifecycleE2EV2 is SetUp {
     }
 
     function _verifySettlement(address token) internal {
-        address pair = nadFunFactory.getPair(token, address(quoteToken));
+        address pair = tokenRegistry.getPool(token);
 
-        // Fees may have been auto-settled during swap (NadFunPair.swap calls settle).
         // Verify the fee system is functioning: feeReceiver should have received funds.
         uint256 feeRecvBalance = quoteToken.balanceOf(feeReceiver);
         assertTrue(feeRecvBalance > 0, "FeeReceiver should have received protocol fees");
 
-        // If there are remaining accumulated fees, settle them
         uint256 remaining = feeCollector.accumulatedFee(pair);
-        if (remaining > 0 && feeCollector.isSettleable(pair)) {
-            feeCollector.settle(pair, 0);
-            assertEq(feeCollector.accumulatedFee(pair), 0, "Accumulated fee should be 0 after settlement");
-        }
+        assertGt(remaining, 0, "Creator fees should remain available for settlement");
+        assertTrue(feeCollector.isSettleable(pair), "Creator fees should cross the settlement threshold");
+
+        uint256 creditedBefore = creatorFeeVault.getBalance(token);
+        feeCollector.settle(pair, 0);
+        uint256 creditedAfter = creatorFeeVault.getBalance(token);
+
+        assertEq(feeCollector.accumulatedFee(pair), 0, "Accumulated fee should be 0 after settlement");
+        assertEq(creditedAfter - creditedBefore, remaining, "CreatorFeeVault should credit the settled amount");
+        assertEq(
+            quoteToken.balanceOf(address(creatorFeeVault)), creditedAfter, "CreatorFeeVault balance should back credits"
+        );
 
         // Intermediate contracts should be empty
         assertEq(quoteToken.balanceOf(address(creatorFeeProcessor)), 0, "CreatorFeeProcessor should have 0 balance");
         assertEq(quoteToken.balanceOf(address(feeCollector)), 0, "FeeCollector should have 0 balance");
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // Full Lifecycle with BurnVault + LPVault
-    // ═══════════════════════════════════════════════════════════════
-
-    function test_fullLifecycle_multiVault() public {
-        // Create token with 3 vaults: BurnVault 34%, LPVault 33%, CreatorFeeVault 33%
-        address token = _createMultiVaultToken();
-        assertEq(creatorFeeProcessor.vaultCount(token), 3, "Should have 3 vaults");
-
-        // Graduate (warp past sniping period first)
-        vm.warp(block.timestamp + 100 minutes);
-        vm.roll(block.number + 10);
-        _graduateToken(token);
-        assertTrue(IToken(token).isGraduated(), "Should be graduated");
-
-        address pair = tokenRegistry.getPair(token);
-        assertTrue(pair != address(0), "Pair should exist post-graduation");
-
-        // Record state before DEX trades
-        uint256 deadTokenBefore = IERC20(token).balanceOf(address(0xdead));
-        uint256 deadLpBefore = IERC20(pair).balanceOf(address(0xdead));
-        uint256 creatorBalBefore = quoteToken.balanceOf(creator);
-
-        // Multiple DEX buys + a sell to accumulate fees
-        // NadFunPair.swap() auto-settles fees when above threshold,
-        // so vault distribution happens during the swaps themselves.
-        _accumulateFeesViaDex(token);
-
-        // Auto-settle should have cleared all fees. If any residual remains, settle manually.
-        uint256 residual = feeCollector.accumulatedFee(pair);
-        if (residual > 0 && feeCollector.isSettleable(pair)) {
-            feeCollector.settle(pair, 0);
-        }
-
-        // Verify BurnVault: 0xdead should have more tokens burned
-        assertTrue(
-            IERC20(token).balanceOf(address(0xdead)) > deadTokenBefore, "BurnVault should have burned tokens to 0xdead"
-        );
-
-        // Verify LPVault: 0xdead should have more LP tokens
-        assertTrue(
-            IERC20(pair).balanceOf(address(0xdead)) > deadLpBefore, "LPVault should have added LP and burned to 0xdead"
-        );
-
-        // Verify CreatorFeeVault: vault should have accumulated quoteToken for creator
-        uint256 vaultBalance = creatorFeeVault.getBalance(token);
-        assertTrue(vaultBalance > 0, "CreatorFeeVault should have accumulated fees for creator");
-
-        // Creator claims accumulated fees
-        vm.prank(creator);
-        creatorFeeVault.claim(token);
-        assertTrue(quoteToken.balanceOf(creator) > creatorBalBefore, "Creator should receive quote after claim");
-
-        // CreatorFeeProcessor should be empty (everything distributed to vaults)
-        assertEq(quoteToken.balanceOf(address(creatorFeeProcessor)), 0, "CreatorFeeProcessor should have 0 balance");
-
-        // Accumulated creator fee should be fully settled (0 remaining)
-        assertEq(feeCollector.accumulatedFee(pair), 0, "Accumulated fee should be 0 after settlement");
-    }
-
     function test_create_revertsOnDuplicateVaultAddress() public {
         IBondingCurve.VaultAllocation[] memory vaults = new IBondingCurve.VaultAllocation[](2);
-        vaults[0] = IBondingCurve.VaultAllocation({vault: address(burnVault), bps: 5000, setupData: ""});
-        vaults[1] = IBondingCurve.VaultAllocation({vault: address(burnVault), bps: 5000, setupData: ""});
+        bytes memory setupData = abi.encode(creator);
+        vaults[0] = IBondingCurve.VaultAllocation({vault: address(creatorFeeVault), bps: 5000, setupData: setupData});
+        vaults[1] = IBondingCurve.VaultAllocation({vault: address(creatorFeeVault), bps: 5000, setupData: setupData});
 
         uint256 deployFee = protocolManager.deployFee(address(quoteToken));
         quoteToken.mint(creator, deployFee);
@@ -231,51 +176,11 @@ contract FullLifecycleE2EV2 is SetUp {
                 creatorFeeRate: defaultCreatorFeeRate,
                 vaults: vaults,
                 salt: keccak256("duplicate-vault-e2e"),
-                dexType: ITokenRegistry.DexType.UniswapV2,
+                dexType: ITokenRegistry.DexType.UniswapV3,
                 buyQuoteAmount: 0,
                 deadline: block.timestamp + 1
             })
         );
-    }
-
-    function _createMultiVaultToken() internal returns (address token) {
-        IBondingCurve.VaultAllocation[] memory vaults = new IBondingCurve.VaultAllocation[](3);
-        vaults[0] = IBondingCurve.VaultAllocation({vault: address(burnVault), bps: 3400, setupData: ""});
-        vaults[1] = IBondingCurve.VaultAllocation({vault: address(lpVault), bps: 3300, setupData: ""});
-        vaults[2] =
-            IBondingCurve.VaultAllocation({vault: address(creatorFeeVault), bps: 3300, setupData: abi.encode(creator)});
-
-        IBondingCurve.CreateTokenParams memory params = IBondingCurve.CreateTokenParams({
-            name: "MultiVault",
-            symbol: "MV",
-            tokenURI: "",
-            quoteToken: address(quoteToken),
-            creatorFeeRate: defaultCreatorFeeRate,
-            vaults: vaults,
-            salt: keccak256("multi-vault-e2e"),
-            dexType: ITokenRegistry.DexType.UniswapV2,
-            creator: creator,
-            buyQuoteAmount: 0
-        });
-
-        token = _createViaRouter(params, creator);
-    }
-
-    function _accumulateFeesViaDex(address token) internal {
-        uint256 feeRecvBefore = quoteToken.balanceOf(feeReceiver);
-
-        for (uint256 i = 0; i < 5; i++) {
-            _dexBuy(user1, token, 10_000 ether);
-        }
-
-        uint256 user1Bal = IERC20(token).balanceOf(user1);
-        if (user1Bal > 0) {
-            _dexSell(user1, token, user1Bal / 3);
-        }
-
-        // Protocol fee → feeReceiver instantly via collectFee
-        uint256 feeRecvAfter = quoteToken.balanceOf(feeReceiver);
-        assertTrue(feeRecvAfter > feeRecvBefore, "FeeReceiver should get protocol fee from DEX trades");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -350,53 +255,12 @@ contract FullLifecycleE2EV2 is SetUp {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // Multiple settlements over the lifecycle
-    // ═══════════════════════════════════════════════════════════════
-
-    function test_multipleSettlements() public {
-        address token = _createToken();
-        address pair = nadFunFactory.getPair(token, address(quoteToken));
-        vm.warp(block.timestamp + 100 minutes);
-        vm.roll(block.number + 10);
-        _graduateToken(token);
-
-        // settle() is now called externally, not auto-triggered by swap.
-        // Verify that explicit settle() drains accumulated fees after each round.
-
-        uint256 feeRecvBefore = quoteToken.balanceOf(feeReceiver);
-        vm.prank(admin);
-        protocolManager.setSettlementThreshold(address(quoteToken), 1);
-
-        // Round 1
-        _dexBuy(user1, token, 5_000 ether);
-        feeCollector.settle(pair, 0);
-        assertEq(feeCollector.accumulatedFee(pair), 0, "Should be 0 after explicit settle in round 1");
-
-        // Round 2
-        _dexBuy(user2, token, 5_000 ether);
-        feeCollector.settle(pair, 0);
-        assertEq(feeCollector.accumulatedFee(pair), 0, "Should be 0 after explicit settle in round 2");
-
-        // Round 3: buy + sell
-        _dexBuy(user3, token, 5_000 ether);
-        _dexSell(user3, token, IERC20(token).balanceOf(user3) / 2);
-        feeCollector.settle(pair, 0);
-        assertEq(feeCollector.accumulatedFee(pair), 0, "Should be 0 after explicit settle in round 3");
-
-        // Verify feeReceiver got funds across all rounds
-        assertTrue(
-            quoteToken.balanceOf(feeReceiver) > feeRecvBefore,
-            "FeeReceiver should have received fees across multiple settlements"
-        );
-    }
-
-    // ═══════════════════════════════════════════════════════════════
     // Settlement below threshold should be a no-op
     // ═══════════════════════════════════════════════════════════════
 
     function test_settleBelowThreshold_noOp() public {
         address token = _createToken();
-        address pair = nadFunFactory.getPair(token, address(quoteToken));
+        address pair = tokenRegistry.getPool(token);
         assertFalse(feeCollector.isSettleable(pair), "Should not be settleable with 0 fees");
 
         uint256 accBefore = feeCollector.accumulatedFee(pair);
@@ -409,19 +273,25 @@ contract FullLifecycleE2EV2 is SetUp {
     // ═══════════════════════════════════════════════════════════════
 
     function _dexBuy(address buyer, address token, uint256 quote) internal returns (uint256 tokenOut) {
-        address pair = tokenRegistry.getPair(token);
         quoteToken.mint(buyer, quote);
         vm.prank(buyer);
-        quoteToken.transfer(address(nadSwapAdapter), quote);
+        quoteToken.approve(address(giwaRouter), quote);
         vm.prank(buyer);
-        tokenOut = nadSwapAdapter.swap(pair, address(quoteToken), token, quote, buyer, "");
+        tokenOut = giwaRouter.buy(
+            IGiwaRouter.BuyParams({
+                amountIn: quote, amountOutMin: 0, token: token, to: buyer, deadline: block.timestamp + 1
+            })
+        );
     }
 
     function _dexSell(address seller, address token, uint256 tokenAmount) internal returns (uint256 quoteOut) {
-        address pair = tokenRegistry.getPair(token);
         vm.prank(seller);
-        IERC20(token).transfer(address(nadSwapAdapter), tokenAmount);
+        IERC20(token).approve(address(giwaRouter), tokenAmount);
         vm.prank(seller);
-        quoteOut = nadSwapAdapter.swap(pair, token, address(quoteToken), tokenAmount, seller, "");
+        quoteOut = giwaRouter.sell(
+            IGiwaRouter.SellParams({
+                amountIn: tokenAmount, amountOutMin: 0, token: token, to: seller, deadline: block.timestamp + 1
+            })
+        );
     }
 }
