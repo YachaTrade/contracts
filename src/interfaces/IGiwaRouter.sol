@@ -37,7 +37,6 @@ interface IGiwaRouter {
         string symbol;
         string tokenURI;
         address quoteToken;
-        uint16 creatorFeeRate;
         IBondingCurve.VaultAllocation[] vaults;
         bytes32 salt;
         ITokenRegistry.DexType dexType;

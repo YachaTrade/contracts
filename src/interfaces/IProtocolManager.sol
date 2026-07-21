@@ -14,15 +14,12 @@ interface IProtocolManager {
         uint256 graduateFee;
         uint16 curveProtocolFeeRate;
         uint16 dexProtocolFeeRate;
-        uint256 settlementThreshold;
         uint24 v3FeeTier;
         uint16 lpFeeProtocolShareBps;
         bool active;
     }
 
     event FeeReceiverUpdate(address indexed feeReceiver);
-    event CreatorFeeRatesUpdate(uint16[] rates);
-    event SettlementThresholdUpdate(address indexed quoteToken, uint256 threshold);
     event V3QuoteConfigUpdate(address indexed quoteToken, uint24 v3FeeTier, uint16 lpFeeProtocolShareBps);
     /// @notice Emitted when the per-block sniping penalty table is updated.
     /// @dev Index `i` of `penaltyTable` is the BPS penalty applied at `block.number == createdAtBlock + i`.
@@ -36,8 +33,7 @@ interface IProtocolManager {
         uint256 deployFee,
         uint256 graduateFee,
         uint16 curveProtocolFeeRate,
-        uint16 dexProtocolFeeRate,
-        uint256 settlementThreshold
+        uint16 dexProtocolFeeRate
     );
     event QuoteTokenRemove(address indexed quoteToken);
     event QuoteTokenUpdate(
@@ -48,8 +44,7 @@ interface IProtocolManager {
         uint256 deployFee,
         uint256 graduateFee,
         uint16 curveProtocolFeeRate,
-        uint16 dexProtocolFeeRate,
-        uint256 settlementThreshold
+        uint16 dexProtocolFeeRate
     );
     event OperatorPermissionUpdated(
         address indexed operator, address indexed target, bytes4 indexed selector, bool allowed
@@ -77,11 +72,6 @@ interface IProtocolManager {
 
     function setFeeReceiver(address receiver) external;
 
-    function isCreatorFeeRateAllowed(uint16 rate) external view returns (bool);
-    function settlementThreshold(address quoteToken) external view returns (uint256);
-    function setAllowedCreatorFeeRates(uint16[] calldata rates) external;
-    function removeCreatorFeeRate(uint16 rate) external;
-    function setSettlementThreshold(address quoteToken, uint256 threshold) external;
     function setV3QuoteConfig(address quoteToken, uint24 v3FeeTier, uint16 lpFeeProtocolShareBps) external;
 
     /// @notice Returns the full per-block sniping penalty table in BPS.
@@ -109,8 +99,7 @@ interface IProtocolManager {
         uint256 deployFee,
         uint256 graduateFee,
         uint16 curveProtocolFeeRate,
-        uint16 dexProtocolFeeRate,
-        uint256 settlementThreshold
+        uint16 dexProtocolFeeRate
     ) external;
     function addV3QuoteToken(
         address quoteToken,
@@ -121,7 +110,6 @@ interface IProtocolManager {
         uint256 graduateFee,
         uint16 curveProtocolFeeRate,
         uint16 dexProtocolFeeRate,
-        uint256 settlementThreshold,
         uint24 v3FeeTier,
         uint16 lpFeeProtocolShareBps
     ) external;
@@ -134,8 +122,7 @@ interface IProtocolManager {
         uint256 deployFee,
         uint256 graduateFee,
         uint16 curveProtocolFeeRate,
-        uint16 dexProtocolFeeRate,
-        uint256 settlementThreshold
+        uint16 dexProtocolFeeRate
     ) external;
     function updateV3QuoteToken(
         address quoteToken,
@@ -146,7 +133,6 @@ interface IProtocolManager {
         uint256 graduateFee,
         uint16 curveProtocolFeeRate,
         uint16 dexProtocolFeeRate,
-        uint256 settlementThreshold,
         uint24 v3FeeTier,
         uint16 lpFeeProtocolShareBps
     ) external;

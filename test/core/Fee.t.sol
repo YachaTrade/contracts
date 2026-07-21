@@ -5,7 +5,6 @@ pragma solidity ^0.8.24;
 
 import {SetUp} from "../SetUp.t.sol";
 import {IBondingCurve} from "../../src/interfaces/IBondingCurve.sol";
-import {IFeeCollector} from "../../src/interfaces/IFeeCollector.sol";
 import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
@@ -22,7 +21,7 @@ contract FeeTest is SetUp {
         vm.startPrank(admin);
         protocolManager.removeQuoteToken(address(quoteToken));
         protocolManager.addQuoteToken(
-            address(quoteToken), virtualReserve, virtualTokenReserve, minTokenReserve, 0, defaultGraduateFee, 0, 0, 0
+            address(quoteToken), virtualReserve, virtualTokenReserve, minTokenReserve, 0, defaultGraduateFee, 0, 0
         );
         protocolManager.setV3QuoteConfig(address(quoteToken), DEFAULT_V3_FEE_TIER, DEFAULT_LP_FEE_PROTOCOL_SHARE_BPS);
         // Grant ROUTER_ROLE to test contract and user1 for direct bondingCurve.create() calls
@@ -41,8 +40,7 @@ contract FeeTest is SetUp {
             0.01 ether,
             defaultGraduateFee,
             100,
-            70,
-            0
+            70
         );
         vm.stopPrank();
 
@@ -56,7 +54,7 @@ contract FeeTest is SetUp {
         vm.prank(admin);
         vm.expectRevert("Protocol fee too high");
         protocolManager.updateQuoteToken(
-            address(quoteToken), virtualReserve, virtualTokenReserve, minTokenReserve, 0, 0, 1001, 0, 0
+            address(quoteToken), virtualReserve, virtualTokenReserve, minTokenReserve, 0, 0, 1001, 0
         ); // > 10%
     }
 
@@ -64,7 +62,7 @@ contract FeeTest is SetUp {
         vm.prank(admin);
         vm.expectRevert("Dex protocol fee too high");
         protocolManager.updateQuoteToken(
-            address(quoteToken), virtualReserve, virtualTokenReserve, minTokenReserve, 0, 0, 0, 1001, 0
+            address(quoteToken), virtualReserve, virtualTokenReserve, minTokenReserve, 0, 0, 0, 1001
         ); // > 10%
     }
 
@@ -72,48 +70,51 @@ contract FeeTest is SetUp {
         vm.prank(user1);
         vm.expectRevert();
         protocolManager.updateQuoteToken(
-            address(quoteToken), virtualReserve, virtualTokenReserve, minTokenReserve, 0, 0, 100, 0, 0
+            address(quoteToken), virtualReserve, virtualTokenReserve, minTokenReserve, 0, 0, 100, 0
         );
     }
 
-    // BondingCurve forwards (protocolFee + creatorFee) to FeeCollector, which performs the single
-    // split. feeReceiver receives exactly the protocol portion; creator portion accumulates in FC.
-    function test_buy_protocolFee() public {
+    function test_buy_chargesOnlyProtocolFeeToCurrentFeeReceiver_andViewMatchesExecution() public {
         vm.prank(admin);
         protocolManager.updateQuoteToken(
-            address(quoteToken), virtualReserve, virtualTokenReserve, minTokenReserve, 0, defaultGraduateFee, 100, 0, 0
+            address(quoteToken), virtualReserve, virtualTokenReserve, minTokenReserve, 0, defaultGraduateFee, 100, 0
         ); // curveProtocolFee 1%
 
         address token = _createTokenWithVault(keccak256("fee-buy"));
         vm.warp(block.timestamp + 100 minutes);
         vm.roll(block.number + 10);
 
+        address currentFeeReceiver = makeAddr("currentFeeReceiver");
+        vm.prank(admin);
+        protocolManager.setFeeReceiver(currentFeeReceiver);
+
         uint256 buyAmount = 10_000 ether;
+        uint256 quotedTokenOut = bondingCurve.getAmountOut(token, buyAmount, true);
         _mintAndTransfer(user1, buyAmount);
 
-        uint256 feeReceiverBefore = quoteToken.balanceOf(feeReceiver);
+        uint256 feeReceiverBefore = quoteToken.balanceOf(currentFeeReceiver);
         uint256 fcBefore = quoteToken.balanceOf(address(feeCollector));
         vm.prank(user1);
-        bondingCurve.buy(user1, token);
+        uint256 tokenOut = bondingCurve.buy(user1, token);
 
-        uint256 feeReceiverGot = quoteToken.balanceOf(feeReceiver) - feeReceiverBefore;
-        uint256 creatorFeeInCollector = quoteToken.balanceOf(address(feeCollector)) - fcBefore;
-
-        // totalFeeRate = 100 + 500 = 600 BPS
-        // protocolFee = mulDivUp(buyAmount, 100, 10000) = 100 ether
-        // creatorFee  = mulDivUp(buyAmount, 600, 10000) - 100 = 500 ether
+        uint256 feeReceiverGot = quoteToken.balanceOf(currentFeeReceiver) - feeReceiverBefore;
         uint256 expectedProtocolFee = FixedPointMathLib.mulDivUp(buyAmount, 100, 10000);
-        uint256 expectedTotalFee = FixedPointMathLib.mulDivUp(buyAmount, 600, 10000);
-        uint256 expectedCreatorFee = expectedTotalFee - expectedProtocolFee;
+        IBondingCurve.Curve memory curve = bondingCurve.getCurve(token);
 
-        assertEq(feeReceiverGot, expectedProtocolFee, "feeReceiver gets protocolFee only (single split)");
-        assertEq(creatorFeeInCollector, expectedCreatorFee, "FeeCollector accumulates full creatorFee");
+        assertEq(tokenOut, quotedTokenOut, "buy execution must match the view");
+        assertEq(feeReceiverGot, expectedProtocolFee, "current feeReceiver gets the full charged fee");
+        assertEq(quoteToken.balanceOf(address(feeCollector)), fcBefore, "FeeCollector must receive no curve fee");
+        assertEq(
+            curve.virtualQuoteReserve - curve.initialQuoteReserve,
+            buyAmount - expectedProtocolFee,
+            "only the protocol fee is deducted"
+        );
     }
 
-    function test_sell_protocolFee() public {
+    function test_sell_chargesOnlyProtocolFeeToCurrentFeeReceiver_andViewMatchesExecution() public {
         vm.prank(admin);
         protocolManager.updateQuoteToken(
-            address(quoteToken), virtualReserve, virtualTokenReserve, minTokenReserve, 0, defaultGraduateFee, 100, 0, 0
+            address(quoteToken), virtualReserve, virtualTokenReserve, minTokenReserve, 0, defaultGraduateFee, 100, 0
         ); // curveProtocolFee 1%
 
         address token = _createTokenWithVault(keccak256("fee-sell"));
@@ -128,76 +129,103 @@ contract FeeTest is SetUp {
         vm.prank(user1);
         IERC20(token).transfer(address(bondingCurve), tokensOut);
 
-        uint256 feeReceiverBefore = quoteToken.balanceOf(feeReceiver);
+        address currentFeeReceiver = makeAddr("currentSellFeeReceiver");
+        vm.prank(admin);
+        protocolManager.setFeeReceiver(currentFeeReceiver);
+
+        uint256 quotedQuoteOut = bondingCurve.getAmountOut(token, tokensOut, false);
+        IBondingCurve.Curve memory curveBefore = bondingCurve.getCurve(token);
+        uint256 feeReceiverBefore = quoteToken.balanceOf(currentFeeReceiver);
         uint256 fcBefore = quoteToken.balanceOf(address(feeCollector));
         uint256 userBefore = quoteToken.balanceOf(user1);
 
         vm.prank(user1);
         uint256 quoteOut = bondingCurve.sell(user1, token);
 
-        uint256 feeReceiverGot = quoteToken.balanceOf(feeReceiver) - feeReceiverBefore;
-        uint256 creatorFeeInCollector = quoteToken.balanceOf(address(feeCollector)) - fcBefore;
+        uint256 feeReceiverGot = quoteToken.balanceOf(currentFeeReceiver) - feeReceiverBefore;
         uint256 userReceived = quoteToken.balanceOf(user1) - userBefore;
+        IBondingCurve.Curve memory curveAfter = bondingCurve.getCurve(token);
 
-        // grossQuote recovered from balance deltas (quoteOut + all fees)
-        uint256 grossQuoteOut = quoteOut + feeReceiverGot + creatorFeeInCollector;
-
+        uint256 grossQuoteOut = curveBefore.virtualQuoteReserve - curveAfter.virtualQuoteReserve;
         uint256 expectedProtocolFee = FixedPointMathLib.mulDivUp(grossQuoteOut, 100, 10000);
-        uint256 expectedTotalFee = FixedPointMathLib.mulDivUp(grossQuoteOut, 600, 10000);
-        uint256 expectedCreatorFee = expectedTotalFee - expectedProtocolFee;
 
-        assertEq(feeReceiverGot, expectedProtocolFee, "feeReceiver gets protocolFee only (single split)");
-        assertEq(creatorFeeInCollector, expectedCreatorFee, "FeeCollector accumulates full creatorFee");
+        assertEq(quoteOut, quotedQuoteOut, "sell execution must match the view");
+        assertEq(quoteOut, grossQuoteOut - expectedProtocolFee, "only the protocol fee is deducted");
+        assertEq(feeReceiverGot, expectedProtocolFee, "current feeReceiver gets the full charged fee");
+        assertEq(quoteToken.balanceOf(address(feeCollector)), fcBefore, "FeeCollector must receive no curve fee");
         assertEq(userReceived, quoteOut, "User should receive quoteOut");
     }
 
-    function test_bondingCurveUsesSnapshotCurveProtocolFeeAfterQuoteUpdate() public {
+    function test_bondingCurveUsesCurrentCurveProtocolFeeAfterQuoteUpdate() public {
         vm.prank(admin);
         protocolManager.updateQuoteToken(
-            address(quoteToken), virtualReserve, virtualTokenReserve, minTokenReserve, 0, defaultGraduateFee, 100, 0, 0
+            address(quoteToken), virtualReserve, virtualTokenReserve, minTokenReserve, 0, defaultGraduateFee, 100, 0
         ); // curveProtocolFee 1%
 
         address token = _createTokenWithVault(keccak256("snapshot-curve-fee"));
-        IBondingCurve.Curve memory curve = bondingCurve.getCurve(token);
-        IFeeCollector.FeeConfig memory config = feeCollector.getFeeConfig(curve.pair);
-        assertEq(config.curveProtocolFeeRate, 100, "FeeCollector should snapshot creation-time curve fee");
         vm.warp(block.timestamp + 100 minutes);
         vm.roll(block.number + 10);
 
         uint256 quoteIn = 10_000 ether;
-        uint256 tokenOut = bondingCurve.getAmountOut(token, quoteIn, true);
-        uint256 quoteInBeforeUpdate = bondingCurve.getAmountIn(token, tokenOut, true);
 
         vm.prank(admin);
         protocolManager.updateQuoteToken(
-            address(quoteToken), virtualReserve, virtualTokenReserve, minTokenReserve, 0, defaultGraduateFee, 300, 0, 0
+            address(quoteToken), virtualReserve, virtualTokenReserve, minTokenReserve, 0, defaultGraduateFee, 300, 0
         ); // live curveProtocolFee changes to 3%
 
         assertEq(
             protocolManager.curveProtocolFeeRate(address(quoteToken)), 300, "ProtocolManager live fee should update"
         );
-        assertEq(
-            bondingCurve.getAmountIn(token, tokenOut, true),
-            quoteInBeforeUpdate,
-            "Existing pair quotes should continue using the cached curve fee"
-        );
+        uint256 quotedTokenOut = bondingCurve.getAmountOut(token, quoteIn, true);
 
         _mintAndTransfer(user1, quoteIn);
 
         uint256 feeReceiverBefore = quoteToken.balanceOf(feeReceiver);
         uint256 fcBefore = quoteToken.balanceOf(address(feeCollector));
         vm.prank(user1);
-        bondingCurve.buy(user1, token);
+        uint256 tokenOut = bondingCurve.buy(user1, token);
 
         uint256 feeReceiverGot = quoteToken.balanceOf(feeReceiver) - feeReceiverBefore;
-        uint256 creatorFeeInCollector = quoteToken.balanceOf(address(feeCollector)) - fcBefore;
+        uint256 expectedProtocolFee = FixedPointMathLib.mulDivUp(quoteIn, 300, 10000);
 
-        uint256 expectedProtocolFee = FixedPointMathLib.mulDivUp(quoteIn, 100, 10000);
-        uint256 expectedTotalFee = FixedPointMathLib.mulDivUp(quoteIn, 600, 10000);
-        uint256 expectedCreatorFee = expectedTotalFee - expectedProtocolFee;
+        assertEq(tokenOut, quotedTokenOut, "view and execution should use the same live fee");
+        assertEq(feeReceiverGot, expectedProtocolFee, "Protocol fee should use the current configured rate");
+        assertEq(quoteToken.balanceOf(address(feeCollector)), fcBefore, "FeeCollector must receive no curve fee");
+    }
 
-        assertEq(feeReceiverGot, expectedProtocolFee, "Protocol fee should use cached curve fee");
-        assertEq(creatorFeeInCollector, expectedCreatorFee, "Creator fee should use cached curve fee split");
+    function test_create_initialBuy_chargesOnlyProtocolFeeToCurrentFeeReceiver() public {
+        vm.prank(admin);
+        protocolManager.updateQuoteToken(
+            address(quoteToken), virtualReserve, virtualTokenReserve, minTokenReserve, 0, defaultGraduateFee, 100, 0
+        );
+
+        uint256 buyQuoteAmount = 10_000 ether;
+        IBondingCurve.CreateTokenParams memory params = _feeDefaultParams(keccak256("initial-buy-fee"));
+        params.creator = user1;
+        params.buyQuoteAmount = buyQuoteAmount;
+        _mintAndTransfer(user1, buyQuoteAmount);
+
+        address currentFeeReceiver = makeAddr("initialBuyFeeReceiver");
+        vm.prank(admin);
+        protocolManager.setFeeReceiver(currentFeeReceiver);
+
+        uint256 feeCollectorBefore = quoteToken.balanceOf(address(feeCollector));
+        vm.prank(user1);
+        (address token, uint256 tokenOut) = bondingCurve.create(params);
+
+        uint256 expectedProtocolFee = FixedPointMathLib.mulDivUp(buyQuoteAmount, 100, 10000);
+        IBondingCurve.Curve memory curve = bondingCurve.getCurve(token);
+
+        assertGt(tokenOut, 0, "initial buy should receive launch tokens");
+        assertEq(
+            quoteToken.balanceOf(currentFeeReceiver), expectedProtocolFee, "current fee receiver gets protocol fee"
+        );
+        assertEq(quoteToken.balanceOf(address(feeCollector)), feeCollectorBefore, "FeeCollector receives no curve fee");
+        assertEq(
+            curve.virtualQuoteReserve - curve.initialQuoteReserve,
+            buyQuoteAmount - expectedProtocolFee,
+            "initial buy deducts only protocol fee"
+        );
     }
 
     function test_create_deployFee() public {
@@ -209,7 +237,6 @@ contract FeeTest is SetUp {
             minTokenReserve,
             0.01 ether,
             defaultGraduateFee,
-            0,
             0,
             0
         );
@@ -240,7 +267,7 @@ contract FeeTest is SetUp {
         uint256 gradFee = defaultGraduateFee + 1 ether;
         vm.prank(admin);
         protocolManager.updateQuoteToken(
-            address(quoteToken), virtualReserve, virtualTokenReserve, minTokenReserve, 0, gradFee, 0, 0, 0
+            address(quoteToken), virtualReserve, virtualTokenReserve, minTokenReserve, 0, gradFee, 0, 0
         );
 
         address token = _createTokenWithVault(keccak256("grad-fee"));
@@ -265,7 +292,7 @@ contract FeeTest is SetUp {
     function test_quoteSpecific_deployFee_isolation() public {
         MockERC20 usdc = new MockERC20("USDC", "USDC", 6);
         vm.startPrank(admin);
-        protocolManager.addQuoteToken(address(usdc), 15_000e6, 1_000_000_000 ether, 800_000_000 ether, 10e6, 0, 0, 0, 0);
+        protocolManager.addQuoteToken(address(usdc), 15_000e6, 1_000_000_000 ether, 800_000_000 ether, 10e6, 0, 0, 0);
         protocolManager.updateQuoteToken(
             address(quoteToken),
             virtualReserve,
@@ -273,7 +300,6 @@ contract FeeTest is SetUp {
             minTokenReserve,
             0.01 ether,
             defaultGraduateFee,
-            0,
             0,
             0
         );
@@ -303,9 +329,7 @@ contract FeeTest is SetUp {
     function test_quoteSpecific_feesSetViaAddQuoteToken() public {
         MockERC20 usdc = new MockERC20("USDC", "USDC", 6);
         vm.prank(admin);
-        protocolManager.addQuoteToken(
-            address(usdc), 15_000e6, 1_000_000_000 ether, 800_000_000 ether, 5e6, 50e6, 0, 0, 0
-        );
+        protocolManager.addQuoteToken(address(usdc), 15_000e6, 1_000_000_000 ether, 800_000_000 ether, 5e6, 50e6, 0, 0);
 
         assertEq(protocolManager.deployFee(address(usdc)), 5e6, "USDC deployFee from addQuoteToken");
         assertEq(protocolManager.graduateFee(address(usdc)), 50e6, "USDC graduateFee from addQuoteToken");
@@ -329,7 +353,6 @@ contract FeeTest is SetUp {
             symbol: "FT",
             tokenURI: "",
             quoteToken: address(quoteToken),
-            creatorFeeRate: 500,
             vaults: vaults,
             salt: salt,
             dexType: ITokenRegistry.DexType.UniswapV3,

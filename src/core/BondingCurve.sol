@@ -9,7 +9,6 @@ import {ILPManager} from "../interfaces/ILPManager.sol";
 import {IV3PoolDeployer} from "../interfaces/IV3PoolDeployer.sol";
 import {IToken} from "../interfaces/IToken.sol";
 import {ICreatorFeeProcessor} from "../interfaces/ICreatorFeeProcessor.sol";
-import {IFeeCollector} from "../interfaces/IFeeCollector.sol";
 import {BPS} from "../libraries/Constants.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
@@ -26,7 +25,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 /// @title BondingCurve
 /// @notice Core state machine for token creation, curve trading, graduation, and anti-sniping.
 /// @dev Stores per-token curve state and coordinates TokenRegistry, LPManager, vault setup,
-///      FeeCollector setup, and graduation into canonical Uniswap V3 liquidity.
+///      creator vault setup, and graduation into canonical Uniswap V3 liquidity.
 contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeable, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using Clones for address;
@@ -40,7 +39,6 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
     bytes32 public constant MODULE_TOKEN_REGISTRY = keccak256("TOKEN_REGISTRY");
     bytes32 public constant MODULE_VAULT_REGISTRY = keccak256("VAULT_REGISTRY");
     bytes32 public constant MODULE_CREATOR_FEE_PROCESSOR = keccak256("CREATOR_FEE_PROCESSOR");
-    bytes32 public constant MODULE_FEE_COLLECTOR = keccak256("FEE_COLLECTOR");
     bytes32 public constant MODULE_FACTORY = keccak256("FACTORY");
     bytes32 public constant MODULE_V3_POOL_DEPLOYER = keccak256("V3_POOL_DEPLOYER");
 
@@ -86,7 +84,6 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
         returns (address token, uint256 tokenOut)
     {
         require(_protocolManager.isAllowed(params.quoteToken), "Quote token not allowed");
-        _validateCreatorFeeRate(params.creatorFeeRate);
 
         address creator = params.creator;
         uint256 quoteIn;
@@ -151,18 +148,6 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
             ITokenRegistry(registry).registerV3(token, pair, params.quoteToken, quoteConfig.v3FeeTier);
         }
 
-        address feeCollector_ = _modules[MODULE_FEE_COLLECTOR];
-        require(feeCollector_ != address(0), "FEE_COLLECTOR not set");
-        IFeeCollector(feeCollector_)
-            .setup(
-                pair,
-                token,
-                params.quoteToken,
-                params.creatorFeeRate,
-                _protocolManager.curveProtocolFeeRate(params.quoteToken),
-                _protocolManager.dexProtocolFeeRate(params.quoteToken)
-            );
-
         ICreatorFeeProcessor.VaultSlot[] memory vaultSlots = _setupVaults(token, params.vaults);
         address processor = _modules[MODULE_CREATOR_FEE_PROCESSOR];
         require(processor != address(0), "CREATOR_FEE_PROCESSOR not set");
@@ -173,10 +158,6 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
         _initCurve(_CurveInitArgs(token, pair), params, quoteConfig, creator);
 
         _totalTokenReserved[token] = IERC20(token).balanceOf(address(this));
-    }
-
-    function _validateCreatorFeeRate(uint16 creatorFeeRate) internal view {
-        require(_protocolManager.isCreatorFeeRateAllowed(creatorFeeRate), "Creator fee rate not allowed");
     }
 
     function _setupVaults(address token, VaultAllocation[] calldata allocations)
@@ -223,7 +204,6 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
         curve.initialQuoteReserve = quoteConfig.virtualReserve;
         curve.initialTokenReserve = quoteConfig.virtualTokenReserve;
         curve.createdAtBlock = uint64(block.number);
-        curve.creatorFeeRate = params.creatorFeeRate;
         curve.version = VERSION;
         curve.dexType = params.dexType;
         curve.pair = args.pair;
@@ -258,15 +238,11 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
         uint256 quoteIn = IERC20(curve.quoteToken).balanceOf(address(this)) - _totalQuoteReserved[curve.quoteToken];
         require(quoteIn > 0, "No quote sent");
 
-        (uint256 protocolFee, uint256 snipingFee, uint256 creatorFee, uint256 quoteInAfterFees) =
+        (uint256 protocolFee, uint256 snipingFee, uint256 quoteInAfterFees) =
             _calculateFees(token, quoteIn, curve, true);
 
         if (quoteInAfterFees == 0) {
-            if (snipingFee > 0) {
-                IERC20(curve.quoteToken).safeTransfer(_protocolManager.feeReceiver(), snipingFee);
-                emit SnipingPenalty(token, to, snipingFee, _getSnipingFeeRate(token));
-            }
-            _sendCombinedFee(token, curve.quoteToken, protocolFee, creatorFee);
+            _sendCurveFees(token, to, curve.quoteToken, protocolFee, snipingFee);
             emit Buy(token, to, quoteIn, 0);
             return 0;
         }
@@ -289,12 +265,7 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
             quoteInAfterFees = requiredQuoteIn;
         }
 
-        if (snipingFee > 0) {
-            IERC20(curve.quoteToken).safeTransfer(_protocolManager.feeReceiver(), snipingFee);
-            emit SnipingPenalty(token, to, snipingFee, _getSnipingFeeRate(token));
-        }
-
-        _sendCombinedFee(token, curve.quoteToken, protocolFee, creatorFee);
+        _sendCurveFees(token, to, curve.quoteToken, protocolFee, snipingFee);
 
         IERC20(token).safeTransfer(to, tokenOut);
 
@@ -307,8 +278,7 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
         internal
         returns (uint256 tokenOut)
     {
-        (uint256 protocolFee,, uint256 creatorFee, uint256 quoteInAfterFees) =
-            _calculateFees(token, quoteIn, curve, false);
+        (uint256 protocolFee,, uint256 quoteInAfterFees) = _calculateFees(token, quoteIn, curve, false);
 
         tokenOut = BondingCurveLibrary.getAmountOut(
             quoteInAfterFees, curve.k, curve.virtualQuoteReserve, curve.virtualTokenReserve
@@ -328,7 +298,7 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
             quoteInAfterFees = requiredQuoteIn;
         }
 
-        _sendCombinedFee(token, curve.quoteToken, protocolFee, creatorFee);
+        _sendCurveFees(token, to, curve.quoteToken, protocolFee, 0);
 
         IERC20(token).safeTransfer(to, tokenOut);
 
@@ -359,11 +329,10 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
         uint256 quoteOutBeforeFees =
             BondingCurveLibrary.getAmountOut(tokenIn, curve.k, curve.virtualTokenReserve, curve.virtualQuoteReserve);
 
-        (uint256 protocolFee,, uint256 creatorFee, uint256 quoteOutAfterFees_) =
-            _calculateFees(token, quoteOutBeforeFees, curve, false);
+        (uint256 protocolFee,, uint256 quoteOutAfterFees_) = _calculateFees(token, quoteOutBeforeFees, curve, false);
         quoteOutAfterFees = quoteOutAfterFees_;
 
-        _sendCombinedFee(token, curve.quoteToken, protocolFee, creatorFee);
+        _sendCurveFees(token, to, curve.quoteToken, protocolFee, 0);
 
         IERC20(curve.quoteToken).safeTransfer(to, quoteOutAfterFees);
 
@@ -462,19 +431,13 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
     function _calculateFees(address token, uint256 amount, Curve storage curve, bool withSniping)
         internal
         view
-        returns (uint256 protocolFee, uint256 snipingFee, uint256 creatorFee, uint256 amountAfterFees)
+        returns (uint256 protocolFee, uint256 snipingFee, uint256 amountAfterFees)
     {
-        address feeCollector_ = _modules[MODULE_FEE_COLLECTOR];
-        if (IFeeCollector(feeCollector_).isSettling(curve.pair)) {
-            return (0, 0, 0, amount);
-        }
         uint256 snipingFeeRate = withSniping ? _getSnipingFeeRate(token) : 0;
-        IFeeCollector.FeeConfig memory feeConfig = IFeeCollector(feeCollector_).getFeeConfig(curve.pair);
-        uint256 protocolFeeRate = feeConfig.curveProtocolFeeRate;
-        uint256 creatorFeeRate = feeConfig.creatorFeeRate;
-        uint256 totalFeeRate = snipingFeeRate + protocolFeeRate + creatorFeeRate;
+        uint256 protocolFeeRate = _protocolManager.curveProtocolFeeRate(curve.quoteToken);
+        uint256 totalFeeRate = snipingFeeRate + protocolFeeRate;
         if (totalFeeRate == 0) {
-            return (0, 0, 0, amount);
+            return (0, 0, amount);
         }
 
         uint256 totalFee = totalFeeRate >= BPS ? amount : FixedPointMathLib.mulDivUp(amount, totalFeeRate, BPS);
@@ -487,35 +450,22 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
 
         protocolFee = FixedPointMathLib.mulDivUp(amount, protocolFeeRate, BPS);
         if (protocolFee > remainingFee) protocolFee = remainingFee;
-        remainingFee -= protocolFee;
-
-        creatorFee = remainingFee;
     }
 
-    /// @dev Forwards creator-bearing fees to FeeCollector with the exact split calculated by the
-    ///      bonding curve fee priority model. Protocol-only fees are paid directly to avoid
-    ///      unnecessary FeeCollector accounting.
-    function _sendCombinedFee(address token, address quoteToken, uint256 protocolFee, uint256 creatorFee) internal {
-        uint256 combinedFee = protocolFee + creatorFee;
-        if (combinedFee == 0) return;
-        if (creatorFee == 0) {
-            IERC20(quoteToken).safeTransfer(_protocolManager.feeReceiver(), protocolFee);
-            return;
+    function _sendCurveFees(address token, address buyer, address quoteToken, uint256 protocolFee, uint256 snipingFee)
+        internal
+    {
+        uint256 protocolAndSnipingFee = protocolFee + snipingFee;
+        if (protocolAndSnipingFee > 0) {
+            IERC20(quoteToken).safeTransfer(_protocolManager.feeReceiver(), protocolAndSnipingFee);
         }
-        address feeCollector_ = _modules[MODULE_FEE_COLLECTOR];
-        address pair = ITokenRegistry(_modules[MODULE_TOKEN_REGISTRY]).getPair(token);
-        IERC20(quoteToken).safeTransfer(feeCollector_, combinedFee);
-        IFeeCollector(feeCollector_).collectFee(pair, protocolFee, creatorFee);
+
+        if (snipingFee > 0) emit SnipingPenalty(token, buyer, snipingFee, _getSnipingFeeRate(token));
     }
 
     function _getTotalFeeRate(address token, Curve storage curve, bool withSniping) internal view returns (uint256) {
-        address feeCollector_ = _modules[MODULE_FEE_COLLECTOR];
-        if (IFeeCollector(feeCollector_).isSettling(curve.pair)) {
-            return 0;
-        }
         uint256 snipingFeeRate = withSniping ? _getSnipingFeeRate(token) : 0;
-        IFeeCollector.FeeConfig memory feeConfig = IFeeCollector(feeCollector_).getFeeConfig(curve.pair);
-        return snipingFeeRate + feeConfig.curveProtocolFeeRate + feeConfig.creatorFeeRate;
+        return snipingFeeRate + _protocolManager.curveProtocolFeeRate(curve.quoteToken);
     }
 
     function _getSnipingFeeRate(address token) internal view returns (uint256) {
@@ -539,7 +489,7 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
         if (curve.graduated) revert AlreadyGraduated();
 
         if (isBuy) {
-            (,,, uint256 quoteInAfterFees) = _calculateFees(token, amountIn, curve, true);
+            (,, uint256 quoteInAfterFees) = _calculateFees(token, amountIn, curve, true);
             if (quoteInAfterFees == 0) return 0;
 
             amountOut = BondingCurveLibrary.getAmountOut(
@@ -554,7 +504,7 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
             uint256 quoteOutBeforeFees = BondingCurveLibrary.getAmountOut(
                 amountIn, curve.k, curve.virtualTokenReserve, curve.virtualQuoteReserve
             );
-            (,,, uint256 quoteAfterFees) = _calculateFees(token, quoteOutBeforeFees, curve, false);
+            (,, uint256 quoteAfterFees) = _calculateFees(token, quoteOutBeforeFees, curve, false);
             amountOut = quoteAfterFees;
         }
     }
