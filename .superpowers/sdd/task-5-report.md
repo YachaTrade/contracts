@@ -14,7 +14,7 @@ The pre-implementation RED run failed to compile because `AllocateParams`, V3 al
 
 ## Validation
 
-`forge build` passes. The focused `test/modules/LPManagerV3.t.sol` suite now has 6 passing tests, including both quote-order reference parity, 256-run bounded fuzz parity, invalid graduate-fee/spacing validation, `getPositions` pre-allocation rejection, and legacy selector disabling. The full allocation/allowance/AccessManager lifecycle harness remains a follow-up limitation because the existing setup does not yet deploy and authorize the V3 factory/actor wiring; this must be completed before final protocol validation.
+`forge build` passes. The focused `test/modules/LPManagerV3.t.sol` suite now has 8 passing tests (including 257 fuzz runs), with proxy-backed actor wiring coverage for one-time registration, owner/factory validation, zero actor rejection, and replacement rejection. Full allocation/increase lifecycle, allowance rollback, donation isolation, and selector-specific curve/LPVault authorization remain follow-up limitations because this fixture does not yet deploy canonical pool/token mocks.
 
 ## Follow-up fixes
 
