@@ -46,11 +46,9 @@ contract LPManagerV3Test is Test {
         uint128 virtualTokenReserve,
         uint96 graduateFee
     ) public {
-        vm.assume(uint256(graduateFee) + 1 <= type(uint128).max);
-        vm.assume(virtualQuoteReserve > uint256(graduateFee) + 1);
-        vm.assume(virtualTokenReserve > 0);
-        // Keep the generated ratio inside TickMath's uint160 sqrt-price domain.
-        vm.assume(uint256(virtualTokenReserve) < uint256(virtualQuoteReserve) * 1_000);
+        virtualQuoteReserve = uint128(bound(virtualQuoteReserve, 1e18, 1e24));
+        virtualTokenReserve = uint128(bound(virtualTokenReserve, 1e18, 1e24));
+        graduateFee = uint96(bound(graduateFee, 0, virtualQuoteReserve / 2));
         ILPManager.AllocateParams memory p = ILPManager.AllocateParams({
             token: address(1),
             quoteAmount: 1,
@@ -91,5 +89,11 @@ contract LPManagerV3Test is Test {
         });
         vm.expectRevert(LPManager.InvalidConfig.selector);
         manager.calculateBondingTick(p, true, 60);
+    }
+
+    function test_getPositions_revertsBeforeAllocation() public {
+        LPManager manager = new LPManager();
+        vm.expectRevert(LPManager.InvalidPool.selector);
+        manager.getPositions(address(1));
     }
 }
