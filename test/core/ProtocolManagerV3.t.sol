@@ -107,6 +107,54 @@ contract ProtocolManagerV3Test is SetUp {
         protocolManager.setV3QuoteConfig(address(quoteToken), 3_000, 5_000);
     }
 
+    function test_addV3QuoteToken_revertsAtomicallyForInvalidLpShare() public {
+        vm.prank(admin);
+        vm.expectRevert(IProtocolManager.InvalidLpFeeShare.selector);
+        protocolManager.addV3QuoteToken(
+            address(secondQuoteToken),
+            30 ether,
+            1_000_000_000 ether,
+            200_000_000 ether,
+            1 ether,
+            5 ether,
+            100,
+            0,
+            0,
+            3_000,
+            10_001
+        );
+
+        assertFalse(protocolManager.getConfig(address(secondQuoteToken)).active);
+    }
+
+    function test_updateV3QuoteToken_revertsAtomicallyForInvalidLpShare() public {
+        vm.startPrank(admin);
+        _addSecondQuoteToken();
+        protocolManager.setV3QuoteConfig(address(secondQuoteToken), 500, 1_000);
+        IProtocolManager.QuoteConfig memory beforeConfig = protocolManager.getConfig(address(secondQuoteToken));
+
+        vm.expectRevert(IProtocolManager.InvalidLpFeeShare.selector);
+        protocolManager.updateV3QuoteToken(
+            address(secondQuoteToken),
+            40 ether,
+            1_000_000_000 ether,
+            250_000_000 ether,
+            2 ether,
+            6 ether,
+            200,
+            25,
+            10 ether,
+            3_000,
+            10_001
+        );
+        vm.stopPrank();
+
+        IProtocolManager.QuoteConfig memory afterConfig = protocolManager.getConfig(address(secondQuoteToken));
+        assertEq(afterConfig.virtualReserve, beforeConfig.virtualReserve);
+        assertEq(afterConfig.v3FeeTier, beforeConfig.v3FeeTier);
+        assertEq(afterConfig.lpFeeProtocolShareBps, beforeConfig.lpFeeProtocolShareBps);
+    }
+
     function _addSecondQuoteToken() private {
         protocolManager.addQuoteToken(
             address(secondQuoteToken), 30 ether, 1_000_000_000 ether, 200_000_000 ether, 1 ether, 5 ether, 100, 0, 0

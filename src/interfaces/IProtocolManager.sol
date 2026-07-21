@@ -111,6 +111,19 @@ interface IProtocolManager {
         uint16 dexProtocolFeeRate,
         uint256 settlementThreshold
     ) external;
+    function addV3QuoteToken(
+        address quoteToken,
+        uint256 virtualReserve,
+        uint256 virtualTokenReserve,
+        uint256 minTokenReserve,
+        uint256 deployFee,
+        uint256 graduateFee,
+        uint16 curveProtocolFeeRate,
+        uint16 dexProtocolFeeRate,
+        uint256 settlementThreshold,
+        uint24 v3FeeTier,
+        uint16 lpFeeProtocolShareBps
+    ) external;
     function removeQuoteToken(address quoteToken) external;
     function updateQuoteToken(
         address quoteToken,
@@ -122,6 +135,19 @@ interface IProtocolManager {
         uint16 curveProtocolFeeRate,
         uint16 dexProtocolFeeRate,
         uint256 settlementThreshold
+    ) external;
+    function updateV3QuoteToken(
+        address quoteToken,
+        uint256 virtualReserve,
+        uint256 virtualTokenReserve,
+        uint256 minTokenReserve,
+        uint256 deployFee,
+        uint256 graduateFee,
+        uint16 curveProtocolFeeRate,
+        uint16 dexProtocolFeeRate,
+        uint256 settlementThreshold,
+        uint24 v3FeeTier,
+        uint16 lpFeeProtocolShareBps
     ) external;
     function isAllowed(address quoteToken) external view returns (bool);
     function getConfig(address quoteToken) external view returns (QuoteConfig memory);

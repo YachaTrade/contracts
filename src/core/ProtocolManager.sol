@@ -97,7 +97,7 @@ contract ProtocolManager is IProtocolManager, UUPSUpgradeable, OwnableUpgradeabl
         emit SettlementThresholdUpdate(quoteToken, threshold);
     }
 
-    function setV3QuoteConfig(address quoteToken, uint24 v3FeeTier_, uint16 lpFeeProtocolShareBps_) external onlyOwner {
+    function setV3QuoteConfig(address quoteToken, uint24 v3FeeTier_, uint16 lpFeeProtocolShareBps_) public onlyOwner {
         require(_configs[quoteToken].active, "Not active");
         if (v3FeeTier_ == 0) revert InvalidFeeTier();
         if (lpFeeProtocolShareBps_ > BPS) revert InvalidLpFeeShare();
@@ -158,7 +158,7 @@ contract ProtocolManager is IProtocolManager, UUPSUpgradeable, OwnableUpgradeabl
         uint16 curveProtocolFeeRate_,
         uint16 dexProtocolFeeRate_,
         uint256 settlementThreshold_
-    ) external onlyOwner {
+    ) public onlyOwner {
         if (quoteToken == address(0)) revert ZeroAddress();
         if (_configs[quoteToken].active) revert QuoteTokenAlreadyAdded();
         require(curveProtocolFeeRate_ <= 1000, "Protocol fee too high");
@@ -197,6 +197,34 @@ contract ProtocolManager is IProtocolManager, UUPSUpgradeable, OwnableUpgradeabl
         );
     }
 
+    /// @notice Atomically registers a quote token and its canonical V3 configuration.
+    function addV3QuoteToken(
+        address quoteToken,
+        uint256 virtualReserve,
+        uint256 virtualTokenReserve,
+        uint256 minTokenReserve,
+        uint256 deployFee_,
+        uint256 graduateFee_,
+        uint16 curveProtocolFeeRate_,
+        uint16 dexProtocolFeeRate_,
+        uint256 settlementThreshold_,
+        uint24 v3FeeTier_,
+        uint16 lpFeeProtocolShareBps_
+    ) external onlyOwner {
+        addQuoteToken(
+            quoteToken,
+            virtualReserve,
+            virtualTokenReserve,
+            minTokenReserve,
+            deployFee_,
+            graduateFee_,
+            curveProtocolFeeRate_,
+            dexProtocolFeeRate_,
+            settlementThreshold_
+        );
+        setV3QuoteConfig(quoteToken, v3FeeTier_, lpFeeProtocolShareBps_);
+    }
+
     function removeQuoteToken(address quoteToken) external onlyOwner {
         _configs[quoteToken].active = false;
         emit QuoteTokenRemove(quoteToken);
@@ -212,7 +240,7 @@ contract ProtocolManager is IProtocolManager, UUPSUpgradeable, OwnableUpgradeabl
         uint16 curveProtocolFeeRate_,
         uint16 dexProtocolFeeRate_,
         uint256 settlementThreshold_
-    ) external onlyOwner {
+    ) public onlyOwner {
         require(_configs[quoteToken].active, "Not active");
         require(curveProtocolFeeRate_ <= 1000, "Protocol fee too high");
         require(dexProtocolFeeRate_ <= 1000, "Dex protocol fee too high");
@@ -239,6 +267,34 @@ contract ProtocolManager is IProtocolManager, UUPSUpgradeable, OwnableUpgradeabl
             dexProtocolFeeRate_,
             settlementThreshold_
         );
+    }
+
+    /// @notice Atomically updates an active quote token and its canonical V3 configuration.
+    function updateV3QuoteToken(
+        address quoteToken,
+        uint256 virtualReserve,
+        uint256 virtualTokenReserve,
+        uint256 minTokenReserve,
+        uint256 deployFee_,
+        uint256 graduateFee_,
+        uint16 curveProtocolFeeRate_,
+        uint16 dexProtocolFeeRate_,
+        uint256 settlementThreshold_,
+        uint24 v3FeeTier_,
+        uint16 lpFeeProtocolShareBps_
+    ) external onlyOwner {
+        updateQuoteToken(
+            quoteToken,
+            virtualReserve,
+            virtualTokenReserve,
+            minTokenReserve,
+            deployFee_,
+            graduateFee_,
+            curveProtocolFeeRate_,
+            dexProtocolFeeRate_,
+            settlementThreshold_
+        );
+        setV3QuoteConfig(quoteToken, v3FeeTier_, lpFeeProtocolShareBps_);
     }
 
     function _validateGraduationSupply(

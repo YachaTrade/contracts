@@ -18,16 +18,11 @@ import {IProtocolManager} from "../../src/interfaces/IProtocolManager.sol";
 import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
 import {GiwaRouter} from "../../src/router/GiwaRouter.sol";
 import {Token} from "../../src/token/Token.sol";
-import {MockERC20} from "../mocks/MockERC20.sol";
 
 contract WethV3GraduationDeployHarness is Deploy {
-    function deployCanonicalFixture(address v3Factory, address lvmon, address feeReceiver)
-        external
-        returns (Deployed memory d)
-    {
+    function deployCanonicalFixture(address v3Factory, address feeReceiver) external returns (Deployed memory d) {
         d.v3Factory = v3Factory;
-        (d.weth, d.protocolManager) =
-            _deployCanonicalWethAndProtocolManager(address(this), feeReceiver, lvmon, _testConfig());
+        (d.weth, d.protocolManager) = _deployCanonicalWethAndProtocolManager(address(this), feeReceiver, _testConfig());
         d.tokenImpl = address(new Token());
         d.tokenRegistry = _deployTokenRegistry(d.protocolManager);
         d.lpManager = _deployLPManager(d.protocolManager, d.tokenRegistry);
@@ -65,7 +60,6 @@ contract WethV3GraduationDeployHarness is Deploy {
             v3FeeTier: 3_000,
             lpFeeProtocolShareBps: 5_000
         });
-        config.lvmonDexProtocolFeeRate = 35;
         config.snipingPenaltyTable = new uint256[](1);
         config.creatorFeeRates = new uint16[](1);
         config.creatorFeeRates[0] = 100;
@@ -117,9 +111,7 @@ contract WethV3GraduationE2ETest is Test {
 
         v3Factory = new UniswapV3Factory();
         WethV3GraduationDeployHarness harness = new WethV3GraduationDeployHarness();
-        deployed = harness.deployCanonicalFixture(
-            address(v3Factory), address(new MockERC20("LV MON", "LV_MON", 18)), feeReceiver
-        );
+        deployed = harness.deployCanonicalFixture(address(v3Factory), feeReceiver);
 
         weth = WETH(payable(deployed.weth));
         giwaRouter = GiwaRouter(payable(deployed.giwaRouter));
