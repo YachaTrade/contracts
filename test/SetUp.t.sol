@@ -274,12 +274,12 @@ contract SetUp is Test {
         // Tests act as the V3 fee collector keeper.
         protocolManager.setOperatorPermission(address(this), address(lpManager), LPManager.collect.selector, true);
 
-        // 16. Grant ROUTER_ROLE to GiwaRouter.
+        // 15. Grant ROUTER_ROLE to GiwaRouter.
         bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), address(giwaRouter));
 
         vm.stopPrank();
 
-        // 18. Skip anti-sniping period (100 minutes)
+        // 16. Skip anti-sniping period (100 minutes)
         _skipAntiSniping();
     }
 
@@ -470,7 +470,8 @@ contract SetUp is Test {
     // -- Helper: Graduation ----------------------------------------
 
     /// @notice Buys enough to graduate the token in one shot
-    /// @dev With creator fees (5% + 0.5% protocolFee), need more than base ~637,540.
+    /// @dev Setup has already advanced past the sniping window. This input leaves enough quote
+    ///      after the curve protocol fee to cross minTokenReserve and fund graduation liquidity.
     function _graduateToken(address token) internal {
         uint256 graduationAmount = 800_000 ether;
         _mintAndApprove(user1, address(giwaRouter), graduationAmount);
@@ -488,7 +489,7 @@ contract SetUp is Test {
 
     /// @notice Advances `block.number` past the per-block sniping table so subsequent buys/sells
     ///         pay no sniping fee. The 100-minute timestamp bump is preserved for any callers that
-    ///         also depend on time-based effects (e.g. older fee accumulation paths).
+    ///         also depend on time-based test assumptions.
     function _skipAntiSniping() internal {
         vm.warp(block.timestamp + 100 minutes);
         vm.roll(block.number + 10);

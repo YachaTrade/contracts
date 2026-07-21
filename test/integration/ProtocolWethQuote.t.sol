@@ -22,6 +22,8 @@ import {GiwaRouter} from "../../src/router/GiwaRouter.sol";
 import {CreatorFeeVault} from "../../src/vault/CreatorFeeVault.sol";
 import {VaultRegistry} from "../../src/vault/VaultRegistry.sol";
 
+contract MultisigContractStub {}
+
 contract DeployHarness is Deploy {
     function deployCanonicalWethAndProtocolManager(address admin, address feeReceiver)
         external
@@ -127,6 +129,37 @@ contract ProtocolWethQuoteTest is Test {
         harness.readUint24("OVERFLOWING_UINT24");
     }
 
+    function test_runSupportsContractMultisigWithoutItsPrivateKey() public {
+        uint256 deployerPrivateKey = 0xA11CE;
+        address deployer = vm.addr(deployerPrivateKey);
+        address feeReceiver = makeAddr("deployFeeReceiver");
+        MultisigContractStub multisig = new MultisigContractStub();
+        UniswapV3Factory factory = new UniswapV3Factory();
+        factory.setOwner(address(multisig));
+
+        _setEnv("PRIVATE_KEY", vm.toString(deployerPrivateKey));
+        _setEnv("DEPLOYER", vm.toString(deployer));
+        _setEnv("MULTISIG_PRIVATE_KEY", "");
+        _setEnv("MULTISIG", vm.toString(address(multisig)));
+        _setEnv("COLLECTOR", vm.toString(address(multisig)));
+        _setEnv("CREATOR_MANAGER", vm.toString(address(0)));
+        _setEnv("CHAIN_ID", vm.toString(block.chainid));
+        _setEnv("FEE_RECEIVER", vm.toString(feeReceiver));
+        _setEnv("V3_FACTORY", vm.toString(address(factory)));
+        _setEnv("VIRTUAL_RESERVE", vm.toString(uint256(70_000 ether)));
+        _setEnv("VIRTUAL_TOKEN_RESERVE", vm.toString(uint256(1_060_569_000 ether)));
+        _setEnv("MIN_TOKEN_RESERVE", vm.toString(uint256(251_660_440_677_966_101_694_915_255)));
+        _setEnv("DEPLOY_FEE", vm.toString(uint256(10 ether)));
+        _setEnv("GRADUATE_FEE", vm.toString(uint256(1_000 ether)));
+        _setEnv("CURVE_PROTOCOL_FEE_RATE", "100");
+        _setEnv("V3_FEE_TIER", "3000");
+        _setEnv("LP_FEE_PROTOCOL_SHARE_BPS", "5000");
+        _setEnv("SNIPING_PENALTY_TABLE", "0");
+        _setEnv("CREATOR_FEE_VAULT_METADATA_URI", "ipfs://creator-fee-vault");
+
+        new Deploy().run();
+    }
+
     function test_deploymentHarnessWiresCanonicalV3AndOnlyCreatorFeeVault() public {
         UniswapV3Factory factory = new UniswapV3Factory();
         DeployHarness harness = new DeployHarness();
@@ -161,7 +194,7 @@ contract ProtocolWethQuoteTest is Test {
         DeployHarness harness = new DeployHarness();
         Deploy.Deployed memory deployed =
             harness.deployCanonicalV3Graph(address(factory), address(0), address(0xC011EC70));
-        address newAdmin = makeAddr("testnetMultisigEoa");
+        address newAdmin = address(new MultisigContractStub());
 
         harness.transferAdmin(deployed, newAdmin);
 
@@ -269,5 +302,10 @@ contract ProtocolWethQuoteTest is Test {
         assertEq(moduleRegistrations, 5, "only active V3 lifecycle modules should be registered");
         assertFalse(legacyFactoryRegistered, "legacy Nad factory module must not be registered");
         assertFalse(feeCollectorRegistered, "FeeCollector module must not be registered");
+    }
+
+    function _setEnv(string memory key, string memory value) private {
+        // forge-lint: disable-next-line(unsafe-cheatcode)
+        vm.setEnv(key, value);
     }
 }

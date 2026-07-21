@@ -28,7 +28,7 @@ address constant GIWA_WETH = 0x4200000000000000000000000000000000000006;
 
 /// @title Deploy -- full canonical Uniswap V3 protocol deployment script
 /// @notice Deploys all contracts in correct order, initializes and configures them.
-/// @dev Environment variables (required):  PRIVATE_KEY, DEPLOYER, MULTISIG_PRIVATE_KEY, MULTISIG,
+/// @dev Environment variables (required):  PRIVATE_KEY, DEPLOYER, MULTISIG,
 ///      CHAIN_ID, FEE_RECEIVER, V3_FACTORY,
 ///      VIRTUAL_RESERVE, VIRTUAL_TOKEN_RESERVE, MIN_TOKEN_RESERVE, DEPLOY_FEE, GRADUATE_FEE,
 ///      CURVE_PROTOCOL_FEE_RATE, V3_FEE_TIER, LP_FEE_PROTOCOL_SHARE_BPS, SNIPING_PENALTY_TABLE,
@@ -74,7 +74,6 @@ contract Deploy is Script {
 
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
-        uint256 multisigPrivateKey = vm.envUint("MULTISIG_PRIVATE_KEY");
         address deployerEnv = vm.envAddress("DEPLOYER");
         address feeReceiver = vm.envAddress("FEE_RECEIVER");
         address creatorManager = vm.envOr("CREATOR_MANAGER", address(0));
@@ -87,7 +86,6 @@ contract Deploy is Script {
         require(feeReceiver != address(0), "Deploy: FEE_RECEIVER required");
         require(multisig != address(0), "Deploy: MULTISIG required");
         require(collector != address(0), "Deploy: COLLECTOR required");
-        require(vm.addr(multisigPrivateKey) == multisig, "Deploy: MULTISIG_PRIVATE_KEY mismatch");
 
         address v3Factory = vm.envAddress("V3_FACTORY");
         require(v3Factory.code.length > 0, "Deploy: invalid V3_FACTORY");
