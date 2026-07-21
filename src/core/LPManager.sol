@@ -146,7 +146,7 @@ contract LPManager is ILPManager, UUPSUpgradeable, AccessManagedUpgradeable {
         IProtocolManager.QuoteConfig memory c = IProtocolManager(authority()).getConfig(i.quoteToken);
         if (
             !c.active || i.pool == address(0) || i.quoteToken == address(0)
-                || i.dexType != ITokenRegistry.DexType.UniswapV3 || c.v3FeeTier != i.feeTier
+                || i.dexType != ITokenRegistry.DexType.UniswapV3
         ) revert InvalidPool();
         if (IUniswapV3Factory(v3Factory).getPool(token, i.quoteToken, i.feeTier) != i.pool) revert InvalidPool();
         IUniswapV3Pool p = IUniswapV3Pool(i.pool);

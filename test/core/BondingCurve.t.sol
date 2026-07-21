@@ -82,14 +82,14 @@ contract BondingCurveTest is SetUp {
         vm.roll(block.number + 10);
     }
 
-    // V2: creator fee is deducted from quote (not from token output)
+    // Creator fee is deducted from quote, not from token output.
     function test_buy_receivesTokens() public {
         uint256 buyAmount = 1 ether;
         _mintAndTransferBC(user1, buyAmount);
         vm.prank(user1);
         uint256 tokenOut = bondingCurve.buy(user1, token);
 
-        // V2 additive fee: totalFeeRate = curveProtocolFeeRate + creatorFeeRate (no sniping after warp)
+        // Additive fee: totalFeeRate = curveProtocolFeeRate + creatorFeeRate (no sniping after warp).
         uint256 totalFeeRate = uint256(defaultCurveProtocolFee) + 500;
         uint256 quoteInAfterFees = buyAmount * (10000 - totalFeeRate) / 10000;
         uint256 k = virtualReserve * virtualTokenReserve;
@@ -100,14 +100,14 @@ contract BondingCurveTest is SetUp {
         assertEq(IERC20(token).balanceOf(user1), tokenOut, "Balance should match tokenOut");
     }
 
-    // V2: virtualQuoteReserve increases by quoteAfterCreatorFee (not quoteAfterProtocolFee)
+    // virtualQuoteReserve increases by quoteInAfterFees.
     function test_buy_updatesState() public {
         uint256 buyAmount = 1 ether;
         _mintAndTransferBC(user1, buyAmount);
         vm.prank(user1);
         uint256 tokenOut = bondingCurve.buy(user1, token);
 
-        // V2 additive fee: totalFeeRate = curveProtocolFeeRate + creatorFeeRate (no sniping after warp)
+        // Additive fee: totalFeeRate = curveProtocolFeeRate + creatorFeeRate (no sniping after warp).
         uint256 totalFeeRate = uint256(defaultCurveProtocolFee) + 500;
         uint256 quoteInAfterFees = buyAmount * (10000 - totalFeeRate) / 10000;
         IBondingCurve.Curve memory info = bondingCurve.getCurve(token);
@@ -116,7 +116,7 @@ contract BondingCurveTest is SetUp {
             quoteInAfterFees,
             "realQuoteReserve should equal effective input after protocol fee and creator fee"
         );
-        // V2: tokensSold == tokenOut (no creator fee on token transfer)
+        // tokensSold == tokenOut because creator fees are charged in quote.
         uint256 tokensSold = info.initialTokenReserve - info.virtualTokenReserve;
         assertEq(tokensSold, tokenOut, "Tokens sold should equal tokenOut (no creator fee on transfer)");
     }
@@ -161,7 +161,7 @@ contract BondingCurveTest is SetUp {
         bondingCurve.buy(user1, fakeToken);
     }
 
-    // V2: creator fee deducted from grossQuote output (not from token input)
+    // Creator fee is deducted from gross quote output, not from token input.
     function test_sell_receivesQuote() public {
         _mintAndTransferBC(user1, 1 ether);
         vm.prank(user1);
@@ -182,18 +182,10 @@ contract BondingCurveTest is SetUp {
         assertGt(quoteOut, 0, "Should receive positive quote output");
         assertEq(wmon.balanceOf(user1), quoteBefore + quoteOut, "Quote balance should increase by quoteOut");
 
-        // Verify grossQuote via curve state: quoteOut = grossQuote - protocolFee - creatorFee
-        IBondingCurve.Curve memory curveAfter = bondingCurve.getCurve(token);
-        IBondingCurve.Curve memory curveBefore = bondingCurve.getCurve(token);
-        // The sell reduced virtualQuoteReserve; since we can't easily reconstruct the exact
-        // state mid-function, we just verify that the user received a positive amount
-        // and the getAmountOut view matches the actual execution
-        uint256 viewOut = bondingCurve.getAmountOut(token, sellAmount, false);
-        // viewOut uses current curve state (post-sell) so won't match exactly.
-        // This test validates the basic flow; exact math is covered in BondingCurveV2Test.
+        // Exact sell math and reserve accounting are asserted in test_sell_updatesState.
     }
 
-    // V2: virtualQuoteReserve decreases by grossQuote (before fees)
+    // virtualQuoteReserve decreases by quoteOutBeforeFees.
     function test_sell_updatesState() public {
         _mintAndTransferBC(user1, 2 ether);
         vm.prank(user1);
@@ -219,7 +211,7 @@ contract BondingCurveTest is SetUp {
             "virtualQuoteReserve should decrease after sell"
         );
 
-        // V2: grossQuote = delta(virtualQuoteReserve)
+        // quoteOutBeforeFees = delta(virtualQuoteReserve).
         // quoteOut = grossQuote - protocolFee - creatorFee
         uint256 grossQuote = infoBefore.virtualQuoteReserve - infoAfter.virtualQuoteReserve;
         uint256 totalFees = (grossQuote * (defaultCurveProtocolFee + 500)) / 10000;
@@ -370,7 +362,7 @@ contract BondingCurveTest is SetUp {
         assertGt(inflatedAmountIn, baselineAmountIn, "sniping window must require more quote in");
     }
 
-    // V2: BondingCurve.getAmountIn includes protocolFee + creatorFee
+    // BondingCurve.getAmountIn includes protocolFee + creatorFee.
     function test_getAmountIn_sell_noFee() public view {
         uint256 desiredQuote = 1 ether;
         uint256 bcAmountIn = bondingCurve.getAmountIn(token, desiredQuote, false);
@@ -411,7 +403,7 @@ contract BondingCurveTest is SetUp {
         assertGt(bcOut, 0, "getAmountOut buy with fee should return positive value");
     }
 
-    // V2: BondingCurve.getAmountOut includes all fees for sell too.
+    // BondingCurve.getAmountOut includes all fees for sells too.
     function test_getAmountOut_sell_noFee() public {
         _mintAndTransferBC(user1, 5 ether);
         vm.prank(user1);
@@ -437,7 +429,7 @@ contract BondingCurveTest is SetUp {
         assertGt(bcOut, 0, "getAmountOut sell with fee should return positive value");
     }
 
-    // V2: creator fee on quote, user receives full tokenOut (no creator-fee-on-transfer)
+    // Creator fee is charged in quote, so the user receives the full tokenOut.
     function test_exactOutBuy() public {
         uint256 desiredTokens = 1000 ether;
         uint256 maxQuoteIn = 5 ether;
@@ -458,7 +450,7 @@ contract BondingCurveTest is SetUp {
         vm.stopPrank();
 
         uint256 tokenBalance = IERC20(token).balanceOf(user1);
-        // V2: user receives full desiredTokens (no creator fee on token transfer)
+        // The user receives the full desiredTokens because there is no creator fee on token transfer.
         assertGe(tokenBalance, desiredTokens, "Should receive at least desired tokens");
         assertApproxEqAbs(tokenBalance, desiredTokens, 1e15, "Surplus from rounding should be small");
         assertLe(amountIn, maxQuoteIn, "Should not exceed max input");
@@ -486,7 +478,7 @@ contract BondingCurveTest is SetUp {
         vm.stopPrank();
     }
 
-    // V2: creator fee on quote, user receives full tokenOut
+    // Creator fee is charged in quote, so the user receives the full tokenOut.
     function test_exactOutBuyWithNative() public {
         uint256 desiredTokens = 1000 ether;
         uint256 maxNativeIn = 5 ether;
@@ -499,7 +491,7 @@ contract BondingCurveTest is SetUp {
             })
         );
 
-        // V2: user receives full desiredTokens (no creator fee on transfer)
+        // The user receives the full desiredTokens because there is no creator fee on transfer.
         assertGe(IERC20(token).balanceOf(user1), desiredTokens, "Should receive at least desired tokens");
         assertApproxEqAbs(IERC20(token).balanceOf(user1), desiredTokens, 1e15, "Surplus from rounding should be small");
         assertEq(user1.balance, maxNativeIn - amountIn, "Native refund should match");
@@ -734,6 +726,28 @@ contract BondingCurveTest is SetUp {
         assertEq(info.pool, v3Factory.getPool(v3Token, address(wmon), DEFAULT_V3_FEE_TIER));
         assertEq(info.pair, info.pool);
         assertEq(info.feeTier, DEFAULT_V3_FEE_TIER);
+    }
+
+    function test_graduate_usesCreationFeeTierSnapshotAfterQuoteConfigChanges() public {
+        ITokenRegistry.TokenInfo memory beforeInfo = tokenRegistry.getTokenInfo(token);
+        assertEq(beforeInfo.feeTier, DEFAULT_V3_FEE_TIER, "creation tier snapshot");
+        assertEq(beforeInfo.pool, v3Factory.getPool(token, address(wmon), DEFAULT_V3_FEE_TIER), "tier A pool");
+
+        uint24 updatedFeeTier = 500;
+        vm.prank(admin);
+        protocolManager.setV3QuoteConfig(address(wmon), updatedFeeTier, DEFAULT_LP_FEE_PROTOCOL_SHARE_BPS);
+        assertEq(protocolManager.getConfig(address(wmon)).v3FeeTier, updatedFeeTier, "live tier changed to B");
+
+        _mintAndTransferBC(user1, 800_000 ether);
+        vm.prank(user1);
+        bondingCurve.buy(user1, token);
+
+        assertTrue(bondingCurve.getCurve(token).graduated, "token should graduate through tier A pool");
+        ITokenRegistry.TokenInfo memory afterInfo = tokenRegistry.getTokenInfo(token);
+        assertEq(afterInfo.feeTier, DEFAULT_V3_FEE_TIER, "registry keeps tier A snapshot");
+        assertEq(afterInfo.pool, beforeInfo.pool, "registry keeps canonical tier A pool");
+        assertEq(v3Factory.getPool(token, address(wmon), DEFAULT_V3_FEE_TIER), beforeInfo.pool, "factory tier A pool");
+        assertEq(v3Factory.getPool(token, address(wmon), updatedFeeTier), address(0), "no tier B pool created");
     }
 
     /// @dev Previously, empty setupData skipped IVault.setup, leaving CreatorFeeVault

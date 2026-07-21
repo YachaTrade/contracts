@@ -31,6 +31,24 @@ contract MockRouter {
     }
 }
 
+contract MockV3LockPool {
+    bool public unlocked;
+
+    constructor(bool unlocked_) {
+        unlocked = unlocked_;
+    }
+
+    function slot0() external view returns (uint160, int24, uint16, uint16, uint16, uint8, bool) {
+        return (1, 0, 0, 0, 0, 0, unlocked);
+    }
+}
+
+contract MalformedLockPool {
+    fallback(bytes calldata) external returns (bytes memory) {
+        return hex"00";
+    }
+}
+
 contract FeeCollectorTest is Test {
     FeeCollector public collector;
     MockERC20 public quoteToken;
@@ -160,6 +178,11 @@ contract FeeCollectorTest is Test {
     function _setupPair() internal {
         vm.prank(bondingCurve);
         collector.setup(pair, token, address(quoteToken), CREATOR_FEE_RATE, PROTOCOL_FEE_RATE, PROTOCOL_FEE_RATE);
+    }
+
+    function _setupPool(address pool) internal {
+        vm.prank(bondingCurve);
+        collector.setup(pool, token, address(quoteToken), CREATOR_FEE_RATE, PROTOCOL_FEE_RATE, PROTOCOL_FEE_RATE);
     }
 
     function _mulDivUp(uint256 x, uint256 y, uint256 d) internal pure returns (uint256) {
@@ -319,6 +342,29 @@ contract FeeCollectorTest is Test {
     }
 
     // ─── Settlement Tests ───────────────────────────────────
+
+    function test_settle_allowsUnlockedV3Pool() public {
+        MockV3LockPool pool = new MockV3LockPool(true);
+        _setupPool(address(pool));
+
+        collector.settle(address(pool), 0);
+    }
+
+    function test_settle_revertsForLockedV3Pool() public {
+        MockV3LockPool pool = new MockV3LockPool(false);
+        _setupPool(address(pool));
+
+        vm.expectRevert(IFeeCollector.PairLocked.selector);
+        collector.settle(address(pool), 0);
+    }
+
+    function test_settle_revertsForMalformedPoolLockResponse() public {
+        MalformedLockPool pool = new MalformedLockPool();
+        _setupPool(address(pool));
+
+        vm.expectRevert(IFeeCollector.PairLocked.selector);
+        collector.settle(address(pool), 0);
+    }
 
     function test_settle_splitsCorrectly() public {
         _setupPair();

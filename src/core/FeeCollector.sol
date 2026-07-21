@@ -11,6 +11,7 @@ import {IFeeCollector} from "../interfaces/IFeeCollector.sol";
 import {IProtocolManager} from "../interfaces/IProtocolManager.sol";
 import {IGiwaRouter} from "../interfaces/IGiwaRouter.sol";
 import {INadFunPair} from "../dex/interfaces/INadFunPair.sol";
+import {IUniswapV3PoolState} from "@uniswap/v3-core/contracts/interfaces/pool/IUniswapV3PoolState.sol";
 
 interface ICreatorFeeProcessorV2 {
     function processCreatorFee(address token, address quoteToken, uint256 amount) external;
@@ -123,10 +124,9 @@ contract FeeCollector is IFeeCollector, UUPSUpgradeable, AccessManagedUpgradeabl
     ///      flash-swap callback), since CreatorFeeProcessor's vault hooks reenter the pair and
     ///      would revert silently under the `try/catch` — leaving funds stranded in the vaults.
     function settle(address pair, uint256 minAmountOut) external restricted {
-        if (INadFunPair(pair).isLocked()) revert PairLocked();
-
         FeeConfig storage config = _configs[pair];
         if (config.quoteToken == address(0)) revert NotConfigured();
+        if (_isPoolLocked(pair)) revert PairLocked();
 
         uint256 creatorFee = _accumulatedFees[pair];
         if (creatorFee < IProtocolManager(authority()).settlementThreshold(config.quoteToken)) return;
@@ -145,6 +145,16 @@ contract FeeCollector is IFeeCollector, UUPSUpgradeable, AccessManagedUpgradeabl
         _settling[pair] = false;
 
         emit Settle(config.baseToken, pair, creatorFee, creatorFee);
+    }
+
+    function _isPoolLocked(address pool) private view returns (bool) {
+        (bool success, bytes memory result) = pool.staticcall(abi.encodeCall(INadFunPair.isLocked, ()));
+        if (success && result.length == 32) return abi.decode(result, (bool));
+
+        (success, result) = pool.staticcall(abi.encodeCall(IUniswapV3PoolState.slot0, ()));
+        if (!success || result.length < 224) revert PairLocked();
+        (,,,,,, bool unlocked) = abi.decode(result, (uint160, int24, uint16, uint16, uint16, uint8, bool));
+        return !unlocked;
     }
 
     function _getSettlementAmountOut(FeeConfig storage config, uint256 quoteIn) internal returns (uint256) {
