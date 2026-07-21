@@ -91,11 +91,11 @@ contract Deploy is Script {
         require(deployer == deployerEnv, "Deploy: PRIVATE_KEY does not match DEPLOYER env");
         require(feeReceiver != address(0), "Deploy: FEE_RECEIVER required");
         require(multisig != address(0), "Deploy: MULTISIG required");
-        require(multisig != deployer, "Deploy: MULTISIG must differ from deployer");
         require(vm.addr(multisigPrivateKey) == multisig, "Deploy: MULTISIG_PRIVATE_KEY mismatch");
 
         address v3Factory = vm.envAddress("V3_FACTORY");
         require(v3Factory.code.length > 0, "Deploy: invalid V3_FACTORY");
+        require(IUniswapV3Factory(v3Factory).owner() == multisig, "Deploy: V3_FACTORY owner mismatch");
         ProtocolDeploymentConfig memory protocolConfig = _protocolDeploymentConfig();
         require(
             IUniswapV3Factory(v3Factory).feeAmountTickSpacing(protocolConfig.quoteToken.v3FeeTier) != 0,
@@ -169,6 +169,8 @@ contract Deploy is Script {
     ///      ProtocolManager ownership transfer alone covers all AccessManaged targets;
     ///      BondingCurve uses AccessControl so its roles must be handled explicitly.
     function _transferAdminToMultisig(Deployed memory d, address multisig, address oldAdmin) internal {
+        if (multisig == oldAdmin) return;
+
         BondingCurve bc = BondingCurve(payable(d.bondingCurve));
         bytes32 adminRole = bc.DEFAULT_ADMIN_ROLE();
         bytes32 guardianRole = bc.GUARDIAN_ROLE();
@@ -530,6 +532,9 @@ contract Deploy is Script {
         require(d.weth == _canonicalWeth(), "Verify: non-canonical WETH");
         require(d.v3Factory.code.length > 0, "Verify: V3 factory missing code");
         require(
+            IUniswapV3Factory(d.v3Factory).owner() == vm.envAddress("MULTISIG"), "Verify: V3 factory owner mismatch"
+        );
+        require(
             IUniswapV3Factory(d.v3Factory).feeAmountTickSpacing(_readUint24("V3_FEE_TIER")) != 0,
             "Verify: unsupported V3 fee tier"
         );
@@ -596,8 +601,10 @@ contract Deploy is Script {
         require(pm.owner() == multisig, "Verify: PM owner mismatch");
         require(bc.hasRole(bc.DEFAULT_ADMIN_ROLE(), multisig), "Verify: BC admin role mismatch");
         require(bc.hasRole(bc.GUARDIAN_ROLE(), multisig), "Verify: BC guardian role mismatch");
-        require(!bc.hasRole(bc.DEFAULT_ADMIN_ROLE(), deployer), "Verify: deployer admin role not revoked");
-        require(!bc.hasRole(bc.GUARDIAN_ROLE(), deployer), "Verify: deployer guardian role not revoked");
+        if (deployer != multisig) {
+            require(!bc.hasRole(bc.DEFAULT_ADMIN_ROLE(), deployer), "Verify: deployer admin role not revoked");
+            require(!bc.hasRole(bc.GUARDIAN_ROLE(), deployer), "Verify: deployer guardian role not revoked");
+        }
     }
 
     // ── Logging ─────────────────────────────────────────────────────

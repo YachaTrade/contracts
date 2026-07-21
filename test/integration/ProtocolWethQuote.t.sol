@@ -166,6 +166,20 @@ contract ProtocolWethQuoteTest is Test {
         assertFalse(bondingCurve.hasRole(bondingCurve.GUARDIAN_ROLE(), address(harness)));
     }
 
+    function test_deploymentHarnessKeepsRolesForSingleTestnetAdmin() public {
+        UniswapV3Factory factory = new UniswapV3Factory();
+        DeployHarness harness = new DeployHarness();
+        Deploy.Deployed memory deployed = harness.deployCanonicalV3Graph(address(factory), address(0));
+
+        harness.transferAdmin(deployed, address(harness));
+
+        ProtocolManager protocolManager = ProtocolManager(deployed.protocolManager);
+        BondingCurve bondingCurve = BondingCurve(payable(deployed.bondingCurve));
+        assertEq(protocolManager.owner(), address(harness));
+        assertTrue(bondingCurve.hasRole(bondingCurve.DEFAULT_ADMIN_ROLE(), address(harness)));
+        assertTrue(bondingCurve.hasRole(bondingCurve.GUARDIAN_ROLE(), address(harness)));
+    }
+
     function _assertRouting(Deploy.Deployed memory deployed, address factory) private view {
         assertEq(deployed.weth, GIWA_WETH);
         GiwaRouter router = GiwaRouter(payable(deployed.giwaRouter));
