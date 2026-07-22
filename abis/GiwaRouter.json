@@ -230,11 +230,6 @@
             "internalType": "address"
           },
           {
-            "name": "creatorFeeRate",
-            "type": "uint16",
-            "internalType": "uint16"
-          },
-          {
             "name": "vaults",
             "type": "tuple[]",
             "internalType": "struct IBondingCurve.VaultAllocation[]",
@@ -321,11 +316,6 @@
             "name": "quoteToken",
             "type": "address",
             "internalType": "address"
-          },
-          {
-            "name": "creatorFeeRate",
-            "type": "uint16",
-            "internalType": "uint16"
           },
           {
             "name": "vaults",
