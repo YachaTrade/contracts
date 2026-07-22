@@ -3,43 +3,12 @@
     "type": "constructor",
     "inputs": [
       {
-        "name": "bondingCurve_",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "feeCollector_",
+        "name": "protocolManager_",
         "type": "address",
         "internalType": "address"
       }
     ],
     "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "bondingCurve",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "feeCollector",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -94,6 +63,19 @@
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "protocolManager",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IProtocolManager"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -232,7 +214,38 @@
   },
   {
     "type": "error",
+    "name": "InvalidBalanceDelta",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "expectedBalance",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "currentBalance",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "InvalidBpsTotal",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidProtocolManager",
     "inputs": []
   },
   {
