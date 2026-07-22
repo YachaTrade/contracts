@@ -22,43 +22,88 @@
     "name": "addLiquidity",
     "inputs": [
       {
-        "name": "token",
+        "name": "",
         "type": "address",
         "internalType": "address"
       },
       {
-        "name": "quoteToken",
+        "name": "",
         "type": "address",
         "internalType": "address"
       },
       {
-        "name": "tokenIn",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "quoteIn",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "dexType",
+        "name": "",
         "type": "uint8",
         "internalType": "enum ITokenRegistry.DexType"
       },
       {
-        "name": "pair",
+        "name": "",
         "type": "address",
         "internalType": "address"
       }
     ],
     "outputs": [
       {
-        "name": "liquidity",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       }
     ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "allocate",
+    "inputs": [
+      {
+        "name": "p",
+        "type": "tuple",
+        "internalType": "struct ILPManager.AllocateParams",
+        "components": [
+          {
+            "name": "token",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "quoteAmount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "tokenAmount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "virtualQuoteReserve",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "virtualTokenReserve",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "graduateFee",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "outputs": [],
     "stateMutability": "nonpayable"
   },
   {
@@ -76,27 +121,114 @@
   },
   {
     "type": "function",
+    "name": "calculateBondingTick",
+    "inputs": [
+      {
+        "name": "p",
+        "type": "tuple",
+        "internalType": "struct ILPManager.AllocateParams",
+        "components": [
+          {
+            "name": "token",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "quoteAmount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "tokenAmount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "virtualQuoteReserve",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "virtualTokenReserve",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "graduateFee",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      },
+      {
+        "name": "q",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "s",
+        "type": "int24",
+        "internalType": "int24"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "int24",
+        "internalType": "int24"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
     "name": "claimFees",
     "inputs": [
       {
-        "name": "token",
+        "name": "",
         "type": "address",
         "internalType": "address"
       }
     ],
     "outputs": [
       {
-        "name": "amount0",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "amount1",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       }
     ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "collect",
+    "inputs": [
+      {
+        "name": "tokens",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "creatorFeeProcessor",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -116,12 +248,12 @@
     "name": "getLiquidity",
     "inputs": [
       {
-        "name": "token",
+        "name": "",
         "type": "address",
         "internalType": "address"
       },
       {
-        "name": "caller",
+        "name": "",
         "type": "address",
         "internalType": "address"
       }
@@ -133,7 +265,7 @@
         "internalType": "uint256"
       }
     ],
-    "stateMutability": "view"
+    "stateMutability": "pure"
   },
   {
     "type": "function",
@@ -156,6 +288,83 @@
   },
   {
     "type": "function",
+    "name": "getPositions",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "a",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "b",
+        "type": "int24",
+        "internalType": "int24"
+      },
+      {
+        "name": "c",
+        "type": "int24",
+        "internalType": "int24"
+      },
+      {
+        "name": "d",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "e",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "f",
+        "type": "int24",
+        "internalType": "int24"
+      },
+      {
+        "name": "g",
+        "type": "int24",
+        "internalType": "int24"
+      },
+      {
+        "name": "h",
+        "type": "uint128",
+        "internalType": "uint128"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "increaseLiquidity",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "tokenAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "quoteAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "initialize",
     "inputs": [
       {
@@ -165,6 +374,16 @@
       },
       {
         "name": "tokenRegistry_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "creatorFeeProcessor_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "v3SwapAdapter_",
         "type": "address",
         "internalType": "address"
       }
@@ -213,6 +432,24 @@
   },
   {
     "type": "function",
+    "name": "setV3LiquidityActor",
+    "inputs": [
+      {
+        "name": "actor",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "factory",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "upgradeToAndCall",
     "inputs": [
       {
@@ -228,6 +465,45 @@
     ],
     "outputs": [],
     "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "v3Factory",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "v3LiquidityActor",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "v3SwapAdapter",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "event",
@@ -355,6 +631,86 @@
     "anonymous": false
   },
   {
+    "type": "event",
+    "name": "V3Allocation",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "pool",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "tokenUsed",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "quoteUsed",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "V3FeesCollected",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "quoteToken",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "tokenFee",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "directQuoteFee",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "swappedQuote",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "protocolQuote",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "creatorQuote",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
     "type": "error",
     "name": "AccessManagedInvalidAuthority",
     "inputs": [
@@ -394,15 +750,26 @@
   },
   {
     "type": "error",
-    "name": "AddLiquidityFailed",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "AddressEmptyCode",
     "inputs": [
       {
         "name": "target",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "BalanceDelta",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "DuplicateToken",
+    "inputs": [
+      {
+        "name": "token",
         "type": "address",
         "internalType": "address"
       }
@@ -431,7 +798,17 @@
   },
   {
     "type": "error",
-    "name": "InsufficientTokenBalance",
+    "name": "InvalidBatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidConfig",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidFactory",
     "inputs": []
   },
   {
@@ -441,12 +818,22 @@
   },
   {
     "type": "error",
-    "name": "NoClaimableFees",
+    "name": "InvalidPool",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "LegacyLiquidityDisabled",
     "inputs": []
   },
   {
     "type": "error",
     "name": "NotInitializing",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "R",
     "inputs": []
   },
   {
@@ -459,6 +846,11 @@
         "internalType": "address"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "T",
+    "inputs": []
   },
   {
     "type": "error",
@@ -478,7 +870,7 @@
   },
   {
     "type": "error",
-    "name": "UnsupportedDexType",
+    "name": "UnauthorizedCaller",
     "inputs": []
   }
 ]

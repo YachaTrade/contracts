@@ -58,19 +58,6 @@
   },
   {
     "type": "function",
-    "name": "MODULE_FEE_COLLECTOR",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "MODULE_LP_MANAGER",
     "inputs": [],
     "outputs": [
@@ -85,6 +72,19 @@
   {
     "type": "function",
     "name": "MODULE_TOKEN_REGISTRY",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MODULE_V3_POOL_DEPLOYER",
     "inputs": [],
     "outputs": [
       {
@@ -160,6 +160,11 @@
         "name": "token",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "quoteIn",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [
@@ -199,11 +204,6 @@
             "name": "quoteToken",
             "type": "address",
             "internalType": "address"
-          },
-          {
-            "name": "creatorFeeRate",
-            "type": "uint16",
-            "internalType": "uint16"
           },
           {
             "name": "vaults",
@@ -405,11 +405,6 @@
             "name": "graduated",
             "type": "bool",
             "internalType": "bool"
-          },
-          {
-            "name": "creatorFeeRate",
-            "type": "uint16",
-            "internalType": "uint16"
           },
           {
             "name": "version",
@@ -646,6 +641,11 @@
         "name": "token",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "tokenIn",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [
@@ -1149,6 +1149,32 @@
     "type": "error",
     "name": "InsufficientTokenOut",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidBalanceDelta",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "requiredBalance",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "currentBalance",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",

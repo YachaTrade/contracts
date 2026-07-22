@@ -60,11 +60,64 @@
         "name": "dexProtocolFeeRate_",
         "type": "uint16",
         "internalType": "uint16"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "addV3QuoteToken",
+    "inputs": [
+      {
+        "name": "quoteToken",
+        "type": "address",
+        "internalType": "address"
       },
       {
-        "name": "settlementThreshold_",
+        "name": "virtualReserve",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "virtualTokenReserve",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minTokenReserve",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "deployFee_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "graduateFee_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "curveProtocolFeeRate_",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "dexProtocolFeeRate_",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "v3FeeTier_",
+        "type": "uint24",
+        "internalType": "uint24"
+      },
+      {
+        "name": "lpFeeProtocolShareBps_",
+        "type": "uint16",
+        "internalType": "uint16"
       }
     ],
     "outputs": [],
@@ -229,11 +282,6 @@
             "name": "dexProtocolFeeRate",
             "type": "uint16",
             "internalType": "uint16"
-          },
-          {
-            "name": "settlementThreshold",
-            "type": "uint256",
-            "internalType": "uint256"
           },
           {
             "name": "v3FeeTier",
@@ -408,25 +456,6 @@
   },
   {
     "type": "function",
-    "name": "isCreatorFeeRateAllowed",
-    "inputs": [
-      {
-        "name": "rate",
-        "type": "uint16",
-        "internalType": "uint16"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "isOperatorAllowed",
     "inputs": [
       {
@@ -501,19 +530,6 @@
   },
   {
     "type": "function",
-    "name": "removeCreatorFeeRate",
-    "inputs": [
-      {
-        "name": "rate",
-        "type": "uint16",
-        "internalType": "uint16"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "removeQuoteToken",
     "inputs": [
       {
@@ -529,55 +545,6 @@
     "type": "function",
     "name": "renounceOwnership",
     "inputs": [],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "setAllowedCreatorFeeRates",
-    "inputs": [
-      {
-        "name": "rates",
-        "type": "uint16[]",
-        "internalType": "uint16[]"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "setFactoryFeeTo",
-    "inputs": [
-      {
-        "name": "factory",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "feeTo",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "setFactoryImplementation",
-    "inputs": [
-      {
-        "name": "factory",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "impl",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
     "outputs": [],
     "stateMutability": "nonpayable"
   },
@@ -624,24 +591,6 @@
   },
   {
     "type": "function",
-    "name": "setSettlementThreshold",
-    "inputs": [
-      {
-        "name": "quoteToken",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "threshold",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "setSnipingPenaltyTable",
     "inputs": [
       {
@@ -675,25 +624,6 @@
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "settlementThreshold",
-    "inputs": [
-      {
-        "name": "quoteToken",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -796,11 +726,64 @@
         "name": "dexProtocolFeeRate_",
         "type": "uint16",
         "internalType": "uint16"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "updateV3QuoteToken",
+    "inputs": [
+      {
+        "name": "quoteToken",
+        "type": "address",
+        "internalType": "address"
       },
       {
-        "name": "settlementThreshold_",
+        "name": "virtualReserve",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "virtualTokenReserve",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minTokenReserve",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "deployFee_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "graduateFee_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "curveProtocolFeeRate_",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "dexProtocolFeeRate_",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "v3FeeTier_",
+        "type": "uint24",
+        "internalType": "uint24"
+      },
+      {
+        "name": "lpFeeProtocolShareBps_",
+        "type": "uint16",
+        "internalType": "uint16"
       }
     ],
     "outputs": [],
@@ -842,19 +825,6 @@
       }
     ],
     "stateMutability": "view"
-  },
-  {
-    "type": "event",
-    "name": "CreatorFeeRatesUpdate",
-    "inputs": [
-      {
-        "name": "rates",
-        "type": "uint16[]",
-        "indexed": false,
-        "internalType": "uint16[]"
-      }
-    ],
-    "anonymous": false
   },
   {
     "type": "event",
@@ -983,12 +953,6 @@
         "type": "uint16",
         "indexed": false,
         "internalType": "uint16"
-      },
-      {
-        "name": "settlementThreshold",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -1057,31 +1021,6 @@
         "type": "uint16",
         "indexed": false,
         "internalType": "uint16"
-      },
-      {
-        "name": "settlementThreshold",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "SettlementThresholdUpdate",
-    "inputs": [
-      {
-        "name": "quoteToken",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "threshold",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
       }
     ],
     "anonymous": false
