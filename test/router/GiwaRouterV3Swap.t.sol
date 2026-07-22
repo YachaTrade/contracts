@@ -115,6 +115,8 @@ contract GiwaRouterV3SwapTest is SetUp {
     uint256 private constant REGULAR_BALANCE = 1_000_000_000 ether;
     uint256 private constant PARTIAL_BALANCE = 1e52;
     uint256 private constant PARTIAL_INPUT = 1e50;
+    uint256 private constant EIP170_RUNTIME_LIMIT = 24_576;
+    uint256 private constant MIN_RUNTIME_HEADROOM = 512;
     bytes32 private constant BUY_EVENT = keccak256("Buy(address,address,uint256,uint256,bool)");
     bytes32 private constant SELL_EVENT = keccak256("Sell(address,address,uint256,uint256,bool)");
 
@@ -999,7 +1001,7 @@ contract GiwaRouterV3SwapTest is SetUp {
 
     function test_runtimeCodeSize_doesNotExceedEip170Limit() public {
         GiwaRouter implementation = new GiwaRouter();
-        assertLe(address(implementation).code.length, 24_576);
+        assertLe(address(implementation).code.length, EIP170_RUNTIME_LIMIT - MIN_RUNTIME_HEADROOM);
     }
 
     function uniswapV3MintCallback(uint256 amount0Owed, uint256 amount1Owed, bytes calldata) external {

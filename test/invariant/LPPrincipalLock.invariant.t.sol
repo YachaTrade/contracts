@@ -8,7 +8,10 @@ import {IUniswapV3Pool} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Po
 import {SetUp} from "../SetUp.t.sol";
 import {LPManager} from "../../src/core/LPManager.sol";
 import {IGiwaRouter} from "../../src/interfaces/IGiwaRouter.sol";
+import {IV3LiquidityActor} from "../../src/interfaces/IV3LiquidityActor.sol";
+import {IV3SwapAdapter} from "../../src/interfaces/IV3SwapAdapter.sol";
 import {GiwaRouter} from "../../src/router/GiwaRouter.sol";
+import {CreatorFeeVault} from "../../src/vault/CreatorFeeVault.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 
 contract LPPrincipalLockHandler {
@@ -19,14 +22,59 @@ contract LPPrincipalLockHandler {
     LPManager private immutable _lpManager;
     MockERC20 private immutable _quoteToken;
     IERC20 private immutable _launchToken;
+    IUniswapV3Pool private immutable _pool;
+    IV3LiquidityActor private immutable _liquidityActor;
+    address private immutable _swapAdapter;
+    address private immutable _creatorFeeProcessor;
+    CreatorFeeVault private immutable _creatorFeeVault;
+    address private immutable _feeReceiver;
 
     uint256 public donatedQuote;
+    uint256 public collectAttemptCount;
+    uint256 public noFeeCollectSkipCount;
+    uint256 public successfulCollectionCount;
+    uint256 public successfulFeeCollectionCount;
+    uint256 public permittedDustRollbackCount;
+    uint256 public unknownCollectRevertCount;
+    uint256 public maxPermittedDustTokenFee;
+    bytes4 public lastUnknownCollectRevertSelector;
 
-    constructor(GiwaRouter router_, LPManager lpManager_, MockERC20 quoteToken_, address launchToken_) {
+    struct PositionSnapshot {
+        bytes32 quoteKey;
+        int24 quoteLower;
+        int24 quoteUpper;
+        uint128 quoteLiquidity;
+        bytes32 tokenKey;
+        int24 tokenLower;
+        int24 tokenUpper;
+        uint128 tokenLiquidity;
+    }
+
+    error AtomicRollbackMismatch();
+    error UnexpectedPositionKey(bytes32 suppliedKey, bytes32 recomputedKey);
+
+    constructor(
+        GiwaRouter router_,
+        LPManager lpManager_,
+        MockERC20 quoteToken_,
+        address launchToken_,
+        address pool_,
+        IV3LiquidityActor liquidityActor_,
+        address swapAdapter_,
+        address creatorFeeProcessor_,
+        CreatorFeeVault creatorFeeVault_,
+        address feeReceiver_
+    ) {
         _router = router_;
         _lpManager = lpManager_;
         _quoteToken = quoteToken_;
         _launchToken = IERC20(launchToken_);
+        _pool = IUniswapV3Pool(pool_);
+        _liquidityActor = liquidityActor_;
+        _swapAdapter = swapAdapter_;
+        _creatorFeeProcessor = creatorFeeProcessor_;
+        _creatorFeeVault = creatorFeeVault_;
+        _feeReceiver = feeReceiver_;
     }
 
     function roundTrip(uint96 rawQuoteIn) external {
@@ -61,7 +109,28 @@ contract LPPrincipalLockHandler {
     function collect() external {
         address[] memory tokens = new address[](1);
         tokens[0] = address(_launchToken);
-        _lpManager.collect(tokens);
+        (uint256 pendingTokenFee, uint256 pendingQuoteFee) = _pendingFees();
+        if (pendingTokenFee == 0 && pendingQuoteFee == 0) {
+            noFeeCollectSkipCount++;
+            return;
+        }
+        collectAttemptCount++;
+        bytes32 rollbackSnapshot = _atomicStateHash();
+        uint256 distributedQuoteBefore = _distributedQuoteBalance();
+        try _lpManager.collect(tokens) {
+            successfulCollectionCount++;
+            if (_distributedQuoteBalance() > distributedQuoteBefore) successfulFeeCollectionCount++;
+        } catch (bytes memory reason) {
+            bytes4 selector = _selector(reason);
+            if (selector == IV3SwapAdapter.InvalidAmountOut.selector && pendingTokenFee != 0) {
+                if (_atomicStateHash() != rollbackSnapshot) revert AtomicRollbackMismatch();
+                permittedDustRollbackCount++;
+                if (pendingTokenFee > maxPermittedDustTokenFee) maxPermittedDustTokenFee = pendingTokenFee;
+            } else {
+                unknownCollectRevertCount++;
+                lastUnknownCollectRevertSelector = selector;
+            }
+        }
     }
 
     function donateQuote(uint96 rawDonation) external {
@@ -69,9 +138,110 @@ contract LPPrincipalLockHandler {
         donatedQuote += amount;
         _quoteToken.mint(address(_lpManager), amount);
     }
+
+    function _pendingFees() private view returns (uint256 tokenFee, uint256 quoteFee) {
+        (uint256 fee0, uint256 fee1) = _liquidityActor.viewFees(address(_pool));
+        if (_pool.token0() == address(_launchToken)) {
+            return (fee0, fee1);
+        }
+        return (fee1, fee0);
+    }
+
+    function _distributedQuoteBalance() private view returns (uint256) {
+        return _quoteToken.balanceOf(_feeReceiver) + _quoteToken.balanceOf(address(_creatorFeeVault));
+    }
+
+    function _atomicStateHash() private view returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                _positionStateHash(),
+                _balanceStateHash(),
+                _allowanceStateHash(),
+                donatedQuote,
+                _creatorFeeVault.getBalance(address(_launchToken))
+            )
+        );
+    }
+
+    function _positionStateHash() private view returns (bytes32) {
+        PositionSnapshot memory p;
+        (
+            p.quoteKey,
+            p.quoteLower,
+            p.quoteUpper,
+            p.quoteLiquidity,
+            p.tokenKey,
+            p.tokenLower,
+            p.tokenUpper,
+            p.tokenLiquidity
+        ) = _lpManager.getPositions(address(_launchToken));
+        bytes32 recomputedQuoteKey = keccak256(abi.encodePacked(address(_liquidityActor), p.quoteLower, p.quoteUpper));
+        bytes32 recomputedTokenKey = keccak256(abi.encodePacked(address(_liquidityActor), p.tokenLower, p.tokenUpper));
+        if (p.quoteKey != recomputedQuoteKey) revert UnexpectedPositionKey(p.quoteKey, recomputedQuoteKey);
+        if (p.tokenKey != recomputedTokenKey) revert UnexpectedPositionKey(p.tokenKey, recomputedTokenKey);
+        return keccak256(
+            abi.encode(
+                p,
+                recomputedQuoteKey,
+                _canonicalPositionHash(recomputedQuoteKey),
+                recomputedTokenKey,
+                _canonicalPositionHash(recomputedTokenKey)
+            )
+        );
+    }
+
+    function _canonicalPositionHash(bytes32 key) private view returns (bytes32) {
+        (uint128 liquidity, uint256 growth0, uint256 growth1, uint128 owed0, uint128 owed1) = _pool.positions(key);
+        return keccak256(abi.encode(liquidity, growth0, growth1, owed0, owed1));
+    }
+
+    function _balanceStateHash() private view returns (bytes32) {
+        bytes32 moduleBalances = keccak256(
+            abi.encode(
+                _launchToken.balanceOf(address(_lpManager)),
+                _quoteToken.balanceOf(address(_lpManager)),
+                _launchToken.balanceOf(address(_liquidityActor)),
+                _quoteToken.balanceOf(address(_liquidityActor)),
+                _launchToken.balanceOf(_swapAdapter),
+                _quoteToken.balanceOf(_swapAdapter),
+                _launchToken.balanceOf(_creatorFeeProcessor),
+                _quoteToken.balanceOf(_creatorFeeProcessor)
+            )
+        );
+        bytes32 recipientBalances = keccak256(
+            abi.encode(
+                _launchToken.balanceOf(address(_creatorFeeVault)),
+                _quoteToken.balanceOf(address(_creatorFeeVault)),
+                _launchToken.balanceOf(_feeReceiver),
+                _quoteToken.balanceOf(_feeReceiver)
+            )
+        );
+        return keccak256(abi.encode(moduleBalances, recipientBalances));
+    }
+
+    function _allowanceStateHash() private view returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                _launchToken.allowance(address(_lpManager), address(_liquidityActor)),
+                _quoteToken.allowance(address(_lpManager), address(_liquidityActor)),
+                _launchToken.allowance(address(_lpManager), _swapAdapter),
+                _quoteToken.allowance(address(_lpManager), _swapAdapter),
+                _launchToken.allowance(address(_lpManager), _creatorFeeProcessor),
+                _quoteToken.allowance(address(_lpManager), _creatorFeeProcessor)
+            )
+        );
+    }
+
+    function _selector(bytes memory reason) private pure returns (bytes4 selector) {
+        if (reason.length < 4) return bytes4(0);
+        assembly {
+            selector := mload(add(reason, 0x20))
+        }
+    }
 }
 
 /// forge-config: default.invariant.depth = 256
+/// forge-config: default.invariant.fail_on_revert = true
 contract LPPrincipalLockInvariant is StdInvariant, SetUp {
     LPPrincipalLockHandler private handler;
     address private launchToken;
@@ -86,7 +256,18 @@ contract LPPrincipalLockInvariant is StdInvariant, SetUp {
         pool = tokenRegistry.getPool(launchToken);
         principalSnapshot = _positionHash();
 
-        handler = new LPPrincipalLockHandler(giwaRouter, lpManager, quoteToken, launchToken);
+        handler = new LPPrincipalLockHandler(
+            giwaRouter,
+            lpManager,
+            quoteToken,
+            launchToken,
+            pool,
+            v3LiquidityActor,
+            address(v3SwapAdapter),
+            address(creatorFeeProcessor),
+            creatorFeeVault,
+            feeReceiver
+        );
         vm.prank(admin);
         protocolManager.setOperatorPermission(address(handler), address(lpManager), LPManager.collect.selector, true);
         targetContract(address(handler));
@@ -108,6 +289,35 @@ contract LPPrincipalLockInvariant is StdInvariant, SetUp {
             handler.donatedQuote(),
             "collection consumed donated LPManager quote"
         );
+        assertEq(handler.unknownCollectRevertCount(), 0, "unknown collect revert observed");
+        assertEq(uint32(handler.lastUnknownCollectRevertSelector()), 0, "unknown collect revert selector");
+        assertEq(
+            handler.collectAttemptCount(),
+            handler.successfulCollectionCount() + handler.permittedDustRollbackCount(),
+            "collect outcome not classified"
+        );
+        if (handler.collectAttemptCount() != 0) {
+            assertGt(handler.successfulFeeCollectionCount(), 0, "no successful fee-bearing collection exercised");
+        }
+    }
+
+    function test_collectClassifiesCanonicalDustRollback() public {
+        uint256 attemptsBefore = handler.collectAttemptCount();
+        uint256 successfulBefore = handler.successfulCollectionCount();
+        uint256 feeBearingBefore = handler.successfulFeeCollectionCount();
+        uint256 dustBefore = handler.permittedDustRollbackCount();
+
+        handler.roundTrip(3_664);
+        for (uint256 i; i < 5; ++i) {
+            handler.collect();
+        }
+
+        assertEq(handler.collectAttemptCount(), attemptsBefore + 5, "collect attempt counter");
+        assertGt(handler.successfulCollectionCount(), successfulBefore, "no collection succeeded before dust");
+        assertGt(handler.successfulFeeCollectionCount(), feeBearingBefore, "no fee-bearing collection succeeded");
+        assertGt(handler.permittedDustRollbackCount(), dustBefore, "dust rollback not classified");
+        assertGt(handler.maxPermittedDustTokenFee(), 0, "dust token fee not recorded");
+        assertEq(handler.unknownCollectRevertCount(), 0, "dust rollback classified as unknown");
     }
 
     function _positionHash() private view returns (bytes32) {
@@ -125,8 +335,12 @@ contract LPPrincipalLockInvariant is StdInvariant, SetUp {
         assertNotEq(tokenKey, bytes32(0), "missing token position");
         assertGt(quoteLiquidity, 0, "zero quote position liquidity");
         assertGt(tokenLiquidity, 0, "zero token position liquidity");
-        (uint128 liveQuoteLiquidity,,,,) = IUniswapV3Pool(pool).positions(quoteKey);
-        (uint128 liveTokenLiquidity,,,,) = IUniswapV3Pool(pool).positions(tokenKey);
+        bytes32 recomputedQuoteKey = keccak256(abi.encodePacked(address(v3LiquidityActor), quoteLower, quoteUpper));
+        bytes32 recomputedTokenKey = keccak256(abi.encodePacked(address(v3LiquidityActor), tokenLower, tokenUpper));
+        assertEq(quoteKey, recomputedQuoteKey, "actor returned unexpected quote position key");
+        assertEq(tokenKey, recomputedTokenKey, "actor returned unexpected token position key");
+        (uint128 liveQuoteLiquidity,,,,) = IUniswapV3Pool(pool).positions(recomputedQuoteKey);
+        (uint128 liveTokenLiquidity,,,,) = IUniswapV3Pool(pool).positions(recomputedTokenKey);
         assertEq(liveQuoteLiquidity, quoteLiquidity, "cached quote liquidity differs from canonical pool");
         assertEq(liveTokenLiquidity, tokenLiquidity, "cached token liquidity differs from canonical pool");
         return keccak256(
@@ -135,11 +349,13 @@ contract LPPrincipalLockInvariant is StdInvariant, SetUp {
                 quoteLower,
                 quoteUpper,
                 quoteLiquidity,
+                recomputedQuoteKey,
                 liveQuoteLiquidity,
                 tokenKey,
                 tokenLower,
                 tokenUpper,
                 tokenLiquidity,
+                recomputedTokenKey,
                 liveTokenLiquidity
             )
         );

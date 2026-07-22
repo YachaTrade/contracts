@@ -150,10 +150,10 @@ contract WethV3LpFeeCollectionE2ETest is Test {
         assertGt(pendingTokenFee, 0, "real launch-token fee did not accrue");
         assertGt(pendingQuoteFee, 0, "real quote fee did not accrue");
 
-        _collectAndAssert(token);
+        _collectAndAssert(token, pendingTokenFee, pendingQuoteFee);
     }
 
-    function _collectAndAssert(address token) private {
+    function _collectAndAssert(address token, uint256 pendingTokenFee, uint256 pendingQuoteFee) private {
         CollectionSnapshot memory snapshot = CollectionSnapshot({
             positions: _positionHash(token),
             oldReceiverQuote: weth.balanceOf(feeReceiverAtAccrual),
@@ -171,25 +171,25 @@ contract WethV3LpFeeCollectionE2ETest is Test {
         lpManager.collect(tokens);
         CollectedFees memory fees = _decodeCollection(vm.getRecordedLogs(), token);
 
-        assertGt(fees.tokenFee, 0, "collection omitted launch-token fees");
-        assertGt(fees.directQuoteFee, 0, "collection omitted direct quote fees");
-        assertGt(fees.swappedQuote, 0, "launch-token fees were not swapped to quote");
-        uint256 distributedQuote = fees.directQuoteFee + fees.swappedQuote;
-        assertEq(fees.protocolQuote, distributedQuote * 5_000 / 10_000, "protocol ratio");
-        assertEq(fees.creatorQuote, distributedQuote - fees.protocolQuote, "creator ratio");
-
         assertEq(weth.balanceOf(feeReceiverAtAccrual), snapshot.oldReceiverQuote, "stale fee receiver paid");
-        assertEq(
-            weth.balanceOf(feeReceiverAtCollection) - snapshot.newReceiverQuote,
-            fees.protocolQuote,
-            "current fee receiver protocol share"
-        );
-        assertEq(
-            weth.balanceOf(deployed.creatorFeeVault) - snapshot.vaultQuote, fees.creatorQuote, "vault quote receipt"
-        );
-        assertEq(
-            creatorFeeVault.getBalance(token) - snapshot.creatorCredit, fees.creatorQuote, "creator vault accounting"
-        );
+        uint256 receiverQuoteDelta = weth.balanceOf(feeReceiverAtCollection) - snapshot.newReceiverQuote;
+        uint256 vaultQuoteDelta = weth.balanceOf(deployed.creatorFeeVault) - snapshot.vaultQuote;
+        uint256 creatorCreditDelta = creatorFeeVault.getBalance(token) - snapshot.creatorCredit;
+        uint256 actualDistributedQuote = receiverQuoteDelta + vaultQuoteDelta;
+        assertGe(actualDistributedQuote, pendingQuoteFee, "distribution omitted independently observed quote fee");
+        uint256 actualSwappedQuote = actualDistributedQuote - pendingQuoteFee;
+        uint256 expectedProtocolQuote = actualDistributedQuote * 5_000 / 10_000;
+        uint256 expectedCreatorQuote = actualDistributedQuote - expectedProtocolQuote;
+
+        assertEq(fees.tokenFee, pendingTokenFee, "event token fee differs from pre-collection oracle");
+        assertEq(fees.directQuoteFee, pendingQuoteFee, "event quote fee differs from pre-collection oracle");
+        assertEq(fees.swappedQuote, actualSwappedQuote, "event swap output differs from balance deltas");
+        assertEq(fees.protocolQuote, receiverQuoteDelta, "event protocol quote differs from receiver delta");
+        assertEq(fees.creatorQuote, vaultQuoteDelta, "event creator quote differs from vault delta");
+        assertEq(receiverQuoteDelta, expectedProtocolQuote, "protocol ratio from independent deltas");
+        assertEq(vaultQuoteDelta, expectedCreatorQuote, "creator ratio from independent deltas");
+        assertEq(creatorCreditDelta, vaultQuoteDelta, "creator vault accounting differs from vault receipt");
+        assertGt(actualSwappedQuote, 0, "launch-token fees were not swapped to quote");
 
         assertEq(_positionHash(token), snapshot.positions, "fee collection changed LP principal");
         _assertNoCallResidue(token);
@@ -324,8 +324,12 @@ contract WethV3LpFeeCollectionE2ETest is Test {
             uint128 tokenLiquidity
         ) = lpManager.getPositions(token);
         address pool = tokenRegistry.getPool(token);
-        (uint128 liveQuoteLiquidity,,,,) = IUniswapV3Pool(pool).positions(quoteKey);
-        (uint128 liveTokenLiquidity,,,,) = IUniswapV3Pool(pool).positions(tokenKey);
+        bytes32 recomputedQuoteKey = keccak256(abi.encodePacked(address(liquidityActor), quoteLower, quoteUpper));
+        bytes32 recomputedTokenKey = keccak256(abi.encodePacked(address(liquidityActor), tokenLower, tokenUpper));
+        assertEq(quoteKey, recomputedQuoteKey, "actor returned unexpected quote position key");
+        assertEq(tokenKey, recomputedTokenKey, "actor returned unexpected token position key");
+        (uint128 liveQuoteLiquidity,,,,) = IUniswapV3Pool(pool).positions(recomputedQuoteKey);
+        (uint128 liveTokenLiquidity,,,,) = IUniswapV3Pool(pool).positions(recomputedTokenKey);
         assertEq(liveQuoteLiquidity, quoteLiquidity, "cached quote liquidity differs from canonical pool");
         assertEq(liveTokenLiquidity, tokenLiquidity, "cached token liquidity differs from canonical pool");
         return keccak256(
@@ -334,11 +338,13 @@ contract WethV3LpFeeCollectionE2ETest is Test {
                 quoteLower,
                 quoteUpper,
                 quoteLiquidity,
+                recomputedQuoteKey,
                 liveQuoteLiquidity,
                 tokenKey,
                 tokenLower,
                 tokenUpper,
                 tokenLiquidity,
+                recomputedTokenKey,
                 liveTokenLiquidity
             )
         );
