@@ -13,7 +13,6 @@ import {IV3PoolDeployer} from "../../src/interfaces/IV3PoolDeployer.sol";
 import {TokenRegistry} from "../../src/core/TokenRegistry.sol";
 import {ProtocolManager} from "../../src/core/ProtocolManager.sol";
 import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
-import {IProtocolManager} from "../../src/interfaces/IProtocolManager.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {ContractV3MathReference} from "../harness/ContractV3MathReference.sol";
 
@@ -65,7 +64,7 @@ contract V3PoolDeployerTest is Test {
         );
         quoteToken = new MockERC20("Quote", "QUOTE", 18);
         protocolManager.addQuoteToken(
-            address(quoteToken), VIRTUAL_RESERVE, VIRTUAL_TOKEN_RESERVE, MIN_TOKEN_RESERVE, 1 ether, 5 ether, 100, 0, 0
+            address(quoteToken), VIRTUAL_RESERVE, VIRTUAL_TOKEN_RESERVE, MIN_TOKEN_RESERVE, 1 ether, 5 ether, 100, 0
         );
         protocolManager.setV3QuoteConfig(address(quoteToken), FEE_TIER, 5_000);
 
@@ -170,7 +169,6 @@ contract V3PoolDeployerTest is Test {
             1 ether,
             5 ether,
             100,
-            0,
             0
         );
 

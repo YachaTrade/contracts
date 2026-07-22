@@ -66,8 +66,7 @@ contract GiwaRouterNativeQuoteForkTest is SetUp {
             defaultDeployFee,
             defaultGraduateFee,
             defaultCurveProtocolFee,
-            defaultDexProtocolFee,
-            settlementThreshold
+            defaultDexProtocolFee
         );
         protocolManager.setV3QuoteConfig(address(deployedWeth), FEE_TIER, 0);
         protocolManager.setOperatorPermission(

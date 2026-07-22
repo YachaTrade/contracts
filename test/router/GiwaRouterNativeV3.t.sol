@@ -56,8 +56,7 @@ contract GiwaRouterNativeV3Test is SetUp {
             defaultDeployFee,
             defaultGraduateFee,
             defaultCurveProtocolFee,
-            NATIVE_PROTOCOL_FEE_RATE,
-            settlementThreshold
+            NATIVE_PROTOCOL_FEE_RATE
         );
         protocolManager.setV3QuoteConfig(address(wmon), NATIVE_FEE_TIER, 0);
         protocolManager.setOperatorPermission(
@@ -348,8 +347,7 @@ contract GiwaRouterNativeV3Test is SetUp {
             defaultDeployFee,
             defaultGraduateFee,
             defaultCurveProtocolFee,
-            NATIVE_PROTOCOL_FEE_RATE,
-            settlementThreshold
+            NATIVE_PROTOCOL_FEE_RATE
         );
         protocolManager.setV3QuoteConfig(address(foreignQuote), NATIVE_FEE_TIER, 0);
         vm.stopPrank();

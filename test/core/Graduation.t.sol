@@ -25,9 +25,8 @@ contract GraduationTest is SetUp {
         bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), address(this));
         vm.stopPrank();
 
-        // Transfer deployFee to bondingCurve before create (balance detection)
         quoteToken.mint(address(this), defaultDeployFee);
-        quoteToken.transfer(address(bondingCurve), defaultDeployFee);
+        quoteToken.approve(address(bondingCurve), defaultDeployFee);
         // Create a token with graduation params
         (token,) = bondingCurve.create(_graduationParams());
 
@@ -39,9 +38,7 @@ contract GraduationTest is SetUp {
     /// @notice Buying enough quote crosses graduation threshold -> graduation fires.
     /// @dev 700,000 ether is enough to buy down to minTokenReserve including fees
     function test_graduation_triggersOnThreshold() public {
-        _mintAndTransfer(user1, 800_000 ether);
-        vm.prank(user1);
-        bondingCurve.buy(user1, token);
+        _buyOnCurve(user1, token, 800_000 ether);
 
         IBondingCurve.Curve memory info = bondingCurve.getCurve(token);
         assertTrue(info.graduated, "Token should be graduated");
@@ -53,44 +50,34 @@ contract GraduationTest is SetUp {
     /// @notice After graduation, buying via bonding curve reverts with AlreadyGraduated.
     function test_graduation_cantBuyAfter() public {
         // Graduate first
-        _mintAndTransfer(user1, 800_000 ether);
-        vm.prank(user1);
-        bondingCurve.buy(user1, token);
+        _buyOnCurve(user1, token, 800_000 ether);
 
         IBondingCurve.Curve memory info = bondingCurve.getCurve(token);
         assertTrue(info.graduated, "Precondition: token graduated");
 
         // Attempt another buy
-        _mintAndTransfer(user1, 1 ether);
-        vm.prank(user1);
+        quoteToken.mint(address(this), 1 ether);
+        quoteToken.approve(address(bondingCurve), 1 ether);
         vm.expectRevert(IBondingCurve.AlreadyGraduated.selector);
-        bondingCurve.buy(user1, token);
+        bondingCurve.buy(user1, token, 1 ether);
     }
 
     /// @notice After graduation, selling via bonding curve reverts with AlreadyGraduated.
     function test_graduation_cantSellAfter() public {
         // Graduate first
-        _mintAndTransfer(user1, 800_000 ether);
-        vm.prank(user1);
-        uint256 tokensOut = bondingCurve.buy(user1, token);
+        uint256 tokensOut = _buyOnCurve(user1, token, 800_000 ether);
 
         IBondingCurve.Curve memory info = bondingCurve.getCurve(token);
         assertTrue(info.graduated, "Precondition: token graduated");
 
         // Try to sell directly on BondingCurve after graduation — should revert
-        vm.startPrank(user1);
-        IERC20(token).transfer(address(bondingCurve), tokensOut);
-
         vm.expectRevert(IBondingCurve.AlreadyGraduated.selector);
-        bondingCurve.sell(user1, token);
-        vm.stopPrank();
+        bondingCurve.sell(user1, token, tokensOut);
     }
 
     /// @notice After graduation, bonding-curve quote helpers revert with AlreadyGraduated.
     function test_graduation_cantQuoteAfter() public {
-        _mintAndTransfer(user1, 800_000 ether);
-        vm.prank(user1);
-        bondingCurve.buy(user1, token);
+        _buyOnCurve(user1, token, 800_000 ether);
 
         IBondingCurve.Curve memory info = bondingCurve.getCurve(token);
         assertTrue(info.graduated, "Precondition: token graduated");
@@ -110,9 +97,7 @@ contract GraduationTest is SetUp {
 
     /// @notice Graduation allocates both permanent positions in the snapshotted canonical V3 pool.
     function test_graduation_allocatesCanonicalV3Liquidity() public {
-        _mintAndTransfer(user1, 800_000 ether);
-        vm.prank(user1);
-        bondingCurve.buy(user1, token);
+        _buyOnCurve(user1, token, 800_000 ether);
 
         IBondingCurve.Curve memory info = bondingCurve.getCurve(token);
         assertTrue(info.graduated, "Token should be graduated");
@@ -146,13 +131,10 @@ contract GraduationTest is SetUp {
             defaultDeployFee,
             updatedGraduateFee,
             defaultCurveProtocolFee,
-            defaultDexProtocolFee,
-            settlementThreshold
+            defaultDexProtocolFee
         );
 
-        _mintAndTransfer(user1, 800_000 ether);
-        vm.prank(user1);
-        bondingCurve.buy(user1, token);
+        _buyOnCurve(user1, token, 800_000 ether);
 
         IBondingCurve.Curve memory info = bondingCurve.getCurve(token);
         assertTrue(info.graduated, "Token should still graduate after config fee increase");
@@ -192,8 +174,7 @@ contract GraduationTest is SetUp {
             defaultDeployFee,
             1_000_000 ether,
             defaultCurveProtocolFee,
-            defaultDexProtocolFee,
-            settlementThreshold
+            defaultDexProtocolFee
         );
     }
 
@@ -202,9 +183,7 @@ contract GraduationTest is SetUp {
         uint256 feeReceiverBalBefore = IERC20(token).balanceOf(protocolManager.feeReceiver());
 
         // Graduate
-        _mintAndTransfer(user1, 800_000 ether);
-        vm.prank(user1);
-        bondingCurve.buy(user1, token);
+        _buyOnCurve(user1, token, 800_000 ether);
 
         IBondingCurve.Curve memory info = bondingCurve.getCurve(token);
         // quoteAfterFee = realQuote - graduateFee
@@ -240,7 +219,6 @@ contract GraduationTest is SetUp {
             symbol: "GRAD",
             tokenURI: "",
             quoteToken: address(quoteToken),
-            creatorFeeRate: 500,
             vaults: vaults,
             salt: keccak256("graduation"),
             dexType: ITokenRegistry.DexType.UniswapV3,

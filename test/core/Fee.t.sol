@@ -93,7 +93,6 @@ contract FeeTest is SetUp {
         _mintAndApproveCurve(user1, buyAmount);
 
         uint256 feeReceiverBefore = quoteToken.balanceOf(currentFeeReceiver);
-        uint256 fcBefore = quoteToken.balanceOf(address(feeCollector));
         vm.prank(user1);
         uint256 tokenOut = bondingCurve.buy(user1, token, buyAmount);
 
@@ -103,7 +102,6 @@ contract FeeTest is SetUp {
 
         assertEq(tokenOut, quotedTokenOut, "buy execution must match the view");
         assertEq(feeReceiverGot, expectedProtocolFee, "current feeReceiver gets the full charged fee");
-        assertEq(quoteToken.balanceOf(address(feeCollector)), fcBefore, "FeeCollector must receive no curve fee");
         assertEq(
             curve.virtualQuoteReserve - curve.initialQuoteReserve,
             buyAmount - expectedProtocolFee,
@@ -136,7 +134,6 @@ contract FeeTest is SetUp {
         uint256 quotedQuoteOut = bondingCurve.getAmountOut(token, tokensOut, false);
         IBondingCurve.Curve memory curveBefore = bondingCurve.getCurve(token);
         uint256 feeReceiverBefore = quoteToken.balanceOf(currentFeeReceiver);
-        uint256 fcBefore = quoteToken.balanceOf(address(feeCollector));
         uint256 userBefore = quoteToken.balanceOf(user1);
 
         vm.prank(user1);
@@ -152,7 +149,6 @@ contract FeeTest is SetUp {
         assertEq(quoteOut, quotedQuoteOut, "sell execution must match the view");
         assertEq(quoteOut, grossQuoteOut - expectedProtocolFee, "only the protocol fee is deducted");
         assertEq(feeReceiverGot, expectedProtocolFee, "current feeReceiver gets the full charged fee");
-        assertEq(quoteToken.balanceOf(address(feeCollector)), fcBefore, "FeeCollector must receive no curve fee");
         assertEq(userReceived, quoteOut, "User should receive quoteOut");
     }
 
@@ -181,7 +177,6 @@ contract FeeTest is SetUp {
         _mintAndApproveCurve(user1, quoteIn);
 
         uint256 feeReceiverBefore = quoteToken.balanceOf(feeReceiver);
-        uint256 fcBefore = quoteToken.balanceOf(address(feeCollector));
         vm.prank(user1);
         uint256 tokenOut = bondingCurve.buy(user1, token, quoteIn);
 
@@ -190,7 +185,6 @@ contract FeeTest is SetUp {
 
         assertEq(tokenOut, quotedTokenOut, "view and execution should use the same live fee");
         assertEq(feeReceiverGot, expectedProtocolFee, "Protocol fee should use the current configured rate");
-        assertEq(quoteToken.balanceOf(address(feeCollector)), fcBefore, "FeeCollector must receive no curve fee");
     }
 
     function test_create_initialBuy_chargesOnlyProtocolFeeToCurrentFeeReceiver() public {
@@ -209,7 +203,6 @@ contract FeeTest is SetUp {
         vm.prank(admin);
         protocolManager.setFeeReceiver(currentFeeReceiver);
 
-        uint256 feeCollectorBefore = quoteToken.balanceOf(address(feeCollector));
         vm.prank(user1);
         (address token, uint256 tokenOut) = bondingCurve.create(params);
 
@@ -220,7 +213,6 @@ contract FeeTest is SetUp {
         assertEq(
             quoteToken.balanceOf(currentFeeReceiver), expectedProtocolFee, "current fee receiver gets protocol fee"
         );
-        assertEq(quoteToken.balanceOf(address(feeCollector)), feeCollectorBefore, "FeeCollector receives no curve fee");
         assertEq(
             curve.virtualQuoteReserve - curve.initialQuoteReserve,
             buyQuoteAmount - expectedProtocolFee,

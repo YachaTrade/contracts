@@ -3,7 +3,6 @@ pragma solidity ^0.8.24;
 
 /// @notice Test suite for BondingCurve.
 
-import {console} from "forge-std/Test.sol";
 import {SetUp} from "../SetUp.t.sol";
 import {IBondingCurve} from "../../src/interfaces/IBondingCurve.sol";
 import {IGiwaRouter} from "../../src/interfaces/IGiwaRouter.sol";
@@ -311,14 +310,11 @@ contract BondingCurveTest is SetUp {
         protocolManager.setFeeReceiver(currentFeeReceiver);
 
         _mintAndTransferBC(user1, quoteIn);
-        uint256 feeCollectorBefore = wmon.balanceOf(address(feeCollector));
-
         vm.prank(user1);
         uint256 tokenOut = bondingCurve.buy(user1, newToken, quoteIn);
 
         assertEq(tokenOut, 0, "execution must match the zero-output view");
         assertEq(wmon.balanceOf(currentFeeReceiver), quoteIn, "current fee receiver gets the full quote input");
-        assertEq(wmon.balanceOf(address(feeCollector)), feeCollectorBefore, "FeeCollector receives no curve fee");
 
         vm.expectRevert("Fee exceeds 100%");
         bondingCurve.getAmountIn(newToken, 1, true);
@@ -329,8 +325,6 @@ contract BondingCurveTest is SetUp {
         // Verify a substantial sniping fee was charged.
         _mintAndTransferBC(user1, 1 ether);
         uint256 feeReceiverBefore = wmon.balanceOf(feeReceiver);
-        uint256 feeCollectorBefore = wmon.balanceOf(address(feeCollector));
-
         uint256 snipingFee = 800_000_000_000_000_000;
         uint256 protocolFee = 1 ether * uint256(defaultCurveProtocolFee) / 10000;
 
@@ -343,7 +337,6 @@ contract BondingCurveTest is SetUp {
         assertEq(IERC20(newToken).balanceOf(user1), tokenOut, "buyer receives quoted tokens");
         uint256 feeReceiverDelta = wmon.balanceOf(feeReceiver) - feeReceiverBefore;
         assertEq(feeReceiverDelta, snipingFee + protocolFee, "fee receiver gets protocol and sniping fees");
-        assertEq(wmon.balanceOf(address(feeCollector)), feeCollectorBefore, "FeeCollector receives no curve fees");
     }
 
     /// @dev Verifies the per-block penalty curve matches the production table

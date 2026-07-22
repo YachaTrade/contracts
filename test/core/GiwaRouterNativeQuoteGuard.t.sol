@@ -21,7 +21,7 @@ contract GiwaRouterNativeQuoteGuardTest is SetUp {
         wmon = new MockWMON();
 
         vm.startPrank(admin);
-        protocolManager.addQuoteToken(address(usdc), 15_000e6, 1_000_000_000 ether, 800_000_000 ether, 0, 0, 0, 0, 0);
+        protocolManager.addQuoteToken(address(usdc), 15_000e6, 1_000_000_000 ether, 800_000_000 ether, 0, 0, 0, 0);
         protocolManager.setV3QuoteConfig(address(usdc), DEFAULT_V3_FEE_TIER, DEFAULT_LP_FEE_PROTOCOL_SHARE_BPS);
         bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), address(this));
 
@@ -46,8 +46,6 @@ contract GiwaRouterNativeQuoteGuardTest is SetUp {
         );
         vm.stopPrank();
 
-        usdc.mint(address(this), 100e6);
-        usdc.transfer(address(bondingCurve), 100e6);
         (foreignQuoteToken,) = bondingCurve.create(_usdcCurveParams());
     }
 
@@ -124,7 +122,6 @@ contract GiwaRouterNativeQuoteGuardTest is SetUp {
             symbol: "FQ",
             tokenURI: "",
             quoteToken: address(usdc),
-            creatorFeeRate: 100,
             vaults: vaults,
             salt: keccak256("foreign-quote-native-buy-guard"),
             dexType: ITokenRegistry.DexType.UniswapV3,

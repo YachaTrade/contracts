@@ -5,7 +5,6 @@ pragma solidity ^0.8.24;
 
 import {SetUp} from "../SetUp.t.sol";
 import {IBondingCurve} from "../../src/interfaces/IBondingCurve.sol";
-import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
 
 contract BondingCurveAdminTest is SetUp {
     function setUp() public override {
@@ -68,11 +67,11 @@ contract BondingCurveAdminTest is SetUp {
     }
 
     function test_setModule_revertsWhenAlreadySet() public {
-        bytes32 moduleId = keccak256("FEE_COLLECTOR");
+        bytes32 moduleId = bondingCurve.MODULE_TOKEN_REGISTRY();
 
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSelector(IBondingCurve.ModuleAlreadySet.selector, moduleId));
-        bondingCurve.setModule(moduleId, makeAddr("newFeeCollector"));
+        bondingCurve.setModule(moduleId, makeAddr("newTokenRegistry"));
     }
 
     function test_setModule_revertsForNonAdmin() public {
