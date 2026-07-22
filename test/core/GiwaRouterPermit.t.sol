@@ -313,7 +313,6 @@ contract GiwaRouterPermitTest is SetUp {
                 symbol: "PRM",
                 tokenURI: "",
                 quoteToken: address(permitQuote),
-                creatorFeeRate: defaultCreatorFeeRate,
                 vaults: vaults,
                 salt: salt,
                 dexType: ITokenRegistry.DexType.UniswapV3,
@@ -338,8 +337,7 @@ contract GiwaRouterPermitTest is SetUp {
             defaultDeployFee,
             defaultGraduateFee,
             defaultCurveProtocolFee,
-            defaultDexProtocolFee,
-            settlementThreshold
+            defaultDexProtocolFee
         );
         protocolManager.setV3QuoteConfig(address(fixture.quoteToken), PERMIT_V3_FEE_TIER, 0);
         vm.stopPrank();
@@ -500,8 +498,7 @@ contract GiwaRouterPermitTest is SetUp {
             defaultDeployFee,
             defaultGraduateFee,
             defaultCurveProtocolFee,
-            defaultDexProtocolFee,
-            settlementThreshold
+            defaultDexProtocolFee
         );
         protocolManager.setV3QuoteConfig(
             address(fixture.permitQuote), DEFAULT_V3_FEE_TIER, DEFAULT_LP_FEE_PROTOCOL_SHARE_BPS

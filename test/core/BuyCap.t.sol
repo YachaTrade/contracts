@@ -20,16 +20,15 @@ contract BuyCapTest is SetUp {
         bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), address(this));
         vm.stopPrank();
 
-        // Transfer deployFee to bondingCurve before create (balance detection)
         quoteToken.mint(address(this), defaultDeployFee);
-        quoteToken.transfer(address(bondingCurve), defaultDeployFee);
+        quoteToken.approve(address(bondingCurve), defaultDeployFee);
         (token,) = bondingCurve.create(_capParams());
 
         vm.warp(block.timestamp + 100 minutes);
         vm.roll(block.number + 10);
     }
 
-    function test_buy_exceedsTarget_clampedAndExcessToFee() public {
+    function test_buy_exceedsTarget_clampedAndRouterRefundsExcess() public {
         _buyHalfAvailable(user1);
 
         IBondingCurve.Curve memory curveMid = bondingCurve.getCurve(token);
@@ -39,14 +38,13 @@ contract BuyCapTest is SetUp {
 
         uint256 availableTokens = curveMid.virtualTokenReserve - curveMid.minTokenReserve;
         uint256 capBuyAmount = bondingCurve.getAmountIn(token, availableTokens, true) + 100 ether;
-        _mintAndTransfer(user2, capBuyAmount);
-        vm.prank(user2);
-        bondingCurve.buy(user2, token);
+        uint256 quoteBalanceBefore = quoteToken.balanceOf(user2);
+        _buyOnCurve(user2, token, capBuyAmount);
 
         IBondingCurve.Curve memory curveAfter = bondingCurve.getCurve(token);
         assertEq(curveAfter.virtualTokenReserve, minTokenReserve, "Should hit min reserve exactly");
 
-        assertEq(quoteToken.balanceOf(user2), 0, "No refund to user");
+        assertGt(quoteToken.balanceOf(user2) - quoteBalanceBefore, 0, "Router should refund capped input");
 
         assertGt(quoteToken.balanceOf(feeReceiver) - feeReceiverBefore, 0, "Excess should go to feeReceiver");
 
@@ -55,9 +53,7 @@ contract BuyCapTest is SetUp {
 
     function test_buy_exactlyAtTarget_graduates() public {
         // 700,000 ether is enough to reach graduation with fees
-        _mintAndTransfer(user1, 700_000 ether);
-        vm.prank(user1);
-        bondingCurve.buy(user1, token);
+        _buyOnCurve(user1, token, 700_000 ether);
 
         IBondingCurve.Curve memory curveAfter = bondingCurve.getCurve(token);
         assertLe(curveAfter.virtualTokenReserve, minTokenReserve, "Should reach min reserve");
@@ -66,14 +62,9 @@ contract BuyCapTest is SetUp {
 
     function test_buy_belowTarget_normalBehavior() public {
         uint256 buyAmount = 1_000 ether;
-        _mintAndTransfer(user1, buyAmount);
+        uint256 tokenOut = _buyOnCurve(user1, token, buyAmount);
 
-        vm.prank(user1);
-        uint256 tokenOut = bondingCurve.buy(user1, token);
-
-        // V2 additive fee: totalFeeRate = curveProtocolFeeRate + creatorFeeRate
-        uint256 totalFeeRate = uint256(defaultCurveProtocolFee) + 500;
-        uint256 quoteInAfterFees = buyAmount * (10000 - totalFeeRate) / 10000;
+        uint256 quoteInAfterFees = buyAmount * (10000 - uint256(defaultCurveProtocolFee)) / 10000;
         uint256 k = virtualReserve * virtualTokenReserve;
         uint256 newReserveIn = virtualReserve + quoteInAfterFees;
         uint256 newReserveOut = (k + newReserveIn - 1) / newReserveIn;
@@ -87,7 +78,7 @@ contract BuyCapTest is SetUp {
     function test_initialBuy_exceedsTarget_clampedExcessToFee() public {
         uint256 initialBuyAmount = 800_000 ether;
         quoteToken.mint(address(this), defaultDeployFee + initialBuyAmount);
-        quoteToken.transfer(address(bondingCurve), defaultDeployFee + initialBuyAmount);
+        quoteToken.approve(address(bondingCurve), defaultDeployFee + initialBuyAmount);
 
         IBondingCurve.CreateTokenParams memory params = _capParamsWithSalt(keccak256("initialBuyCapTest"));
         params.buyQuoteAmount = initialBuyAmount;
@@ -102,7 +93,7 @@ contract BuyCapTest is SetUp {
     function test_buy_exceedsTarget_excessAddedToFee() public {
         vm.prank(admin);
         protocolManager.updateQuoteToken(
-            address(quoteToken), virtualReserve, virtualTokenReserve, minTokenReserve, 0, defaultGraduateFee, 100, 0, 0
+            address(quoteToken), virtualReserve, virtualTokenReserve, minTokenReserve, 0, defaultGraduateFee, 100, 0
         ); // 1% curveProtocolFee
 
         _buyHalfAvailable(user1);
@@ -112,9 +103,7 @@ contract BuyCapTest is SetUp {
         IBondingCurve.Curve memory curveMid = bondingCurve.getCurve(token);
         uint256 availableTokens = curveMid.virtualTokenReserve - curveMid.minTokenReserve;
         uint256 bigBuyAmount = bondingCurve.getAmountIn(token, availableTokens, true) + 100 ether;
-        _mintAndTransfer(user2, bigBuyAmount);
-        vm.prank(user2);
-        bondingCurve.buy(user2, token);
+        _buyOnCurve(user2, token, bigBuyAmount);
 
         uint256 feeCollected = quoteToken.balanceOf(feeReceiver) - feeReceiverBefore;
         uint256 protocolFeeOnly = (bigBuyAmount * 100) / 10000; // 1% of bigBuyAmount
@@ -136,18 +125,16 @@ contract BuyCapTest is SetUp {
 
         uint256 smallAmount = 100 ether;
         uint256 smallViewOut = bondingCurve.getAmountOut(token, smallAmount, true);
-        // V2 additive fee: totalFeeRate = curveProtocolFeeRate + creatorFeeRate
-        uint256 totalFeeRate = uint256(defaultCurveProtocolFee) + 500;
-        uint256 afterCreatorFee = smallAmount * (10000 - totalFeeRate) / 10000;
+        uint256 quoteInAfterProtocolFee = smallAmount * (10000 - uint256(defaultCurveProtocolFee)) / 10000;
         uint256 uncappedOut = BondingCurveLibrary.getAmountOut(
-            afterCreatorFee, curveMid.k, curveMid.virtualQuoteReserve, curveMid.virtualTokenReserve
+            quoteInAfterProtocolFee, curveMid.k, curveMid.virtualQuoteReserve, curveMid.virtualTokenReserve
         );
         assertEq(smallViewOut, uncappedOut, "Small buy should not be capped");
     }
 
     function test_buy_snipingPenaltyWithCap() public {
         quoteToken.mint(address(this), defaultDeployFee);
-        quoteToken.transfer(address(bondingCurve), defaultDeployFee);
+        quoteToken.approve(address(bondingCurve), defaultDeployFee);
         (address snipingToken,) = bondingCurve.create(_capParamsWithSalt(keccak256("snipingCap")));
 
         // Roll to the last block of the sniping table (table[6] = 500 BPS = 5%) — small penalty
@@ -159,9 +146,8 @@ contract BuyCapTest is SetUp {
         uint256 feeReceiverBefore = quoteToken.balanceOf(feeReceiver);
 
         uint256 bigBuyAmount = 800_000 ether;
-        _mintAndTransfer(user1, bigBuyAmount);
-        vm.prank(user1);
-        bondingCurve.buy(user1, snipingToken);
+        uint256 quoteBalanceBefore = quoteToken.balanceOf(user1);
+        _buyOnCurve(user1, snipingToken, bigBuyAmount);
 
         IBondingCurve.Curve memory curveAfter = bondingCurve.getCurve(snipingToken);
 
@@ -172,7 +158,7 @@ contract BuyCapTest is SetUp {
         uint256 totalFee = feeReceiverAfter - feeReceiverBefore;
         assertGt(totalFee, 0, "FeeReceiver should receive sniping + excess fees");
 
-        assertEq(quoteToken.balanceOf(user1), 0, "No refund to user");
+        assertGt(quoteToken.balanceOf(user1) - quoteBalanceBefore, 0, "Router should refund capped input");
     }
 
     function test_getAmountIn_revertsAboveAvailableTokenOut() public {
@@ -195,9 +181,7 @@ contract BuyCapTest is SetUp {
         IBondingCurve.Curve memory curve = bondingCurve.getCurve(token);
         uint256 halfAvailableTokens = (curve.virtualTokenReserve - curve.minTokenReserve) / 2;
         uint256 quoteIn = bondingCurve.getAmountIn(token, halfAvailableTokens, true);
-        _mintAndTransfer(buyer, quoteIn);
-        vm.prank(buyer);
-        bondingCurve.buy(buyer, token);
+        _buyOnCurve(buyer, token, quoteIn);
     }
 
     function _capParams() internal view returns (IBondingCurve.CreateTokenParams memory params) {
@@ -214,7 +198,6 @@ contract BuyCapTest is SetUp {
             symbol: "CAP",
             tokenURI: "",
             quoteToken: address(quoteToken),
-            creatorFeeRate: 500,
             vaults: vaults,
             salt: salt,
             dexType: ITokenRegistry.DexType.UniswapV3,

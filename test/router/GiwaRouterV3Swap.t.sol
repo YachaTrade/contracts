@@ -571,8 +571,7 @@ contract GiwaRouterV3SwapTest is SetUp {
             defaultDeployFee,
             defaultGraduateFee,
             defaultCurveProtocolFee,
-            0,
-            settlementThreshold
+            0
         );
         uint256 quoteInMaxWithProtocolFee = 10 ether;
         uint256 userQuoteBefore = _fundAndApproveQuote(fixture, user1, quoteInMaxWithProtocolFee);
@@ -1046,8 +1045,7 @@ contract GiwaRouterV3SwapTest is SetUp {
             defaultDeployFee,
             defaultGraduateFee,
             defaultCurveProtocolFee,
-            protocolFeeRate,
-            settlementThreshold
+            protocolFeeRate
         );
         protocolManager.setV3QuoteConfig(address(quoteToken), feeTier, 0);
         vm.stopPrank();

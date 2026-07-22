@@ -451,6 +451,51 @@ contract CollectActor is IV3LiquidityActor {
                 assertEq(quote1.balanceOf(address(vaultQuote1)), 38);
             }
 
+            function test_collect_multiTokenFailureRollsBackEarlierToken() public {
+                _setFees(tokenQuote0, quote0, poolQuote0, 0, 100);
+                _setFees(tokenQuote1, quote1, poolQuote1, 0, 100);
+                vaultQuote1.setShouldRevert(true);
+                address[] memory tokens = new address[](2);
+                tokens[0] = address(tokenQuote0);
+                tokens[1] = address(tokenQuote1);
+
+                vm.expectRevert(bytes("vault callback failed"));
+                ILPManagerCollectTarget(address(manager)).collect(tokens);
+
+                assertEq(quote0.balanceOf(address(actor)), 100, "first token fees were not rolled back");
+                assertEq(quote1.balanceOf(address(actor)), 100, "failing token fees were not rolled back");
+                assertEq(quote0.balanceOf(FEE_RECEIVER), 0, "first protocol distribution was not rolled back");
+                assertEq(quote1.balanceOf(FEE_RECEIVER), 0, "second protocol distribution escaped rollback");
+                assertEq(quote0.balanceOf(address(vaultQuote0)), 0, "first vault distribution was not rolled back");
+                assertEq(quote1.balanceOf(address(vaultQuote1)), 0, "failing vault retained quote");
+                assertEq(vaultQuote0.callbackAmount(), 0, "first vault callback state was not rolled back");
+                assertEq(quote0.allowance(address(manager), address(creatorFeeProcessor)), 0, "first allowance residue");
+                assertEq(
+                    quote1.allowance(address(manager), address(creatorFeeProcessor)), 0, "second allowance residue"
+                );
+            }
+
+            function test_collect_revertsWhenLivePoolMetadataDiffersFromAllocation() public {
+                _setFees(tokenQuote0, quote0, poolQuote0, 0, 100);
+                registry.setInfo(
+                    address(tokenQuote0),
+                    ITokenRegistry.TokenInfo({
+                        pair: address(poolQuote1),
+                        pool: address(poolQuote1),
+                        quoteToken: address(quote0),
+                        dexType: ITokenRegistry.DexType.UniswapV3,
+                        feeTier: 3_000
+                    })
+                );
+
+                vm.expectRevert(LPManager.InvalidPool.selector);
+                ILPManagerCollectTarget(address(manager)).collect(_tokens(address(tokenQuote0)));
+
+                assertEq(quote0.balanceOf(address(actor)), 100, "metadata failure consumed pending fees");
+                assertEq(quote0.balanceOf(FEE_RECEIVER), 0, "metadata failure distributed protocol fees");
+                assertEq(quote0.balanceOf(address(vaultQuote0)), 0, "metadata failure distributed creator fees");
+            }
+
             function test_collect_zeroFeesEmitsAndLeavesNoResidue() public {
                 vm.expectEmit(true, true, false, true, address(manager));
                 emit V3FeesCollected(address(tokenQuote0), address(quote0), 0, 0, 0, 0, 0);

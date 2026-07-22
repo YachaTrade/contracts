@@ -6,8 +6,6 @@ pragma solidity ^0.8.24;
 import {SetUp} from "../SetUp.t.sol";
 import {CreatorFeeVault} from "../../src/vault/CreatorFeeVault.sol";
 import {IVault} from "../../src/interfaces/IVault.sol";
-import {MockERC20} from "../mocks/MockERC20.sol";
-import {MockWMON} from "../mocks/MockWMON.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
 
@@ -67,7 +65,7 @@ contract CreatorFeeVaultTest is SetUp {
     }
 
     function test_setup_revert_zeroCreator() public {
-        address newToken = _createTokenWith("NewToken", "NT", 500, keccak256("new-token-zero-creator"));
+        address newToken = _createTokenWith("NewToken", "NT", keccak256("new-token-zero-creator"));
         vm.prank(bondingCurveAddr);
         vm.expectRevert(CreatorFeeVault.ZeroCreator.selector);
         vault.setup(newToken, abi.encode(address(0)));
@@ -177,7 +175,7 @@ contract CreatorFeeVaultTest is SetUp {
     }
 
     function test_afterDeposit_multipleTokensDifferentCreators() public {
-        address creatorFeeToken2 = _createTokenWith("Token2", "T2", 500, keccak256("creator-fee-vault-token2"));
+        address creatorFeeToken2 = _createTokenWith("Token2", "T2", keccak256("creator-fee-vault-token2"));
         address recipient2 = makeAddr("recipient2");
 
         // Setup second token with different creator

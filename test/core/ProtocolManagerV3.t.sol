@@ -119,7 +119,6 @@ contract ProtocolManagerV3Test is SetUp {
             5 ether,
             100,
             0,
-            0,
             3_000,
             10_001
         );
@@ -143,7 +142,6 @@ contract ProtocolManagerV3Test is SetUp {
             6 ether,
             200,
             25,
-            10 ether,
             3_000,
             10_001
         );
@@ -157,7 +155,7 @@ contract ProtocolManagerV3Test is SetUp {
 
     function _addSecondQuoteToken() private {
         protocolManager.addQuoteToken(
-            address(secondQuoteToken), 30 ether, 1_000_000_000 ether, 200_000_000 ether, 1 ether, 5 ether, 100, 0, 0
+            address(secondQuoteToken), 30 ether, 1_000_000_000 ether, 200_000_000 ether, 1 ether, 5 ether, 100, 0
         );
     }
 }

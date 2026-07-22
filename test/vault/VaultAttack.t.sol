@@ -27,7 +27,8 @@ contract ReentrantVault is IVault {
     function afterDeposit(address, address, uint256) external {
         if (!attacked) {
             attacked = true;
-            (bool success,) = target.call(abi.encodeWithSignature("buy(address,address)", address(this), address(0)));
+            (bool success,) =
+                target.call(abi.encodeWithSignature("buy(address,address,uint256)", address(this), address(0), 1));
             // We expect this to fail silently (try/catch in CreatorFeeProcessor)
             success; // suppress unused warning
         }
@@ -134,7 +135,6 @@ contract VaultAttackTest is SetUp {
             symbol: "DT",
             tokenURI: "",
             quoteToken: address(quoteToken),
-            creatorFeeRate: 500,
             vaults: vaults,
             salt: keccak256("deact-attack"),
             dexType: ITokenRegistry.DexType.UniswapV3,
@@ -142,9 +142,8 @@ contract VaultAttackTest is SetUp {
             buyQuoteAmount: 0
         });
 
-        // Transfer deployFee before create (balance detection)
         vm.prank(creator);
-        quoteToken.transfer(address(bondingCurve), defaultDeployFee);
+        quoteToken.approve(address(bondingCurve), defaultDeployFee);
         vm.prank(creator);
         vm.expectRevert("Vault not active");
         bondingCurve.create(params);
@@ -161,7 +160,6 @@ contract VaultAttackTest is SetUp {
             symbol: "T1",
             tokenURI: "",
             quoteToken: address(quoteToken),
-            creatorFeeRate: 500,
             vaults: vaults,
             salt: keccak256("collision-salt"),
             dexType: ITokenRegistry.DexType.UniswapV3,
@@ -170,7 +168,7 @@ contract VaultAttackTest is SetUp {
         });
 
         vm.prank(creator);
-        quoteToken.transfer(address(bondingCurve), defaultDeployFee);
+        quoteToken.approve(address(bondingCurve), defaultDeployFee);
         vm.prank(creator);
         bondingCurve.create(params1);
 
@@ -180,7 +178,6 @@ contract VaultAttackTest is SetUp {
             symbol: "T2",
             tokenURI: "",
             quoteToken: address(quoteToken),
-            creatorFeeRate: 500,
             vaults: vaults,
             salt: keccak256("collision-salt"),
             dexType: ITokenRegistry.DexType.UniswapV3,
@@ -189,7 +186,7 @@ contract VaultAttackTest is SetUp {
         });
 
         vm.prank(creator);
-        quoteToken.transfer(address(bondingCurve), defaultDeployFee);
+        quoteToken.approve(address(bondingCurve), defaultDeployFee);
         vm.prank(creator);
         vm.expectRevert();
         bondingCurve.create(params2);
@@ -240,7 +237,6 @@ contract VaultAttackTest is SetUp {
             symbol: "BT",
             tokenURI: "",
             quoteToken: address(quoteToken),
-            creatorFeeRate: 500,
             vaults: vaults,
             salt: keccak256("bad-type"),
             dexType: ITokenRegistry.DexType.UniswapV3,
@@ -249,7 +245,7 @@ contract VaultAttackTest is SetUp {
         });
 
         vm.prank(creator);
-        quoteToken.transfer(address(bondingCurve), defaultDeployFee);
+        quoteToken.approve(address(bondingCurve), defaultDeployFee);
         vm.prank(creator);
         vm.expectRevert();
         bondingCurve.create(params);

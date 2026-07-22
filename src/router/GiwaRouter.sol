@@ -115,22 +115,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
         uint256 routerBalanceBefore = quoteToken.balanceOf(address(this));
 
         _pullExact(quoteToken, msg.sender, quoteRequired);
-        quoteToken.forceApprove(address(_bondingCurve), quoteRequired);
-
-        (token, tokenOut) = _bondingCurve.create(
-            IBondingCurve.CreateTokenParams({
-                name: params.name,
-                symbol: params.symbol,
-                tokenURI: params.tokenURI,
-                quoteToken: params.quoteToken,
-                vaults: params.vaults,
-                salt: params.salt,
-                dexType: params.dexType,
-                creator: msg.sender,
-                buyQuoteAmount: params.buyQuoteAmount
-            })
-        );
-        quoteToken.forceApprove(address(_bondingCurve), 0);
+        (token, tokenOut) = _createOnCurve(params, quoteToken, quoteRequired);
         _requireBalanceEquals(quoteToken, address(this), routerBalanceBefore);
 
         emit Create(token, msg.sender);
@@ -152,22 +137,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
         uint256 routerBalanceBefore = quote.balanceOf(address(this));
 
         _fundQuoteFromNative(quoteToken, quoteRequired);
-        quote.forceApprove(address(_bondingCurve), quoteRequired);
-
-        (token, tokenOut) = _bondingCurve.create(
-            IBondingCurve.CreateTokenParams({
-                name: params.name,
-                symbol: params.symbol,
-                tokenURI: params.tokenURI,
-                quoteToken: quoteToken,
-                vaults: params.vaults,
-                salt: params.salt,
-                dexType: params.dexType,
-                creator: msg.sender,
-                buyQuoteAmount: params.buyQuoteAmount
-            })
-        );
-        quote.forceApprove(address(_bondingCurve), 0);
+        (token, tokenOut) = _createOnCurve(params, quote, quoteRequired);
         _requireBalanceEquals(quote, address(this), routerBalanceBefore);
 
         uint256 refund = msg.value - quoteRequired;
@@ -182,8 +152,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
 
     /// @inheritdoc IGiwaRouter
     function buy(BuyParams calldata params) external nonReentrant ensure(params.deadline) returns (uint256 amountOut) {
-        if (params.amountIn == 0) revert InvalidAmountIn();
-        if (params.to == address(0)) revert InvalidRecipient();
+        _validateExactInput(params.amountIn, params.to);
         amountOut = _buyErc20(
             V3ExactInputRequest({
                 payer: msg.sender,
@@ -204,8 +173,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
         ensure(params.deadline)
         returns (uint256 amountOut)
     {
-        if (msg.value == 0) revert InvalidAmountIn();
-        if (params.to == address(0)) revert InvalidRecipient();
+        _validateExactInput(msg.value, params.to);
         _requireNativeQuoteToken(params.token);
 
         bool graduated = _isGraduated(params.token);
@@ -232,9 +200,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
             quoteIn = tokenOut == 0 ? msg.value : _bondingCurve.getAmountIn(params.token, tokenOut, true);
             if (quoteIn > msg.value) quoteIn = msg.value;
             _wrappedNative.deposit{value: quoteIn}();
-            quoteToken.forceApprove(address(_bondingCurve), quoteIn);
-            amountOut = _bondingCurve.buy(params.to, params.token, quoteIn);
-            quoteToken.forceApprove(address(_bondingCurve), 0);
+            amountOut = _buyOnCurve(params.token, params.to, quoteToken, quoteIn);
             _requireBalanceEquals(quoteToken, address(this), routerBalanceBefore);
             refund = msg.value - quoteIn;
         }
@@ -251,8 +217,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
         ensure(params.deadline)
         returns (uint256 amountOut)
     {
-        if (params.amountIn == 0) revert InvalidAmountIn();
-        if (params.to == address(0)) revert InvalidRecipient();
+        _validateExactInput(params.amountIn, params.to);
         if (params.amountAllowance < params.amountIn) revert InvalidAllowance();
 
         address quoteToken = _getQuoteToken(params.token);
@@ -283,8 +248,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
         ensure(params.deadline)
         returns (uint256 amountOut)
     {
-        if (params.amountIn == 0) revert InvalidAmountIn();
-        if (params.to == address(0)) revert InvalidRecipient();
+        _validateExactInput(params.amountIn, params.to);
 
         amountOut = _sell(
             V3ExactInputRequest({
@@ -306,8 +270,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
         ensure(params.deadline)
         returns (uint256 amountOut)
     {
-        if (params.amountIn == 0) revert InvalidAmountIn();
-        if (params.to == address(0)) revert InvalidRecipient();
+        _validateExactInput(params.amountIn, params.to);
         _requireNativeQuoteToken(params.token);
         amountOut = _sell(
             V3ExactInputRequest({
@@ -329,8 +292,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
         ensure(params.deadline)
         returns (uint256 amountOut)
     {
-        if (params.amountIn == 0) revert InvalidAmountIn();
-        if (params.to == address(0)) revert InvalidRecipient();
+        _validateExactInput(params.amountIn, params.to);
         if (params.amountAllowance < params.amountIn) revert InvalidAllowance();
         _permit(
             params.token,
@@ -363,8 +325,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
         ensure(params.deadline)
         returns (uint256 amountOut)
     {
-        if (params.amountIn == 0) revert InvalidAmountIn();
-        if (params.to == address(0)) revert InvalidRecipient();
+        _validateExactInput(params.amountIn, params.to);
         if (params.amountAllowance < params.amountIn) revert InvalidAllowance();
         _requireNativeQuoteToken(params.token);
         _permit(
@@ -425,9 +386,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
             amountIn = _bondingCurve.getAmountIn(params.token, params.amountOut, true);
             if (amountIn > params.amountInMax) revert ExcessiveInput();
             _pullExact(quote, msg.sender, params.amountInMax);
-            quote.forceApprove(address(_bondingCurve), amountIn);
-            uint256 tokenOut = _bondingCurve.buy(params.to, params.token, amountIn);
-            quote.forceApprove(address(_bondingCurve), 0);
+            uint256 tokenOut = _buyOnCurve(params.token, params.to, quote, amountIn);
             if (tokenOut < params.amountOut) revert InsufficientOutput();
             uint256 refund = params.amountInMax - amountIn;
             _pushExact(quote, msg.sender, refund);
@@ -470,9 +429,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
             amountIn = _bondingCurve.getAmountIn(params.token, params.amountOut, true);
             if (amountIn > msg.value) revert ExcessiveInput();
             _wrappedNative.deposit{value: amountIn}();
-            quoteToken.forceApprove(address(_bondingCurve), amountIn);
-            uint256 tokenOut = _bondingCurve.buy(params.to, params.token, amountIn);
-            quoteToken.forceApprove(address(_bondingCurve), 0);
+            uint256 tokenOut = _buyOnCurve(params.token, params.to, quoteToken, amountIn);
             _requireBalanceEquals(quoteToken, address(this), routerBalanceBefore);
             if (tokenOut < params.amountOut) revert InsufficientOutput();
         }
@@ -636,6 +593,50 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
     //  Common Helpers
     // ═══════════════════════════════════════════════
 
+    function _createOnCurve(CreateParams calldata params, IERC20 quoteToken, uint256 quoteRequired)
+        private
+        returns (address token, uint256 tokenOut)
+    {
+        quoteToken.forceApprove(address(_bondingCurve), quoteRequired);
+        (token, tokenOut) = _bondingCurve.create(
+            IBondingCurve.CreateTokenParams({
+                name: params.name,
+                symbol: params.symbol,
+                tokenURI: params.tokenURI,
+                quoteToken: params.quoteToken,
+                vaults: params.vaults,
+                salt: params.salt,
+                dexType: params.dexType,
+                creator: msg.sender,
+                buyQuoteAmount: params.buyQuoteAmount
+            })
+        );
+        quoteToken.forceApprove(address(_bondingCurve), 0);
+    }
+
+    function _validateExactInput(uint256 amountIn, address recipient) private pure {
+        if (amountIn == 0) revert InvalidAmountIn();
+        if (recipient == address(0)) revert InvalidRecipient();
+    }
+
+    function _buyOnCurve(address token, address recipient, IERC20 quoteToken, uint256 quoteIn)
+        private
+        returns (uint256 tokenOut)
+    {
+        quoteToken.forceApprove(address(_bondingCurve), quoteIn);
+        tokenOut = _bondingCurve.buy(recipient, token, quoteIn);
+        quoteToken.forceApprove(address(_bondingCurve), 0);
+    }
+
+    function _sellOnCurve(address token, address recipient, IERC20 launchToken, uint256 tokenIn)
+        private
+        returns (uint256 quoteOut)
+    {
+        launchToken.forceApprove(address(_bondingCurve), tokenIn);
+        quoteOut = _bondingCurve.sell(recipient, token, tokenIn);
+        launchToken.forceApprove(address(_bondingCurve), 0);
+    }
+
     function _buyErc20(V3ExactInputRequest memory request) private returns (uint256 tokenOut) {
         bool graduated = _isGraduated(request.token);
         uint256 quoteIn;
@@ -652,9 +653,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
                 : _bondingCurve.getAmountIn(request.token, tokenOutFromCurve, true);
             if (quoteIn > request.amountIn) quoteIn = request.amountIn;
             _pullExact(quote, request.payer, request.amountIn);
-            quote.forceApprove(address(_bondingCurve), quoteIn);
-            tokenOut = _bondingCurve.buy(request.recipient, request.token, quoteIn);
-            quote.forceApprove(address(_bondingCurve), 0);
+            tokenOut = _buyOnCurve(request.token, request.recipient, quote, quoteIn);
             if (tokenOut < request.amountOutMin) revert InsufficientOutput();
             uint256 quoteRefund = request.amountIn - quoteIn;
             _pushExact(quote, request.payer, quoteRefund);
@@ -682,9 +681,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
             IERC20 launchToken = IERC20(request.token);
             uint256 routerTokenBalanceBefore = launchToken.balanceOf(address(this));
             _pullExact(launchToken, request.payer, request.amountIn);
-            launchToken.forceApprove(address(_bondingCurve), request.amountIn);
-            quoteOut = _bondingCurve.sell(request.recipient, request.token, request.amountIn);
-            launchToken.forceApprove(address(_bondingCurve), 0);
+            quoteOut = _sellOnCurve(request.token, request.recipient, launchToken, request.amountIn);
             _requireBalanceEquals(launchToken, address(this), routerTokenBalanceBefore);
         }
 
@@ -716,9 +713,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
             IERC20 launchToken = IERC20(request.token);
             uint256 routerTokenBalanceBefore = launchToken.balanceOf(address(this));
             _pullExact(launchToken, request.payer, tokenIn);
-            launchToken.forceApprove(address(_bondingCurve), tokenIn);
-            quoteOut = _bondingCurve.sell(request.recipient, request.token, tokenIn);
-            launchToken.forceApprove(address(_bondingCurve), 0);
+            quoteOut = _sellOnCurve(request.token, request.recipient, launchToken, tokenIn);
             _requireBalanceEquals(launchToken, address(this), routerTokenBalanceBefore);
             if (quoteOut < request.amountOut) revert InsufficientOutput();
         }
