@@ -593,18 +593,33 @@ contract V3LiquidityActorTest is Test {
         actor.increase(poolData, largeQuote, AMOUNT);
     }
 
-    function test_viewFees_sumsBothStoredPositions() public {
+    function test_viewFees_sumsTokensOwedAndFeeGrowthForBothPositionsWithoutMutation() public {
         (V3LiquidityActor actor, ILPManager.PoolData memory poolData, MockV3Pool pool,) = _mockPoolData(true);
         actor.mint(poolData, AMOUNT, AMOUNT);
-        (bytes32 quoteKey,,,) = actor.quoteLiquidityPositions(poolData.pool);
-        (bytes32 tokenKey,,,) = actor.tokenLiquidityPositions(poolData.pool);
-        pool.setPositionFees(quoteKey, 3, 5);
-        pool.setPositionFees(tokenKey, 7, 11);
+        PositionSnapshot memory quotePosition = _quotePosition(actor, poolData.pool);
+        PositionSnapshot memory tokenPosition = _tokenPosition(actor, poolData.pool);
+
+        pool.setPositionFees(quotePosition.key, 3, 5);
+        pool.setPositionFees(tokenPosition.key, 7, 11);
+
+        uint256 q128 = uint256(1) << 128;
+        pool.setTickFeeGrowthOutside(quotePosition.lowerTick, q128, 2 * q128);
+        pool.setTickFeeGrowthOutside(quotePosition.upperTick, 0, 0);
+        pool.setTickFeeGrowthOutside(tokenPosition.lowerTick, 0, 0);
+        pool.setTickFeeGrowthOutside(tokenPosition.upperTick, 3 * q128, 4 * q128);
 
         (uint256 amount0, uint256 amount1) = actor.viewFees(poolData.pool);
 
-        assertEq(amount0, 10);
-        assertEq(amount1, 16);
+        assertEq(amount0, 10 + uint256(quotePosition.liquidity) + 3 * uint256(tokenPosition.liquidity));
+        assertEq(amount1, 16 + 2 * uint256(quotePosition.liquidity) + 4 * uint256(tokenPosition.liquidity));
+        assertEq(pool.burnCalls(), 0);
+        assertEq(pool.collectCalls(), 0);
+
+        (uint256 secondAmount0, uint256 secondAmount1) = actor.viewFees(poolData.pool);
+        assertEq(secondAmount0, amount0);
+        assertEq(secondAmount1, amount1);
+        assertEq(pool.burnCalls(), 0);
+        assertEq(pool.collectCalls(), 0);
     }
 
     function _realPoolData(bool quoteIsToken0)

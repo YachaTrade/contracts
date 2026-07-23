@@ -36,6 +36,17 @@ interface ILPManager {
         external
         view
         returns (bytes32, int24, int24, uint128, bytes32, int24, int24, uint128);
+
+    /// @notice Returns exact accumulated V3 fees for a launch token's permanent positions.
+    /// @dev The launch-token amount has not yet been swapped into quote.
+    /// @param token Launch token whose allocated V3 pool is queried.
+    /// @return quoteAmount Accumulated fee denominated in the registered quote token.
+    /// @return tokenAmount Accumulated fee denominated in the launch token.
+    function callStaticGetAccumulatedFees(address token)
+        external
+        view
+        returns (uint256 quoteAmount, uint256 tokenAmount);
+
     function setV3LiquidityActor(address actor, address factory) external;
 
     event Allocate(

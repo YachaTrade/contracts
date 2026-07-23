@@ -349,6 +349,20 @@ contract LPManager is ILPManager, UUPSUpgradeable, AccessManagedUpgradeable {
         (e, f, g, h) = IV3LiquidityActor(v3LiquidityActor).tokenLiquidityPositions(pool);
     }
 
+    /// @inheritdoc ILPManager
+    function callStaticGetAccumulatedFees(address token)
+        public
+        view
+        override
+        returns (uint256 quoteAmount, uint256 tokenAmount)
+    {
+        ILPManager.PoolData memory poolData = _pools[token];
+        if (poolData.pool == address(0)) revert InvalidPool();
+
+        (uint256 amount0, uint256 amount1) = IV3LiquidityActor(v3LiquidityActor).viewFees(poolData.pool);
+        (quoteAmount, tokenAmount) = poolData.quoteIsToken0 ? (amount0, amount1) : (amount1, amount0);
+    }
+
     function getPair(address token) external view returns (address) {
         return ITokenRegistry(_tokenRegistry).getPair(token);
     }
