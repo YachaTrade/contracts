@@ -193,6 +193,57 @@ RUN_FORK_TESTS=true forge test --match-path test/fork/GiwaRouterNativeQuoteFork.
 
 ## Deployment
 
+### GIWA Sepolia deployment
+
+The current V3 deployment is live on GIWA Sepolia (`chainId = 91342`).
+
+- RPC: `https://sepolia-rpc.giwa.io`
+- Explorer: `https://sepolia-explorer.giwa.io`
+- Deployment records: `broadcast/DeployV3Factory.s.sol/91342`,
+  `broadcast/Deploy.s.sol/91342`, and `broadcast/DeployLens.s.sol/91342`
+- Last onchain code check: 2026-07-23
+
+Use the proxy addresses below for SDK, user, and administrative interactions.
+Implementation addresses are listed separately for upgrade and deployment auditing.
+
+#### Public integrations and proxy addresses
+
+| Contract | Deployment kind | Address | Creation transaction |
+| --- | --- | --- | --- |
+| WETH | Canonical predeploy | [`0x4200000000000000000000000000000000000006`](https://sepolia-explorer.giwa.io/address/0x4200000000000000000000000000000000000006) | Predeploy |
+| UniswapV3Factory | Standalone | [`0x00a131Cf1fbEE9b02C4632756a813A32BC250849`](https://sepolia-explorer.giwa.io/address/0x00a131Cf1fbEE9b02C4632756a813A32BC250849) | [`0xa6ac…25d4`](https://sepolia-explorer.giwa.io/tx/0xa6ac410b71e5f04a9b466816b0bfd49878f909e897ddf67bd8b8e90db96125d4) |
+| ProtocolManager | UUPS proxy | [`0x839AAE0711DDf9A3E8381d73Fbc8bD9146cc762e`](https://sepolia-explorer.giwa.io/address/0x839AAE0711DDf9A3E8381d73Fbc8bD9146cc762e) | [`0xdfa0…a830`](https://sepolia-explorer.giwa.io/tx/0xdfa05924db3c6cc6e45da4448a89dec6fe7bceb61a1d33db156a1c3a4ebca830) |
+| TokenRegistry | UUPS proxy | [`0xB9E1a129818fE17300152E067b978eA9098100F0`](https://sepolia-explorer.giwa.io/address/0xB9E1a129818fE17300152E067b978eA9098100F0) | [`0xb637…6c5b`](https://sepolia-explorer.giwa.io/tx/0xb637ac9344586c8017b34ed63cdd083be924eb9853eb58b741315104d93f6c5b) |
+| LPManager | UUPS proxy | [`0xA7dAacA8DF5685bCAA20043071953dC87b0BC24f`](https://sepolia-explorer.giwa.io/address/0xA7dAacA8DF5685bCAA20043071953dC87b0BC24f) | [`0xc055…d3e6`](https://sepolia-explorer.giwa.io/tx/0xc055180f0ee09fd48b088e66efbe01be1d3e18b0be161ec9b73572c1084ed3e6) |
+| V3PoolDeployer | UUPS proxy | [`0xB4cBF62905D297bc7a6b61D4985F5345Cdc7232a`](https://sepolia-explorer.giwa.io/address/0xB4cBF62905D297bc7a6b61D4985F5345Cdc7232a) | [`0xb436…f04c`](https://sepolia-explorer.giwa.io/tx/0xb436aac0bcf86bc0573f7a92b9a17f9ab6336b6dd8d0f3c302c6acb540e6f04c) |
+| BondingCurve | UUPS proxy | [`0x852716437D0e67e8BbaF4c8282C26b7941DD16E9`](https://sepolia-explorer.giwa.io/address/0x852716437D0e67e8BbaF4c8282C26b7941DD16E9) | [`0x2d75…2392`](https://sepolia-explorer.giwa.io/tx/0x2d755d985a881ed9f32d4446bda9d5818aef51cf02b924a05e661b59e6872392) |
+| GiwaRouter | UUPS proxy | [`0x6139848625B395C4e2C347ED6C083dE2077Fb07b`](https://sepolia-explorer.giwa.io/address/0x6139848625B395C4e2C347ED6C083dE2077Fb07b) | [`0xb9d3…9bbb`](https://sepolia-explorer.giwa.io/tx/0xb9d3678783131bcdc515b465a08f0bacb9da2af8d6ae3e5667169f9298229bbb) |
+| VaultRegistry | UUPS proxy | [`0x552239751E29260AfC8402bDc1099bcfD5e591f2`](https://sepolia-explorer.giwa.io/address/0x552239751E29260AfC8402bDc1099bcfD5e591f2) | [`0x2aec…03a9`](https://sepolia-explorer.giwa.io/tx/0x2aec0acab32337d121dcb5cafbaef57a1944aaa5307bd49cdb9660be6e2b03a9) |
+| CreatorFeeVault | UUPS proxy | [`0xA101f5653e5cD45bBB7158606391dc2a893090d7`](https://sepolia-explorer.giwa.io/address/0xA101f5653e5cD45bBB7158606391dc2a893090d7) | [`0xb01e…c70f`](https://sepolia-explorer.giwa.io/tx/0xb01e509ff7ed8fd5566db1660e44838a5b10d59585462183b46e28328d32c70f) |
+| Lens | Immutable integration | [`0x9f86fB3Cd9aBd4E0E2d9B7B42E16B01D478e2DD6`](https://sepolia-explorer.giwa.io/address/0x9f86fB3Cd9aBd4E0E2d9B7B42E16B01D478e2DD6) | [`0x8b71…7125`](https://sepolia-explorer.giwa.io/tx/0x8b71ef1003fec135ea7cd28ce915b96fb3fe10c189a09f3923e789f4e9d17125) |
+
+#### Implementation and auxiliary addresses
+
+| Contract | Deployment kind | Address | Creation transaction |
+| --- | --- | --- | --- |
+| ProtocolManager | Implementation | [`0x7FBC8478bbc18517bD5FFDB4b055B26EDe2f9025`](https://sepolia-explorer.giwa.io/address/0x7FBC8478bbc18517bD5FFDB4b055B26EDe2f9025) | [`0xa145…e32b`](https://sepolia-explorer.giwa.io/tx/0xa145d6672ce2a2a600e7a92e5fe81f0c69708da42734e236c47318bcadd7e32b) |
+| TokenRegistry | Implementation | [`0x13cd48F5B53efd2DE08e5534734Eda50f1Bd8332`](https://sepolia-explorer.giwa.io/address/0x13cd48F5B53efd2DE08e5534734Eda50f1Bd8332) | [`0xe457…8f7d`](https://sepolia-explorer.giwa.io/tx/0xe4573c21ae589287abc9bca90160907cfdc6efab5e0e38cb509d559e27fc8f7d) |
+| CreatorFeeProcessor | Standalone | [`0xDfD7a91438B35Ea94C8EAB89c0EE4fFf13E55969`](https://sepolia-explorer.giwa.io/address/0xDfD7a91438B35Ea94C8EAB89c0EE4fFf13E55969) | [`0xe2b6…9490`](https://sepolia-explorer.giwa.io/tx/0xe2b6ed244b1536724c502369ef5162f3673b5b3b198e75ebf32f7afbd73a9490) |
+| V3SwapAdapter | Standalone | [`0x7e2E8492C0E3C8fF56920CDa02D7D37c60485852`](https://sepolia-explorer.giwa.io/address/0x7e2E8492C0E3C8fF56920CDa02D7D37c60485852) | [`0xee96…af49`](https://sepolia-explorer.giwa.io/tx/0xee96099f247f1bd68936aa71b04d208817c7cb592f53476477aec7a693f6af49) |
+| LPManager | Implementation | [`0x5de5a8e8bFbE23578808d29E37BDdF38306DEC12`](https://sepolia-explorer.giwa.io/address/0x5de5a8e8bFbE23578808d29E37BDdF38306DEC12) | [`0x316f…7176`](https://sepolia-explorer.giwa.io/tx/0x316f926ec50192eb002560070666df7897091662867f9b98b2517be9a8ed7176) |
+| V3PoolDeployer | Implementation | [`0x034709910cf31ffb318316FA7EdBAc6a18EC77DA`](https://sepolia-explorer.giwa.io/address/0x034709910cf31ffb318316FA7EdBAc6a18EC77DA) | [`0x7aea…62de`](https://sepolia-explorer.giwa.io/tx/0x7aeac0dbc13bf2d765699e58188d52c7418bf0cd09a57ffa7390ba05953062de) |
+| V3LiquidityActor | Standalone | [`0x9685d85f92dcaC12802B367807352A0afFA5a466`](https://sepolia-explorer.giwa.io/address/0x9685d85f92dcaC12802B367807352A0afFA5a466) | [`0xa6c3…e300`](https://sepolia-explorer.giwa.io/tx/0xa6c36befab4d1a13d239bfa11dadc439389b64aab4266704f4859bc7670ce300) |
+| Token | EIP-1167 clone implementation | [`0xf5f8C3707f278E15Ad7a9Dc0255C42757AeC0b46`](https://sepolia-explorer.giwa.io/address/0xf5f8C3707f278E15Ad7a9Dc0255C42757AeC0b46) | [`0x3f1f…40a9`](https://sepolia-explorer.giwa.io/tx/0x3f1f5032a868cc65de1d44d2df3041b2076a511c12d1ed066c653e01c00d40a9) |
+| BondingCurve | Implementation | [`0xED770A987C645f76DC0f3eBf31b12bc8c2CE8384`](https://sepolia-explorer.giwa.io/address/0xED770A987C645f76DC0f3eBf31b12bc8c2CE8384) | [`0x88cb…c840`](https://sepolia-explorer.giwa.io/tx/0x88cbe28cc503ba04593d90b0a87517049d5fd491c7dceecea6dc96baeeb3c840) |
+| QuoterV2 | Standalone | [`0x38783f78C81E55F73bA7e09f9462CBb994ae9ead`](https://sepolia-explorer.giwa.io/address/0x38783f78C81E55F73bA7e09f9462CBb994ae9ead) | [`0xd4ea…e0ac`](https://sepolia-explorer.giwa.io/tx/0xd4ea321862d0c833f121834c4965a4bcdd2ddc1c3acaf87b8c74a09f4da3e0ac) |
+| GiwaRouter | Implementation | [`0x693a0837FE5Dc1F71DeFdF17c15c9eb655b3b09D`](https://sepolia-explorer.giwa.io/address/0x693a0837FE5Dc1F71DeFdF17c15c9eb655b3b09D) | [`0xd2c8…7a8c`](https://sepolia-explorer.giwa.io/tx/0xd2c8e4d413b67f33368a2e125d212793ecbf70a787ca5a21fd9121790daa7a8c) |
+| VaultRegistry | Implementation | [`0x40c126f92DAD5C26D3b36aA7F2A949265FA534cB`](https://sepolia-explorer.giwa.io/address/0x40c126f92DAD5C26D3b36aA7F2A949265FA534cB) | [`0xf36f…1e70`](https://sepolia-explorer.giwa.io/tx/0xf36f1996dfe46525db40aa44462e97a5d79a4963b9c73cf1d00ac12673251e70) |
+| CreatorFeeVault | Implementation | [`0x21A3455b170FD35b7089216791D72bDD2dbf9E53`](https://sepolia-explorer.giwa.io/address/0x21A3455b170FD35b7089216791D72bDD2dbf9E53) | [`0xf602…a986`](https://sepolia-explorer.giwa.io/tx/0xf602c2fdb5afe66d573a54cb1ccf6e28aa6a965831661e5bfd8771358355a986) |
+
+These tables cover the contracts created by the current GIWA Sepolia V3 deployment
+plus the canonical WETH predeploy reused by the protocol. Legacy mainnet Safe batches
+under `deploy/` are separate operational artifacts and are not part of this deployment.
+
 The V3 factory is deployed separately, then passed to the protocol deployment.
 
 ```shell
