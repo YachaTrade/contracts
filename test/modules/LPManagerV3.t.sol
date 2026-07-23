@@ -173,6 +173,10 @@ contract MockActor is IV3LiquidityActor {
 
     /// Focused API/math smoke tests. Full lifecycle fixtures are covered by integration suites.
     contract LPManagerV3Test is Test {
+        event Allocate(
+            address indexed token, address indexed pool, uint256 quoteAmount, uint256 tokenAmount, uint256 timestamp
+        );
+
         MockAuthority internal fixtureAuthority;
         MockFactory internal fixtureFactory;
 
@@ -230,7 +234,11 @@ contract MockActor is IV3LiquidityActor {
             (LPManager m, MockERC20 token, MockERC20 quote, MockActor actor) = _fixture(true);
             actor.setUsage(70, 50, false);
             ILPManager.AllocateParams memory p = ILPManager.AllocateParams(address(token), 100, 200, 1000, 2000, 1);
+
+            vm.expectEmit(true, true, false, true, address(m));
+            emit Allocate(address(token), fixtureFactory.pool(), 70, 50, block.timestamp);
             m.allocate(p);
+
             assertEq(token.allowance(address(m), address(actor)), 0);
             assertEq(quote.allowance(address(m), address(actor)), 0);
             assertEq(token.balanceOf(address(0xBEEF)), 150);
@@ -250,7 +258,11 @@ contract MockActor is IV3LiquidityActor {
         function test_allocate_quoteToken1_order_and_duplicate_reverts() public {
             (LPManager m, MockERC20 token, MockERC20 quote, MockActor actor) = _fixture(false);
             actor.setUsage(40, 60, false);
+
+            vm.expectEmit(true, true, false, true, address(m));
+            emit Allocate(address(token), fixtureFactory.pool(), 60, 40, block.timestamp);
             m.allocate(ILPManager.AllocateParams(address(token), 100, 200, 1000, 2000, 1));
+
             (bytes32 q,,,,,,,) = m.getPositions(address(token));
             assertEq(q, bytes32(uint256(1)));
             vm.expectRevert();

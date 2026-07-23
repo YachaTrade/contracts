@@ -74,15 +74,12 @@ contract WnativeV3LpFeeCollectionDeployHarness is Deploy {
 contract WnativeV3LpFeeCollectionE2ETest is Test {
     uint256 private constant GRADUATION_QUOTE_IN = 800_000 ether;
     uint256 private constant POST_GRADUATION_QUOTE_IN = 100 ether;
-    bytes32 private constant FEES_COLLECTED_TOPIC =
-        keccak256("V3FeesCollected(address,address,uint256,uint256,uint256,uint256,uint256)");
+    bytes32 private constant COLLECT_TOPIC = keccak256("Collect(address,address,uint256,uint256,uint256)");
 
     struct CollectedFees {
         uint256 tokenFee;
         uint256 directQuoteFee;
-        uint256 swappedQuote;
-        uint256 protocolQuote;
-        uint256 creatorQuote;
+        uint256 timestamp;
     }
 
     struct CollectionSnapshot {
@@ -185,9 +182,7 @@ contract WnativeV3LpFeeCollectionE2ETest is Test {
 
         assertEq(fees.tokenFee, pendingTokenFee, "event token fee differs from pre-collection oracle");
         assertEq(fees.directQuoteFee, pendingQuoteFee, "event quote fee differs from pre-collection oracle");
-        assertEq(fees.swappedQuote, actualSwappedQuote, "event swap output differs from balance deltas");
-        assertEq(fees.protocolQuote, receiverQuoteDelta, "event protocol quote differs from receiver delta");
-        assertEq(fees.creatorQuote, vaultQuoteDelta, "event creator quote differs from vault delta");
+        assertEq(fees.timestamp, block.timestamp, "event collection timestamp");
         assertEq(receiverQuoteDelta, expectedProtocolQuote, "protocol ratio from independent deltas");
         assertEq(vaultQuoteDelta, expectedCreatorQuote, "creator ratio from independent deltas");
         assertEq(creatorCreditDelta, vaultQuoteDelta, "creator vault accounting differs from vault receipt");
@@ -299,19 +294,19 @@ contract WnativeV3LpFeeCollectionE2ETest is Test {
     }
 
     function _decodeCollection(Vm.Log[] memory logs, address token) private view returns (CollectedFees memory fees) {
+        address pool = tokenRegistry.getPool(token);
         for (uint256 i; i < logs.length; ++i) {
             if (
                 logs[i].emitter == deployed.lpManager && logs[i].topics.length == 3
-                    && logs[i].topics[0] == FEES_COLLECTED_TOPIC
-                    && address(uint160(uint256(logs[i].topics[1]))) == token
-                    && address(uint160(uint256(logs[i].topics[2]))) == deployed.wnative
+                    && logs[i].topics[0] == COLLECT_TOPIC && address(uint160(uint256(logs[i].topics[1]))) == token
+                    && address(uint160(uint256(logs[i].topics[2]))) == pool
             ) {
-                (fees.tokenFee, fees.directQuoteFee, fees.swappedQuote, fees.protocolQuote, fees.creatorQuote) =
-                    abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256));
+                (fees.directQuoteFee, fees.tokenFee, fees.timestamp) =
+                    abi.decode(logs[i].data, (uint256, uint256, uint256));
                 return fees;
             }
         }
-        revert("V3FeesCollected missing");
+        revert("Collect missing");
     }
 
     function _positionHash(address token) private view returns (bytes32) {

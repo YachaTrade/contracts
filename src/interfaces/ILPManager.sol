@@ -50,25 +50,11 @@ interface ILPManager {
     function setV3LiquidityActor(address actor, address factory) external;
 
     event Allocate(
-        address indexed token,
-        address indexed pair,
-        address indexed caller,
-        ITokenRegistry.DexType dexType,
-        uint256 tokenIn,
-        uint256 quoteIn,
-        uint256 liquidity
+        address indexed token, address indexed pool, uint256 quoteAmount, uint256 tokenAmount, uint256 timestamp
     );
-    event ClaimFee(
-        address indexed token, address indexed to, ITokenRegistry.DexType dexType, uint256 amount0, uint256 amount1
-    );
-    event V3FeesCollected(
-        address indexed token,
-        address indexed quoteToken,
-        uint256 tokenFee,
-        uint256 directQuoteFee,
-        uint256 swappedQuote,
-        uint256 protocolQuote,
-        uint256 creatorQuote
+
+    event Collect(
+        address indexed token, address indexed pool, uint256 quoteAmount, uint256 tokenAmount, uint256 timestamp
     );
 
     function addLiquidity(

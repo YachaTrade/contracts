@@ -278,14 +278,8 @@ contract CollectActor is IV3LiquidityActor {
         }
 
         contract LPManagerCollectTest is Test {
-            event V3FeesCollected(
-                address indexed token,
-                address indexed quoteToken,
-                uint256 tokenFee,
-                uint256 directQuoteFee,
-                uint256 swappedQuote,
-                uint256 protocolQuote,
-                uint256 creatorQuote
+            event Collect(
+                address indexed token, address indexed pool, uint256 quoteAmount, uint256 tokenAmount, uint256 timestamp
             );
 
             uint16 internal constant DEFAULT_PROTOCOL_SHARE = 5_000;
@@ -419,11 +413,19 @@ contract CollectActor is IV3LiquidityActor {
                 _setFees(tokenQuote0, quote0, poolQuote0, 40, 20);
 
                 vm.expectEmit(true, true, false, true, address(manager));
-                emit V3FeesCollected(address(tokenQuote0), address(quote0), 40, 20, 80, 50, 50);
+                emit Collect(address(tokenQuote0), address(poolQuote0), 20, 40, block.timestamp);
                 ILPManagerCollectTarget(address(manager)).collect(_tokens(address(tokenQuote0)));
 
                 assertEq(quote0.balanceOf(FEE_RECEIVER), 50);
                 assertEq(quote0.balanceOf(address(vaultQuote0)), 50);
+            }
+
+            function test_collect_emitsCollect_quoteIsToken1() public {
+                _setFees(tokenQuote1, quote1, poolQuote1, 40, 20);
+
+                vm.expectEmit(true, true, false, true, address(manager));
+                emit Collect(address(tokenQuote1), address(poolQuote1), 20, 40, block.timestamp);
+                ILPManagerCollectTarget(address(manager)).collect(_tokens(address(tokenQuote1)));
             }
 
             function test_collect_usesCurrentPerQuoteProtocolShare() public {
@@ -498,7 +500,7 @@ contract CollectActor is IV3LiquidityActor {
 
             function test_collect_zeroFeesEmitsAndLeavesNoResidue() public {
                 vm.expectEmit(true, true, false, true, address(manager));
-                emit V3FeesCollected(address(tokenQuote0), address(quote0), 0, 0, 0, 0, 0);
+                emit Collect(address(tokenQuote0), address(poolQuote0), 0, 0, block.timestamp);
 
                 ILPManagerCollectTarget(address(manager)).collect(_tokens(address(tokenQuote0)));
 

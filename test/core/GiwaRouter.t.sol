@@ -45,6 +45,11 @@ contract ToggleFeeOnTransferQuote is ERC20 {
 }
 
 contract GiwaRouterTest is SetUp {
+    event RouterBuy(address indexed buyer, address indexed token, uint256 amountIn, uint256 amountOut, bool graduated);
+    event RouterSell(
+        address indexed seller, address indexed token, uint256 amountIn, uint256 amountOut, bool graduated
+    );
+
     MockERC20 lvmon;
 
     address vault;
@@ -404,6 +409,8 @@ contract GiwaRouterTest is SetUp {
         vm.startPrank(user1);
         wnative.approve(address(giwaRouter), amountIn);
 
+        vm.expectEmit(true, true, false, true, address(giwaRouter));
+        emit RouterBuy(user1, token, expectedQuoteIn, expectedTokenOut, false);
         uint256 amountOut = giwaRouter.buy(
             IGiwaRouter.BuyParams({
                 amountIn: amountIn, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1
@@ -458,10 +465,14 @@ contract GiwaRouterTest is SetUp {
         uint256 curveDonation = tokenOut / 5;
         uint256 routerDonation = tokenOut / 5;
         uint256 tokenIn = tokenOut / 5;
+        uint256 expectedQuoteOut = bondingCurve.getAmountOut(token, tokenIn, false);
         IERC20(token).transfer(address(bondingCurve), curveDonation);
         IERC20(token).transfer(address(giwaRouter), routerDonation);
         uint256 curveBalanceBefore = IERC20(token).balanceOf(address(bondingCurve));
         IERC20(token).approve(address(giwaRouter), tokenIn);
+
+        vm.expectEmit(true, true, false, true, address(giwaRouter));
+        emit RouterSell(user1, token, tokenIn, expectedQuoteOut, false);
         giwaRouter.sell(
             IGiwaRouter.SellParams({
                 amountIn: tokenIn, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1

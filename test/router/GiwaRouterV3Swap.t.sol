@@ -117,8 +117,8 @@ contract GiwaRouterV3SwapTest is SetUp {
     uint256 private constant PARTIAL_INPUT = 1e50;
     uint256 private constant EIP170_RUNTIME_LIMIT = 24_576;
     uint256 private constant MIN_RUNTIME_HEADROOM = 512;
-    bytes32 private constant BUY_EVENT = keccak256("Buy(address,address,uint256,uint256,bool)");
-    bytes32 private constant SELL_EVENT = keccak256("Sell(address,address,uint256,uint256,bool)");
+    bytes32 private constant BUY_EVENT = keccak256("RouterBuy(address,address,uint256,uint256,bool)");
+    bytes32 private constant SELL_EVENT = keccak256("RouterSell(address,address,uint256,uint256,bool)");
 
     Fixture private launchBelowQuote;
     Fixture private launchAboveQuote;
