@@ -74,7 +74,7 @@
 | `tokenRegistry` | `ITokenRegistry` | initialize | pair / adapter 조회, quoteToken 조회 |
 | `expiryDuration` | `uint256` | initialize / `setExpiryDuration` | `createdAt` 이후 bind 가능한 기간 |
 | `router` | `address` | initialize | 본딩 phase 바이백에 쓰는 `GiwaRouter` |
-| `wmon` | `address` | initialize | 래핑 네이티브 싱글톤. `claim` 시점의 등록 quote == `wmon`이면 unwrap해서 native MON으로 전송. `address(0)`이면 unwrap 비활성 (모든 quote에 대해 ERC20 transfer) |
+| `wnative` | `address` | initialize | 래핑 네이티브 싱글톤. `claim` 시점의 등록 quote == `wnative`이면 unwrap해서 native currency으로 전송. `address(0)`이면 unwrap 비활성 (모든 quote에 대해 ERC20 transfer) |
 | `_gifts` | `mapping(address => GiftInfo)` | setup / afterDeposit / setReceiver / claim | 토큰별 gift 레코드. state + receiver + balance의 단일 source |
 
 ---
@@ -83,12 +83,12 @@
 
 | 함수 | 접근 | 설명 |
 |------|------|------|
-| `initialize(protocolManager_, creatorFeeProcessor_, bondingCurve_, tokenRegistry_, expiryDuration_, router_, wmon_, metadataURI_)` | initializer | UUPS 초기화. `wmon_`이 등록되면 `claim`에서 quote == wmon일 때 native unwrap 활성 |
-| `receive() external payable` | `msg.sender == wmon`만 | `IWrappedNative.withdraw` 콜백 수신용. 다른 발신자는 `UnexpectedNative` 리버트 |
+| `initialize(protocolManager_, creatorFeeProcessor_, bondingCurve_, tokenRegistry_, expiryDuration_, router_, wnative_, metadataURI_)` | initializer | UUPS 초기화. `wnative_`이 등록되면 `claim`에서 quote == wnative일 때 native unwrap 활성 |
+| `receive() external payable` | `msg.sender == wnative`만 | `IWrappedNative.withdraw` 콜백 수신용. 다른 발신자는 `UnexpectedNative` 리버트 |
 | `setup(token, data)` | `bondingCurve`만 | 토큰별 `(platform, id)` 등록 + `createdAt` 기록. `data = abi.encode(GiftTarget)` |
 | `afterDeposit(token, quoteToken, amount)` | `creatorFeeProcessor`만 | 상태에 따라 burn / accumulate / expire+burn 분기 |
 | `setReceiver(token, receiver)` | **restricted** | receiver 바인딩 또는 교체. 포인터만 바꾸는 단순 호출 — 누적 balance는 그대로 남아 새 receiver가 상속. `state != Burned` 한에서만 허용 |
-| `claim(token)` | `msg.sender == gift.receiver`, `nonReentrant` | 바인딩된 receiver에게 누적 balance 전액 인출. 등록 quote == `wmon`이면 unwrap해서 native MON으로 송금. 반복 가능 |
+| `claim(token)` | `msg.sender == gift.receiver`, `nonReentrant` | 바인딩된 receiver에게 누적 balance 전액 인출. 등록 quote == `wnative`이면 unwrap해서 native currency으로 송금. 반복 가능 |
 | `setExpiryDuration(newDuration)` | restricted | bind window 변경 (Accumulating 토큰에 즉시 반영) |
 | `getGiftInfo(token)` | view | `GiftInfo` 레코드 조회 |
 | `isExpired(token)` | view | `_expired[token]` |
@@ -169,8 +169,8 @@ receiver -> GiftVault.claim(token)
   |-- require amount > 0 (ZeroBalance)
   |-- gift.balance = 0                                # CEI: 외부 호출 전 state 정리
   |-- quoteToken = tokenRegistry.getQuoteToken(token)
-  |-- if wmon != 0 && quoteToken == wmon:
-  |     IWrappedNative(wmon).withdraw(amount)         # WMON unwrap → vault에 native MON
+  |-- if wnative != 0 && quoteToken == wnative:
+  |     IWrappedNative(wnative).withdraw(amount)         # WNATIVE unwrap → vault에 native currency
   |     (ok,) = receiver.call{value: amount}("")      # native를 receiver에게 전달
   |     require(ok, NativeTransferFailed)
   |-- else:
@@ -180,7 +180,7 @@ receiver -> GiftVault.claim(token)
 
 claim 만료 없음. 반복 가능 — claim 후 새 `afterDeposit`이 balance를 다시 키우면 같은 receiver가 또 claim 가능.
 
-방어 다층 구성: `claim`에 `nonReentrant` (OZ `ReentrancyGuard`, ERC-7201 namespaced storage — proxy 안전) + CEI(`gift.balance = 0`을 외부 호출 전에 적용). 둘 중 하나만 있어도 현 구조에선 충분하지만, 향후 WMON unwrap 콜백과 state를 공유하는 cross-function 경로가 추가될 가능성에 대비.
+방어 다층 구성: `claim`에 `nonReentrant` (OZ `ReentrancyGuard`, ERC-7201 namespaced storage — proxy 안전) + CEI(`gift.balance = 0`을 외부 호출 전에 적용). 둘 중 하나만 있어도 현 구조에선 충분하지만, 향후 WNATIVE unwrap 콜백과 state를 공유하는 cross-function 경로가 추가될 가능성에 대비.
 
 ---
 
@@ -256,7 +256,7 @@ _buybackAndBurn(token, quoteToken, amount)
 | 중복 setup | `bytes(gift.id).length != 0` → `AlreadyConfigured` |
 | 잔액 0 claim | `balance > 0` 체크 → `ZeroBalance` |
 | Native unwrap 송금 실패 (receiver의 receive에서 revert) | `(bool ok,) = receiver.call{value}("")` → `NativeTransferFailed`. 전체 claim revert로 `gift.balance` 복구. `setReceiver`로 새 주소 지정 후 재시도 가능 |
-| 임의 native 송금 (실수 입금, 다른 컨트랙트에서 흘러옴) | `receive()`는 `msg.sender == wmon`만 허용 → 그 외 발신자는 `UnexpectedNative` revert. wmon→withdraw 콜백 외 경로로는 native가 vault에 쌓이지 않음 |
+| 임의 native 송금 (실수 입금, 다른 컨트랙트에서 흘러옴) | `receive()`는 `msg.sender == wnative`만 허용 → 그 외 발신자는 `UnexpectedNative` revert. wnative→withdraw 콜백 외 경로로는 native가 vault에 쌓이지 않음 |
 
 ---
 

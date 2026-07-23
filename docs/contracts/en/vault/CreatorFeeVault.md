@@ -16,7 +16,7 @@ Claim-model creator-fee vault. Singleton shared across all tokens. Each token re
 | `creatorFeeProcessor` | `address` | initialize | Authorized caller for `afterDeposit` |
 | `tokenRegistry` | `ITokenRegistry` | initialize | Looks up `quoteToken` for a given token at claim time |
 | `metadataURI` | `string` | initialize | Off-chain metadata pointer (`IVault`) |
-| `wmon` | `address` | initialize | Wrapped-native singleton. When `claim`'s registered quote == `wmon`, the vault unwraps and forwards native MON. `address(0)` disables the unwrap branch (claims always do an ERC20 transfer) |
+| `wnative` | `address` | initialize | Wrapped-native singleton. When `claim`'s registered quote == `wnative`, the vault unwraps and forwards native currency. `address(0)` disables the unwrap branch (claims always do an ERC20 transfer) |
 | `_creators` | `mapping(address => address)` | setup / setCreator | Per-token creator pointer; `claim` is gated on `msg.sender == _creators[token]` |
 | `_balances` | `mapping(address => uint256)` | afterDeposit / claim | Per-token accumulated quoteToken pending claim |
 
@@ -26,14 +26,14 @@ Claim-model creator-fee vault. Singleton shared across all tokens. Each token re
 
 | Function | Access | Description |
 |----------|--------|-------------|
-| `initialize(protocolManager_, bondingCurve_, creatorFeeProcessor_, tokenRegistry_, wmon_, metadataURI_)` | initializer | UUPS initializer. `wmon_` enables native unwrap on `claim` when registered quote matches |
+| `initialize(protocolManager_, bondingCurve_, creatorFeeProcessor_, tokenRegistry_, wnative_, metadataURI_)` | initializer | UUPS initializer. `wnative_` enables native unwrap on `claim` when registered quote matches |
 | `setup(token, data)` | `bondingCurve` only | Register the per-token creator. `data = abi.encode(creator)` |
 | `afterDeposit(token, _, amount)` | `creatorFeeProcessor` only | Add `amount` to `_balances[token]` if a creator is configured |
-| `claim(token)` | `msg.sender == _creators[token]`, `nonReentrant` | Withdraw the full accumulated balance. Unwraps to native MON when registered quote == `wmon` |
+| `claim(token)` | `msg.sender == _creators[token]`, `nonReentrant` | Withdraw the full accumulated balance. Unwraps to native currency when registered quote == `wnative` |
 | `setCreator(token, newCreator)` | **restricted** | Rotate the per-token creator. Past balance follows the new creator (claim authority transfers) |
 | `getCreator(token)` | view | Return `_creators[token]` (0 = not configured) |
 | `getBalance(token)` | view | Return `_balances[token]` |
-| `receive() external payable` | `msg.sender == wmon` only | Accepts native callback from `IWrappedNative.withdraw`. Reverts `UnexpectedNative` for any other sender |
+| `receive() external payable` | `msg.sender == wnative` only | Accepts native callback from `IWrappedNative.withdraw`. Reverts `UnexpectedNative` for any other sender |
 
 ---
 
@@ -75,8 +75,8 @@ creator -> CreatorFeeVault.claim(token)
   |-- require amount > 0 (ZeroBalance)
   |-- _balances[token] = 0                            # CEI: state cleared before external call
   |-- quoteToken = tokenRegistry.getQuoteToken(token)
-  |-- if wmon != 0 && quoteToken == wmon:
-  |     IWrappedNative(wmon).withdraw(amount)         # unwrap WMON → native MON into vault
+  |-- if wnative != 0 && quoteToken == wnative:
+  |     IWrappedNative(wnative).withdraw(amount)         # unwrap WNATIVE → native currency into vault
   |     (ok,) = creator.call{value: amount}("")       # forward native to creator
   |     require(ok, NativeTransferFailed)
   |-- else:
@@ -84,7 +84,7 @@ creator -> CreatorFeeVault.claim(token)
   +-- emit Claim(token, creator, amount)
 ```
 
-Defense in depth: `claim` carries `nonReentrant` (OZ `ReentrancyGuard`, ERC-7201 namespaced storage — proxy-safe) AND CEI is preserved (`_balances[token] = 0` precedes the external call). Either guard alone is sufficient for the current shape, but both together harden against future cross-function paths that might share state with the WMON unwrap callback.
+Defense in depth: `claim` carries `nonReentrant` (OZ `ReentrancyGuard`, ERC-7201 namespaced storage — proxy-safe) AND CEI is preserved (`_balances[token] = 0` precedes the external call). Either guard alone is sufficient for the current shape, but both together harden against future cross-function paths that might share state with the WNATIVE unwrap callback.
 
 ### `setCreator(token, newCreator)`
 
@@ -115,7 +115,7 @@ Pointer-only update. Any accumulated `_balances[token]` is inherited by the new 
 
 3. Creator pulls funds
    creator.claim(token)
-   -> if registered quote == wmon: unwrap and send native MON
+   -> if registered quote == wnative: unwrap and send native currency
    -> else: ERC20 safeTransfer
    -> _balances[token] = 0
 
@@ -139,7 +139,7 @@ Pointer-only update. Any accumulated `_balances[token]` is inherited by the new 
 | Claim with no balance | `_balances[token] > 0` → `ZeroBalance` |
 | Reentrancy via native callback | `nonReentrant` on `claim` (OZ `ReentrancyGuard`, ERC-7201 namespaced storage — proxy-safe) plus CEI (`_balances[token] = 0` before the external call). Reentrant `claim` is rejected by the guard before re-execution |
 | Native unwrap fails (creator reverts in `receive`) | `(bool ok,) = creator.call{value}("")` → `NativeTransferFailed`. Whole claim reverts; `_balances[token]` is restored by the revert. Use `setCreator` to rotate to a workable address and retry |
-| Stranded native (accidental funding, drained from elsewhere) | `receive()` accepts only `msg.sender == wmon` → `UnexpectedNative` for any other sender |
+| Stranded native (accidental funding, drained from elsewhere) | `receive()` accepts only `msg.sender == wnative` → `UnexpectedNative` for any other sender |
 | Rotation hijack | `setCreator` is `restricted` — only admin (PM owner) or operators granted `setCreator` selector permission |
 
 ---

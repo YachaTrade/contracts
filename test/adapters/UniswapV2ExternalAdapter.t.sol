@@ -14,7 +14,7 @@ contract UniswapV2ExternalAdapterTest is Test {
     MockUniswapV2Pair pair;
 
     function setUp() public {
-        quote = new MockERC20("WMON", "WMON", 18);
+        quote = new MockERC20("WNATIVE", "WNATIVE", 18);
         usdt = new MockERC20("USDT", "USDT", 18);
         (address t0, address t1) =
             address(quote) < address(usdt) ? (address(quote), address(usdt)) : (address(usdt), address(quote));

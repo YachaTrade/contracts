@@ -8,7 +8,7 @@ import {IBondingCurve} from "../../src/interfaces/IBondingCurve.sol";
 import {IGiwaRouter} from "../../src/interfaces/IGiwaRouter.sol";
 import {GiwaRouter} from "../../src/router/GiwaRouter.sol";
 import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
-import {MockWMON} from "../mocks/MockWMON.sol";
+import {MockWrappedNative} from "../mocks/MockWrappedNative.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
@@ -24,14 +24,14 @@ contract BondingCurveTest is SetUp {
         super.setUp();
         vault = makeAddr("vault");
 
-        wmon = new MockWMON();
+        wnative = new MockWrappedNative();
 
-        // Replace quoteToken with MockWMON in ProtocolManager, keep real modules
+        // Replace quoteToken with MockWrappedNative in ProtocolManager, keep real modules
         vm.startPrank(admin);
 
         protocolManager.removeQuoteToken(address(quoteToken));
         protocolManager.addQuoteToken(
-            address(wmon),
+            address(wnative),
             virtualReserve,
             virtualTokenReserve,
             minTokenReserve,
@@ -40,13 +40,13 @@ contract BondingCurveTest is SetUp {
             defaultCurveProtocolFee,
             defaultDexProtocolFee
         );
-        protocolManager.setV3QuoteConfig(address(wmon), DEFAULT_V3_FEE_TIER, DEFAULT_LP_FEE_PROTOCOL_SHARE_BPS);
+        protocolManager.setV3QuoteConfig(address(wnative), DEFAULT_V3_FEE_TIER, DEFAULT_LP_FEE_PROTOCOL_SHARE_BPS);
 
         bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), address(this));
         bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), user1);
         bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), user2);
 
-        // Deploy GiwaRouter as UUPS proxy with MockWMON as wrappedNative
+        // Deploy GiwaRouter as UUPS proxy with MockWrappedNative as wrappedNative
         GiwaRouter routerImpl = new GiwaRouter();
         localRouter = GiwaRouter(
             payable(address(
@@ -58,7 +58,7 @@ contract BondingCurveTest is SetUp {
                                 address(protocolManager),
                                 address(bondingCurve),
                                 address(tokenRegistry),
-                                address(wmon),
+                                address(wnative),
                                 address(v3SwapAdapter),
                                 address(quoterV2)
                             )
@@ -71,10 +71,10 @@ contract BondingCurveTest is SetUp {
         bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), address(localRouter));
         vm.stopPrank();
 
-        vm.deal(address(wmon), 1000 ether);
+        vm.deal(address(wnative), 1000 ether);
 
-        wmon.mint(address(this), defaultDeployFee);
-        wmon.approve(address(bondingCurve), defaultDeployFee);
+        wnative.mint(address(this), defaultDeployFee);
+        wnative.approve(address(bondingCurve), defaultDeployFee);
         (token,) = bondingCurve.create(_defaultBCParams());
 
         // Skip past anti-sniping window (table length = 7, indexed by `block.number - createdAtBlock`).
@@ -136,9 +136,9 @@ contract BondingCurveTest is SetUp {
     function test_buy_declaredAmountDoesNotSweepQuoteDonation() public {
         uint256 donation = 7 ether;
         uint256 quoteIn = 1 ether;
-        wmon.mint(user2, donation);
+        wnative.mint(user2, donation);
         vm.prank(user2);
-        wmon.transfer(address(bondingCurve), donation);
+        wnative.transfer(address(bondingCurve), donation);
 
         uint256 expectedTokenOut = bondingCurve.getAmountOut(token, quoteIn, true);
         _mintAndTransferBC(user1, quoteIn);
@@ -148,7 +148,7 @@ contract BondingCurveTest is SetUp {
         IBondingCurve.Curve memory curve = bondingCurve.getCurve(token);
         uint256 trackedQuote = curve.virtualQuoteReserve - curve.initialQuoteReserve;
         assertEq(tokenOut, expectedTokenOut, "donation must not increase declared buy input");
-        assertEq(wmon.balanceOf(address(bondingCurve)), trackedQuote + donation, "quote donation remains untouched");
+        assertEq(wnative.balanceOf(address(bondingCurve)), trackedQuote + donation, "quote donation remains untouched");
 
         vm.prank(user1);
         vm.expectRevert();
@@ -192,7 +192,7 @@ contract BondingCurveTest is SetUp {
         uint256 tokenOut = bondingCurve.buy(user1, token, 1 ether);
 
         uint256 sellAmount = tokenOut / 2;
-        uint256 quoteBefore = wmon.balanceOf(user1);
+        uint256 quoteBefore = wnative.balanceOf(user1);
 
         vm.startPrank(user1);
         IERC20(token).approve(address(localRouter), sellAmount);
@@ -204,7 +204,7 @@ contract BondingCurveTest is SetUp {
         vm.stopPrank();
 
         assertGt(quoteOut, 0, "Should receive positive quote output");
-        assertEq(wmon.balanceOf(user1), quoteBefore + quoteOut, "Quote balance should increase by quoteOut");
+        assertEq(wnative.balanceOf(user1), quoteBefore + quoteOut, "Quote balance should increase by quoteOut");
 
         // Exact sell math and reserve accounting are asserted in test_sell_updatesState.
     }
@@ -285,8 +285,8 @@ contract BondingCurveTest is SetUp {
     }
 
     function test_antiSniping_maxPenaltyAtCreation() public {
-        wmon.mint(address(this), defaultDeployFee);
-        wmon.approve(address(bondingCurve), defaultDeployFee);
+        wnative.mint(address(this), defaultDeployFee);
+        wnative.approve(address(bondingCurve), defaultDeployFee);
         (address newToken,) = bondingCurve.create(_createBCParams("SnipeTest", "ST", keccak256("snipeTest")));
         assertEq(bondingCurve.getSnipingPenalty(newToken), 8000, "Penalty should be 8000 BPS (80%) at creation");
         _verifySnipingBuyAndFees(newToken);
@@ -298,8 +298,8 @@ contract BondingCurveTest is SetUp {
         vm.prank(admin);
         protocolManager.setSnipingPenaltyTable(penaltyTable);
 
-        wmon.mint(address(this), defaultDeployFee);
-        wmon.approve(address(bondingCurve), defaultDeployFee);
+        wnative.mint(address(this), defaultDeployFee);
+        wnative.approve(address(bondingCurve), defaultDeployFee);
         (address newToken,) = bondingCurve.create(_createBCParams("FullPenalty", "FP", keccak256("fullPenalty")));
 
         uint256 quoteIn = 1 ether;
@@ -314,7 +314,7 @@ contract BondingCurveTest is SetUp {
         uint256 tokenOut = bondingCurve.buy(user1, newToken, quoteIn);
 
         assertEq(tokenOut, 0, "execution must match the zero-output view");
-        assertEq(wmon.balanceOf(currentFeeReceiver), quoteIn, "current fee receiver gets the full quote input");
+        assertEq(wnative.balanceOf(currentFeeReceiver), quoteIn, "current fee receiver gets the full quote input");
 
         vm.expectRevert("Fee exceeds 100%");
         bondingCurve.getAmountIn(newToken, 1, true);
@@ -324,7 +324,7 @@ contract BondingCurveTest is SetUp {
         // Additive model: totalFeeRate = 8000 (sniping) + protocol < BPS, buy succeeds.
         // Verify a substantial sniping fee was charged.
         _mintAndTransferBC(user1, 1 ether);
-        uint256 feeReceiverBefore = wmon.balanceOf(feeReceiver);
+        uint256 feeReceiverBefore = wnative.balanceOf(feeReceiver);
         uint256 snipingFee = 800_000_000_000_000_000;
         uint256 protocolFee = 1 ether * uint256(defaultCurveProtocolFee) / 10000;
 
@@ -335,15 +335,15 @@ contract BondingCurveTest is SetUp {
 
         assertGt(tokenOut, 0, "buy succeeds at 80% sniping penalty");
         assertEq(IERC20(newToken).balanceOf(user1), tokenOut, "buyer receives quoted tokens");
-        uint256 feeReceiverDelta = wmon.balanceOf(feeReceiver) - feeReceiverBefore;
+        uint256 feeReceiverDelta = wnative.balanceOf(feeReceiver) - feeReceiverBefore;
         assertEq(feeReceiverDelta, snipingFee + protocolFee, "fee receiver gets protocol and sniping fees");
     }
 
     /// @dev Verifies the per-block penalty curve matches the production table
     ///      [8000, 4000, 2000, 1500, 1000, 1000, 500] BPS for blocks 0..6, then 0.
     function test_antiSniping_perBlockTableMatchesCurve() public {
-        wmon.mint(address(this), defaultDeployFee);
-        wmon.approve(address(bondingCurve), defaultDeployFee);
+        wnative.mint(address(this), defaultDeployFee);
+        wnative.approve(address(bondingCurve), defaultDeployFee);
         (address newToken,) = bondingCurve.create(_createBCParams("Curve", "CV", keccak256("curve")));
         IBondingCurve.Curve memory curve = bondingCurve.getCurve(newToken);
         uint64 createdAtBlock = curve.createdAtBlock;
@@ -369,15 +369,15 @@ contract BondingCurveTest is SetUp {
 
     function test_antiSniping_sameBlockUsesIndexZero() public {
         // Create + read in the same block — elapsed = 0, max penalty applies.
-        wmon.mint(address(this), defaultDeployFee);
-        wmon.approve(address(bondingCurve), defaultDeployFee);
+        wnative.mint(address(this), defaultDeployFee);
+        wnative.approve(address(bondingCurve), defaultDeployFee);
         (address newToken,) = bondingCurve.create(_createBCParams("SameBlk", "SB", keccak256("sameBlk")));
         assertEq(bondingCurve.getSnipingPenalty(newToken), 8000, "same-block read should hit table[0]");
     }
 
     function test_buy_smallAmountDuringSniping_doesNotUnderflowFeeRounding() public {
-        wmon.mint(address(this), defaultDeployFee);
-        wmon.approve(address(bondingCurve), defaultDeployFee);
+        wnative.mint(address(this), defaultDeployFee);
+        wnative.approve(address(bondingCurve), defaultDeployFee);
         (address newToken,) = bondingCurve.create(_createBCParams("Rounding", "RND", keccak256("rounding")));
 
         IBondingCurve.Curve memory curve = bondingCurve.getCurve(newToken);
@@ -386,14 +386,14 @@ contract BondingCurveTest is SetUp {
         assertEq(bondingCurve.getSnipingPenalty(newToken), 500, "precondition: tail-of-window sniping penalty");
 
         _mintAndTransferBC(user1, 10);
-        uint256 feeReceiverBefore = wmon.balanceOf(feeReceiver);
+        uint256 feeReceiverBefore = wnative.balanceOf(feeReceiver);
         vm.prank(user1);
         vm.expectEmit(true, true, false, true, address(bondingCurve));
         emit IBondingCurve.SnipingPenalty(newToken, user1, 1, 500);
         uint256 tokenOut = bondingCurve.buy(user1, newToken, 10);
 
         assertGt(tokenOut, 0, "small buy should not underflow fee split");
-        assertEq(wmon.balanceOf(feeReceiver) - feeReceiverBefore, 1, "rounded fee is fully sniping penalty");
+        assertEq(wnative.balanceOf(feeReceiver) - feeReceiverBefore, 1, "rounded fee is fully sniping penalty");
     }
 
     // BondingCurve.getAmountIn includes protocolFee + snipingPenalty.
@@ -407,7 +407,7 @@ contract BondingCurveTest is SetUp {
     function test_getAmountIn_buy_withProtocolFee() public {
         vm.prank(admin);
         protocolManager.updateQuoteToken(
-            address(wmon), virtualReserve, virtualTokenReserve, minTokenReserve, 0, defaultGraduateFee, 100, 0
+            address(wnative), virtualReserve, virtualTokenReserve, minTokenReserve, 0, defaultGraduateFee, 100, 0
         );
 
         uint256 desiredTokens = 1000 ether;
@@ -416,8 +416,8 @@ contract BondingCurveTest is SetUp {
     }
 
     function test_getAmountIn_buy_withSnipingPenalty() public {
-        wmon.mint(address(this), defaultDeployFee);
-        wmon.approve(address(bondingCurve), defaultDeployFee);
+        wnative.mint(address(this), defaultDeployFee);
+        wnative.approve(address(bondingCurve), defaultDeployFee);
         (address newToken,) = bondingCurve.create(_createBCParams("PenaltyTest", "PT", keccak256("penaltyTest")));
 
         // Same-block buy → max sniping (8000 BPS). getAmountIn must inflate the input to cover
@@ -444,7 +444,7 @@ contract BondingCurveTest is SetUp {
     function test_getAmountIn_sell_withProtocolFee() public {
         vm.prank(admin);
         protocolManager.updateQuoteToken(
-            address(wmon), virtualReserve, virtualTokenReserve, minTokenReserve, 0, defaultGraduateFee, 100, 0
+            address(wnative), virtualReserve, virtualTokenReserve, minTokenReserve, 0, defaultGraduateFee, 100, 0
         );
 
         _mintAndTransferBC(user1, 5 ether);
@@ -467,7 +467,7 @@ contract BondingCurveTest is SetUp {
     function test_getAmountOut_buy_withProtocolFee() public {
         vm.prank(admin);
         protocolManager.updateQuoteToken(
-            address(wmon), virtualReserve, virtualTokenReserve, minTokenReserve, 0, defaultGraduateFee, 100, 0
+            address(wnative), virtualReserve, virtualTokenReserve, minTokenReserve, 0, defaultGraduateFee, 100, 0
         );
 
         uint256 quoteIn = 1 ether;
@@ -489,7 +489,7 @@ contract BondingCurveTest is SetUp {
     function test_getAmountOut_sell_withProtocolFee() public {
         vm.prank(admin);
         protocolManager.updateQuoteToken(
-            address(wmon), virtualReserve, virtualTokenReserve, minTokenReserve, 0, defaultGraduateFee, 100, 0
+            address(wnative), virtualReserve, virtualTokenReserve, minTokenReserve, 0, defaultGraduateFee, 100, 0
         );
 
         _mintAndTransferBC(user1, 5 ether);
@@ -505,9 +505,9 @@ contract BondingCurveTest is SetUp {
         uint256 desiredTokens = 1000 ether;
         uint256 maxQuoteIn = 5 ether;
 
-        wmon.mint(user1, maxQuoteIn);
+        wnative.mint(user1, maxQuoteIn);
         vm.startPrank(user1);
-        wmon.approve(address(localRouter), maxQuoteIn);
+        wnative.approve(address(localRouter), maxQuoteIn);
 
         uint256 amountIn = localRouter.exactOutBuy(
             IGiwaRouter.ExactOutBuyParams({
@@ -524,16 +524,16 @@ contract BondingCurveTest is SetUp {
         assertGe(tokenBalance, desiredTokens, "Should receive at least desired tokens");
         assertApproxEqAbs(tokenBalance, desiredTokens, 1e15, "Surplus from rounding should be small");
         assertLe(amountIn, maxQuoteIn, "Should not exceed max input");
-        assertEq(wmon.balanceOf(user1), maxQuoteIn - amountIn, "Refund should match");
+        assertEq(wnative.balanceOf(user1), maxQuoteIn - amountIn, "Refund should match");
     }
 
     function test_exactOutBuy_excessiveInput() public {
         uint256 desiredTokens = 500_000_000 ether;
         uint256 tooLittleQuote = 1 ether;
 
-        wmon.mint(user1, tooLittleQuote);
+        wnative.mint(user1, tooLittleQuote);
         vm.startPrank(user1);
-        wmon.approve(address(localRouter), tooLittleQuote);
+        wnative.approve(address(localRouter), tooLittleQuote);
 
         vm.expectRevert(IGiwaRouter.ExcessiveInput.selector);
         localRouter.exactOutBuy(
@@ -566,8 +566,8 @@ contract BondingCurveTest is SetUp {
     }
 
     function test_exactOutBuy_withSnipingPenalty() public {
-        wmon.mint(address(this), defaultDeployFee);
-        wmon.approve(address(bondingCurve), defaultDeployFee);
+        wnative.mint(address(this), defaultDeployFee);
+        wnative.approve(address(bondingCurve), defaultDeployFee);
         (address newToken,) =
             bondingCurve.create(_createBCParams("ExactOutPenalty", "EOP", keccak256("exactOutPenalty")));
 
@@ -578,9 +578,9 @@ contract BondingCurveTest is SetUp {
         uint256 desiredTokens = 100 ether;
         uint256 maxQuoteIn = 5_000 ether;
 
-        wmon.mint(user1, maxQuoteIn);
+        wnative.mint(user1, maxQuoteIn);
         vm.startPrank(user1);
-        wmon.approve(address(localRouter), maxQuoteIn);
+        wnative.approve(address(localRouter), maxQuoteIn);
 
         uint256 amountIn = localRouter.exactOutBuy(
             IGiwaRouter.ExactOutBuyParams({
@@ -599,9 +599,9 @@ contract BondingCurveTest is SetUp {
 
     function test_exactOutSell() public {
         uint256 buyAmount = 2 ether;
-        wmon.mint(user1, buyAmount);
+        wnative.mint(user1, buyAmount);
         vm.startPrank(user1);
-        wmon.approve(address(localRouter), buyAmount);
+        wnative.approve(address(localRouter), buyAmount);
         uint256 tokensOwned = localRouter.buy(
             IGiwaRouter.BuyParams({
                 amountIn: buyAmount, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1
@@ -611,7 +611,7 @@ contract BondingCurveTest is SetUp {
         uint256 desiredQuoteOut = 0.5 ether;
         IERC20(token).approve(address(localRouter), tokensOwned);
 
-        uint256 quoteBefore = wmon.balanceOf(user1);
+        uint256 quoteBefore = wnative.balanceOf(user1);
         uint256 tokenIn = localRouter.exactOutSell(
             IGiwaRouter.ExactOutSellParams({
                 amountInMax: tokensOwned,
@@ -626,7 +626,7 @@ contract BondingCurveTest is SetUp {
         assertGt(tokenIn, 0, "Should spend launch tokens");
         assertLe(tokenIn, tokensOwned, "Should not exceed max launch-token input");
         assertApproxEqAbs(
-            wmon.balanceOf(user1) - quoteBefore,
+            wnative.balanceOf(user1) - quoteBefore,
             desiredQuoteOut,
             1,
             "Should receive desired quote (1 wei tolerance for fee rounding)"
@@ -636,9 +636,9 @@ contract BondingCurveTest is SetUp {
 
     function test_exactOutSellToNative() public {
         uint256 buyAmount = 2 ether;
-        wmon.mint(user1, buyAmount);
+        wnative.mint(user1, buyAmount);
         vm.startPrank(user1);
-        wmon.approve(address(localRouter), buyAmount);
+        wnative.approve(address(localRouter), buyAmount);
         uint256 tokensOwned = localRouter.buy(
             IGiwaRouter.BuyParams({
                 amountIn: buyAmount, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1
@@ -672,9 +672,9 @@ contract BondingCurveTest is SetUp {
     }
 
     function test_exactOutSell_excessiveInput() public {
-        wmon.mint(user1, 0.01 ether);
+        wnative.mint(user1, 0.01 ether);
         vm.startPrank(user1);
-        wmon.approve(address(localRouter), 0.01 ether);
+        wnative.approve(address(localRouter), 0.01 ether);
         uint256 tokensOwned = localRouter.buy(
             IGiwaRouter.BuyParams({
                 amountIn: 0.01 ether, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1
@@ -697,9 +697,9 @@ contract BondingCurveTest is SetUp {
 
         uint256 buyAmount = 1 ether;
         params.buyQuoteAmount = buyAmount;
-        wmon.mint(user1, defaultDeployFee + buyAmount);
+        wnative.mint(user1, defaultDeployFee + buyAmount);
         vm.prank(user1);
-        wmon.approve(address(bondingCurve), defaultDeployFee + buyAmount);
+        wnative.approve(address(bondingCurve), defaultDeployFee + buyAmount);
 
         vm.prank(user1);
         (address newToken, uint256 tokenOut) = bondingCurve.create(params);
@@ -718,9 +718,9 @@ contract BondingCurveTest is SetUp {
 
         uint256 buyAmount = 1 ether;
         params.buyQuoteAmount = buyAmount;
-        wmon.mint(user1, defaultDeployFee + buyAmount);
+        wnative.mint(user1, defaultDeployFee + buyAmount);
         vm.prank(user1);
-        wmon.approve(address(bondingCurve), defaultDeployFee + buyAmount);
+        wnative.approve(address(bondingCurve), defaultDeployFee + buyAmount);
 
         vm.prank(user1);
         (address newToken, uint256 creatorTokenOut) = bondingCurve.create(params);
@@ -728,9 +728,9 @@ contract BondingCurveTest is SetUp {
         // Warp past sniping so user2's buy doesn't hit totalFeeRate >= BPS
         vm.warp(block.timestamp + 100 minutes);
 
-        wmon.mint(user2, buyAmount);
+        wnative.mint(user2, buyAmount);
         vm.prank(user2);
-        wmon.approve(address(bondingCurve), buyAmount);
+        wnative.approve(address(bondingCurve), buyAmount);
 
         vm.prank(user2);
         uint256 nonCreatorTokenOut = bondingCurve.buy(user2, newToken, buyAmount);
@@ -741,9 +741,9 @@ contract BondingCurveTest is SetUp {
     function test_create_createOnly() public {
         IBondingCurve.CreateTokenParams memory params = _createBCParams("CreateOnly", "CO", keccak256("createAndBuy3"));
 
-        wmon.mint(user1, defaultDeployFee);
+        wnative.mint(user1, defaultDeployFee);
         vm.prank(user1);
-        wmon.approve(address(bondingCurve), defaultDeployFee);
+        wnative.approve(address(bondingCurve), defaultDeployFee);
         vm.prank(user1);
         (address newToken, uint256 tokenOut) = bondingCurve.create(params);
 
@@ -764,8 +764,8 @@ contract BondingCurveTest is SetUp {
         IBondingCurve.CreateTokenParams memory params = _createBCParams("V2 Disabled", "V2D", keccak256("v2-disabled"));
         params.dexType = ITokenRegistry.DexType.UniswapV2;
 
-        wmon.mint(address(this), defaultDeployFee);
-        wmon.approve(address(bondingCurve), defaultDeployFee);
+        wnative.mint(address(this), defaultDeployFee);
+        wnative.approve(address(bondingCurve), defaultDeployFee);
         vm.expectRevert("Unsupported dexType");
         bondingCurve.create(params);
     }
@@ -774,8 +774,8 @@ contract BondingCurveTest is SetUp {
         IBondingCurve.CreateTokenParams memory params = _createBCParams("BadDex", "BDX", keccak256("bad-dex-type"));
         params.dexType = ITokenRegistry.DexType.UniswapV4;
 
-        wmon.mint(address(this), defaultDeployFee);
-        wmon.approve(address(bondingCurve), defaultDeployFee);
+        wnative.mint(address(this), defaultDeployFee);
+        wnative.approve(address(bondingCurve), defaultDeployFee);
         vm.expectRevert("Unsupported dexType");
         bondingCurve.create(params);
     }
@@ -785,13 +785,13 @@ contract BondingCurveTest is SetUp {
             _createBCParams("V3 Launch", "V3L", keccak256("v3-without-legacy-adapter"));
         params.dexType = ITokenRegistry.DexType.UniswapV3;
 
-        wmon.mint(address(this), defaultDeployFee);
-        wmon.approve(address(bondingCurve), defaultDeployFee);
+        wnative.mint(address(this), defaultDeployFee);
+        wnative.approve(address(bondingCurve), defaultDeployFee);
         (address v3Token,) = bondingCurve.create(params);
 
         ITokenRegistry.TokenInfo memory info = tokenRegistry.getTokenInfo(v3Token);
         assertEq(uint256(info.dexType), uint256(ITokenRegistry.DexType.UniswapV3));
-        assertEq(info.pool, v3Factory.getPool(v3Token, address(wmon), DEFAULT_V3_FEE_TIER));
+        assertEq(info.pool, v3Factory.getPool(v3Token, address(wnative), DEFAULT_V3_FEE_TIER));
         assertEq(info.pair, info.pool);
         assertEq(info.feeTier, DEFAULT_V3_FEE_TIER);
     }
@@ -799,12 +799,12 @@ contract BondingCurveTest is SetUp {
     function test_graduate_usesCreationFeeTierSnapshotAfterQuoteConfigChanges() public {
         ITokenRegistry.TokenInfo memory beforeInfo = tokenRegistry.getTokenInfo(token);
         assertEq(beforeInfo.feeTier, DEFAULT_V3_FEE_TIER, "creation tier snapshot");
-        assertEq(beforeInfo.pool, v3Factory.getPool(token, address(wmon), DEFAULT_V3_FEE_TIER), "tier A pool");
+        assertEq(beforeInfo.pool, v3Factory.getPool(token, address(wnative), DEFAULT_V3_FEE_TIER), "tier A pool");
 
         uint24 updatedFeeTier = 500;
         vm.prank(admin);
-        protocolManager.setV3QuoteConfig(address(wmon), updatedFeeTier, DEFAULT_LP_FEE_PROTOCOL_SHARE_BPS);
-        assertEq(protocolManager.getConfig(address(wmon)).v3FeeTier, updatedFeeTier, "live tier changed to B");
+        protocolManager.setV3QuoteConfig(address(wnative), updatedFeeTier, DEFAULT_LP_FEE_PROTOCOL_SHARE_BPS);
+        assertEq(protocolManager.getConfig(address(wnative)).v3FeeTier, updatedFeeTier, "live tier changed to B");
 
         _mintAndTransferBC(user1, 800_000 ether);
         vm.prank(user1);
@@ -814,8 +814,10 @@ contract BondingCurveTest is SetUp {
         ITokenRegistry.TokenInfo memory afterInfo = tokenRegistry.getTokenInfo(token);
         assertEq(afterInfo.feeTier, DEFAULT_V3_FEE_TIER, "registry keeps tier A snapshot");
         assertEq(afterInfo.pool, beforeInfo.pool, "registry keeps canonical tier A pool");
-        assertEq(v3Factory.getPool(token, address(wmon), DEFAULT_V3_FEE_TIER), beforeInfo.pool, "factory tier A pool");
-        assertEq(v3Factory.getPool(token, address(wmon), updatedFeeTier), address(0), "no tier B pool created");
+        assertEq(
+            v3Factory.getPool(token, address(wnative), DEFAULT_V3_FEE_TIER), beforeInfo.pool, "factory tier A pool"
+        );
+        assertEq(v3Factory.getPool(token, address(wnative), updatedFeeTier), address(0), "no tier B pool created");
     }
 
     function test_graduate_distributesOnlyTrackedReservesAndLeavesDonations() public {
@@ -828,9 +830,9 @@ contract BondingCurveTest is SetUp {
         uint256 quoteDonation = 9 ether;
         vm.prank(user1);
         IERC20(token).transfer(address(bondingCurve), tokenDonation);
-        wmon.mint(user2, quoteDonation);
+        wnative.mint(user2, quoteDonation);
         vm.prank(user2);
-        wmon.transfer(address(bondingCurve), quoteDonation);
+        wnative.transfer(address(bondingCurve), quoteDonation);
 
         uint256 graduationQuoteIn = 800_000 ether;
         _mintAndTransferBC(user1, graduationQuoteIn);
@@ -839,7 +841,7 @@ contract BondingCurveTest is SetUp {
 
         assertTrue(bondingCurve.getCurve(token).graduated, "precondition: token graduated");
         assertEq(IERC20(token).balanceOf(address(bondingCurve)), tokenDonation, "token donation remains on curve");
-        assertEq(wmon.balanceOf(address(bondingCurve)), quoteDonation, "quote donation remains on curve");
+        assertEq(wnative.balanceOf(address(bondingCurve)), quoteDonation, "quote donation remains on curve");
     }
 
     /// @dev Previously, empty setupData skipped IVault.setup, leaving CreatorFeeVault
@@ -850,8 +852,8 @@ contract BondingCurveTest is SetUp {
         IBondingCurve.CreateTokenParams memory params = _createBCParams("EmptySetup", "ES", keccak256("empty-setup"));
         params.vaults[0].setupData = "";
 
-        wmon.mint(address(this), defaultDeployFee);
-        wmon.approve(address(bondingCurve), defaultDeployFee);
+        wnative.mint(address(this), defaultDeployFee);
+        wnative.approve(address(bondingCurve), defaultDeployFee);
         vm.expectRevert();
         bondingCurve.create(params);
     }
@@ -865,9 +867,9 @@ contract BondingCurveTest is SetUp {
         vm.prank(admin);
         bondingCurve.grantRole(routerRole, user1);
 
-        wmon.mint(user1, defaultDeployFee);
+        wnative.mint(user1, defaultDeployFee);
         vm.prank(user1);
-        wmon.approve(address(bondingCurve), defaultDeployFee);
+        wnative.approve(address(bondingCurve), defaultDeployFee);
         vm.prank(user1);
         (address newToken,) = bondingCurve.create(params);
 
@@ -876,15 +878,15 @@ contract BondingCurveTest is SetUp {
     }
 
     function _mintAndTransferBC(address _user, uint256 amount) internal {
-        wmon.mint(_user, amount);
+        wnative.mint(_user, amount);
         vm.prank(_user);
-        wmon.approve(address(bondingCurve), amount);
+        wnative.approve(address(bondingCurve), amount);
     }
 
     function _mintAndApproveRouter(address _user, uint256 amount) internal {
-        wmon.mint(_user, amount);
+        wnative.mint(_user, amount);
         vm.prank(_user);
-        wmon.approve(address(localRouter), amount);
+        wnative.approve(address(localRouter), amount);
     }
 
     function _createBCParams(string memory name, string memory symbol, bytes32 salt)
@@ -900,7 +902,7 @@ contract BondingCurveTest is SetUp {
             name: name,
             symbol: symbol,
             tokenURI: "",
-            quoteToken: address(wmon),
+            quoteToken: address(wnative),
             vaults: vaults,
             salt: salt,
             dexType: ITokenRegistry.DexType.UniswapV3,
@@ -918,7 +920,7 @@ contract BondingCurveTest is SetUp {
             name: "BondingTest",
             symbol: "BT",
             tokenURI: "",
-            quoteToken: address(wmon),
+            quoteToken: address(wnative),
             vaults: vaults,
             salt: keccak256("bondingCurveTest"),
             dexType: ITokenRegistry.DexType.UniswapV3,

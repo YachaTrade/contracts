@@ -11,7 +11,7 @@ BondingCurve integrates the functionality of the former Router + TokenFactory in
 **Key changes from v1:**
 - **ERC20 trading**: All bonding curve trading uses ERC20 quote tokens. BondingCurve uses a balance-detection pattern — callers must pre-transfer tokens before calling buy/sell. The core functions detect the deposited amount from balance deltas rather than accepting an explicit amount parameter.
 - **ProtocolManager**: Replaces the former CurveRegistry + FeeManager + AdminModule. Each token's bonding curve parameters (virtualReserve, minTokenReserve) come from ProtocolManager's per-quote-token config
-- **Multi-quote-token**: Different tokens can use different quote tokens (WMON, USDT, etc.)
+- **Multi-quote-token**: Different tokens can use different quote tokens (WNATIVE, USDT, etc.)
 - **Virtual reserve AMM**: Uses virtualQuoteReserve + virtualTokenReserve instead of reserve + circulatingSupply
 
 ## Token Creation Flow
@@ -113,7 +113,7 @@ Block-number based lookup table — uses `block.number` instead of `block.timest
 struct Curve {
     address token;                  // Token clone (plain ERC20)
     address creator;                // Token creator
-    address quoteToken;             // Quote token (e.g., WMON, USDT)
+    address quoteToken;             // Quote token (e.g., WNATIVE, USDT)
     uint256 virtualQuoteReserve;    // AMM quote reserve (virtual + real)
     uint256 virtualTokenReserve;    // AMM token reserve (virtual + real)
     uint64 createdAtBlock;          // Creation block number (anti-sniping index)

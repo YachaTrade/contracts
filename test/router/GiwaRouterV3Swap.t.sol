@@ -977,7 +977,7 @@ contract GiwaRouterV3SwapTest is SetUp {
                                 address(protocolManager),
                                 address(bondingCurve),
                                 address(tokenRegistry),
-                                address(wmon),
+                                address(wnative),
                                 address(v3SwapAdapter),
                                 address(stateChangingQuoter)
                             )

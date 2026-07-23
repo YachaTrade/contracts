@@ -34,10 +34,10 @@
 | `bondingCurve` | `address` | public | `setup` 호출 권한 |
 | `router` | `address` | public | GiwaRouter — `executeConversion`의 router hop이 본딩 phase 또는 등록된 canonical-V3 토큰에 `buy`를 호출. `initialize`로 배선되며 `setAdapters` 레인이 아님 |
 | `bondingCurveV1` | `IBondingCurveV1` | public | V1 BondingCurve (`src/integration/interfaces/IBondingCurveV1.sol`) — 입장 게이트의 진실 소스: `createdAt != 0` = V1 멤버십 (졸업 후에도 유지), `isGraduated` = 단방향 졸업 플래그 |
-| `nadSwapAdapter` | `IDexAdapter` | public | 볼트 보유 allowlist 레인 — 일반 NadFunPair 풀 hop용 (USDC/WMON 같은 vanilla 풀, cross-quote 중간 다리 — 라우터는 토큰 주소로만 사므로 임의 풀을 못 함) (0 = 레인 비활성) |
+| `nadSwapAdapter` | `IDexAdapter` | public | 볼트 보유 allowlist 레인 — 일반 NadFunPair 풀 hop용 (USDC/WNATIVE 같은 vanilla 풀, cross-quote 중간 다리 — 라우터는 토큰 주소로만 사므로 임의 풀을 못 함) (0 = 레인 비활성) |
 | `uniswapV2Adapter` | `IDexAdapter` | public | 볼트 보유 allowlist 레인 — 외부 Uniswap V2 pair hop용 (0 = 레인 비활성) |
 | `uniswapV3Adapter` | `IDexAdapter` | public | 볼트 보유 allowlist 레인 — Capricorn CL / Uniswap V3 pool hop용 (0 = 레인 비활성) |
-| `wmon` | `address` | public | claim 시 native 언래핑에만 쓰이는 WMON 싱글톤 (0 = 언래핑 비활성) |
+| `wnative` | `address` | public | claim 시 native 언래핑에만 쓰이는 WNATIVE 싱글톤 (0 = 언래핑 비활성) |
 
 > **hop은 두 종류, 둘 다 자금 안전:** `executeConversion`은 **router hop**(`hop.adapter == router`)에서 `GiwaRouter.buy`를 직접 호출하고, **adapter hop**에서는 세 보유 레인(`nadSwapAdapter`/`uniswapV2Adapter`/`uniswapV3Adapter`)을 토큰 push 전에 검사한다(`UnknownAdapter`). 잘못된 adapter나 미설정 lane은 자금을 받을 수 없다. GiwaRouter는 pull pattern과 lifecycle dispatch를 가진 상위 router이므로 `IDexAdapter`로 감싸지 않는다. `nadSwapAdapter`는 GiwaRouter의 졸업 후 V3 경로가 거부하는 명시적 레거시 NadFunPair 풀을 담당한다.
 
@@ -120,7 +120,7 @@
 | `executeConversion(ConversionOrder[] orders)` | restricted (operator bot) | 단일 변환 진입점: pending quote 슬라이스들을 명시적 `ConversionHop[]` 어댑터 경로로 변환 — 배치, 순차, 원자적(한 order 실패 시 전체 배치 revert); `nonReentrant` |
 | `setMerkleRoot(newRoot)` | restricted (operator) | 새 글로벌 Merkle root 게시 (새 claim period 시작) |
 | `claim(sourceTokens[], dividendTokens[], amounts[], merkleProofs[])` | anyone (본인 claim) | 배당 수령; leaf amount는 전체 누적 accrued, `amount - claimedCumulative`만 지급 |
-| `setWmon(newWmon)` | restricted (admin) | claim 시 native 언래핑용 WMON 설정 (`0` = 언래핑 비활성) |
+| `setWnative(newWnative)` | restricted (admin) | claim 시 native 언래핑용 WNATIVE 설정 (`0` = 언래핑 비활성) |
 | `setAdapters(nadSwapAdapter, uniswapV2Adapter, uniswapV3Adapter)` | restricted (admin) | 세 어댑터 레인 교체 (개별 `0` = 해당 레인 비활성). router hop은 레인 배선 불필요 — init의 `router` 사용 |
 | `setAllowedDividendToken(token, allowed)` | restricted (admin) | 외부(V2 미등록) 배당 토큰의 `setup` 입장 개방/폐쇄. 개방(`true`)은 코드 존재(`NotContract`)와 V1 미졸업 차단(`V1TokenNotGraduated`)을 통과해야 함; 폐쇄는 무검사 |
 | `getConfig(sourceToken)` | external view | sourceToken의 `DividendConfig` 반환 |
@@ -137,7 +137,7 @@ BondingCurve -> DividendVault.setup(sourceToken, abi.encode(dividendTokens, rati
   |     |-- dt == quoteToken                       → OK (무변환 슬롯, afterDeposit에서 즉시 적립)
   |     |-- tokenRegistryV2.isRegistered(dt)       → OK (nad.fun V2 토큰, 본딩·졸업 무관)
   |     |-- allowedDividendToken[dt]               → OK (admin이 입장 개방한 외부 토큰)
-  |     |-- protocolManager.isAllowed(dt)          → OK (설정된 quote 토큰, 예: WMON / LvMON)
+  |     |-- protocolManager.isAllowed(dt)          → OK (설정된 quote 토큰, 예: WNATIVE / LvMON)
   |     |-- bondingCurveV1.createdAt(dt) != 0 && isGraduated(dt) → OK (졸업한 V1 토큰, DEX 풀 있음)
   |     +-- else                                   → revert UnsupportedDividendToken
   |-- 중복 dividendToken 금지 (DuplicateDividendToken)
@@ -145,7 +145,7 @@ BondingCurve -> DividendVault.setup(sourceToken, abi.encode(dividendTokens, rati
 ```
 
 > **quote 일치 검증 없음.** `setup`은 *입장*만 게이트한다 — 배당 토큰이 어떤 quote로 거래되는지는
-> 따지지 않는다. cross-quote 시장(예: LvMON quote source가 WMON quote 배당 토큰을 지급, 또는
+> 따지지 않는다. cross-quote 시장(예: LvMON quote source가 WNATIVE quote 배당 토큰을 지급, 또는
 > XAUT 같은 USDT-quoted 자산)은 전부 변환 시점에 bot의 path 구성으로 해결된다. 졸업한 V1 토큰·외부
 > ERC20은 `setAllowedDividendToken(dt, true)`로 입장한다 — 이 입구 자체가 codeless 주소와 졸업 전
 > V1 토큰을 거부한다(위 V1 입장 게이트 참조). 온체인 라우팅 지식 없이 "미등록 토큰 revert" 방어는
@@ -270,13 +270,13 @@ holder -> DividendVault.claim(sourceTokens[], dividendTokens[], amounts[], merkl
   |        (누적 전진 안 함 → 볼트 충전 후 재청구 가능)
   |     7. claimedCumulative[sourceToken][msg.sender][dividendToken] = amount  (CEI: 전송 전 high-water mark 갱신)
   |     8. 지급 (인라인):
-  |           dividendToken == wmon && wmon != 0:
-  |             IWrappedNative(wmon).withdraw(payout)
-  |             TransferHelper.safeTransferMon(msg.sender, payout)
+  |           dividendToken == wnative && wnative != 0:
+  |             IWrappedNative(wnative).withdraw(payout)
+  |             TransferHelper.safeTransferNative(msg.sender, payout)
   |           else: IERC20(dividendToken).safeTransfer(msg.sender, payout)
   +-- 모든 항목 처리 후: emit Claim(msg.sender, sourceTokens[], dividendTokens[], paidAmounts[])
 
-receive() external payable { if (msg.sender != wmon) revert UnexpectedNative(); }
+receive() external payable { if (msg.sender != wnative) revert UnexpectedNative(); }
 ```
 
 ---
@@ -300,7 +300,7 @@ path 구성 문제이고 컨트랙트는 변경되지 않는다.
 | source quoteToken 자체 | 없음 — `afterDeposit`이 `dividendBalance`에 직접 적립 | — |
 | V2 토큰 (본딩 **또는** 졸업 — 분기는 라우터 소관) | `executeConversion` | 단일 router hop: `hop.adapter = router`, `tokenOut = 해당 토큰` (`pair` 무시) |
 | 일반 NadFunPair 풀 (vanilla 풀 / cross-quote 중간 다리) | `executeConversion` | nadSwapAdapter hop: `hop.adapter = nadSwapAdapter`, `pair = 해당 NadFunPair` |
-| V1 졸업토큰 (Capricorn CL) | `executeConversion` | `uniswapV3Adapter` hop; source quote와 pool quote가 다르면 multi-hop (예: LvMON→WMON→토큰). setup 입장은 admin이 `setAllowedDividendToken`으로 개방 |
+| V1 졸업토큰 (Capricorn CL) | `executeConversion` | `uniswapV3Adapter` hop; source quote와 pool quote가 다르면 multi-hop (예: LvMON→WNATIVE→토큰). setup 입장은 admin이 `setAllowedDividendToken`으로 개방 |
 | 그 외 외부 ERC20 / cross-quote 시장 (예: XAUT/USDT) | `executeConversion` | router hop + 세 어댑터 레인을 조합한 임의 multi-hop. setup 입장은 admin이 `setAllowedDividendToken`으로 개방 |
 | cross-quote V2 본딩토큰 | router hop으로 끝나는 multi-hop (예: `quoteA →(uni) quoteB →(router) 토큰`) — 전량 소비일 때만 정산: 첫 hop이 아닌 위치의 졸업 임계점 환불은 `PathResidue` revert, bot이 더 작은 `quoteIn`으로 재시도 | — |
 | 졸업 전 V1 토큰 | **입장 불가** — `setAllowedDividendToken`이 `V1TokenNotGraduated` revert (변환 lane이 없어 입장 시 `pendingSwap` 잠김); 졸업 후 입장 | — |
@@ -327,7 +327,7 @@ EOA로 키 분리** — `restricted`가 selector별 operator 권한이라 자연
 
 - 새 어댑터 *종류* 지원은 보유 레인 + 평탄 디스패치 분기를 추가하는 컨트랙트 업그레이드 필요 —
   확장 마찰 대신 fail-loud 경로 안전을 택한 트레이드오프.
-- `wmon`은 이제 claim native 언래핑에만 쓰인다; 변환에는 관여하지 않는다.
+- `wnative`은 이제 claim native 언래핑에만 쓰인다; 변환에는 관여하지 않는다.
 
 ---
 
@@ -339,7 +339,7 @@ EOA로 키 분리** — `restricted`가 selector별 operator 권한이라 자연
 | `afterDeposit` | CreatorFeeProcessor | `msg.sender == creatorFeeProcessor` |
 | `executeConversion` | operator bot | `restricted` + `nonReentrant` |
 | `setMerkleRoot` | operator | `restricted` |
-| `setWmon` | admin | `restricted` |
+| `setWnative` | admin | `restricted` |
 | `setAdapters` | admin | `restricted` |
 | `setAllowedDividendToken` | admin | `restricted` |
 | `_authorizeUpgrade` | admin | `restricted` |
@@ -356,7 +356,7 @@ EOA로 키 분리** — `restricted`가 selector별 operator 권한이라 자연
 | `Converted` | `address[] sourceTokens, address[] dividendTokens, uint256[] consumedQuote, uint256[] received` (배치 order당 1항목) |
 | `SetMerkleRoot` | `bytes32 indexed merkleRoot` |
 | `Claim` | `address indexed holder, address[] sourceTokens, address[] dividendTokens, uint256[] amounts` (skip된 항목은 `0`으로 보고) |
-| `SetWmon` | `address wmon` |
+| `SetWnative` | `address wnative` |
 | `SetAdapters` | `address nadSwapAdapter, address uniswapV2Adapter, address uniswapV3Adapter` |
 | `SetAllowedDividendToken` | `address indexed token, bool allowed` |
 
@@ -381,7 +381,7 @@ EOA로 키 분리** — `restricted`가 selector별 operator 권한이라 자연
 | `InvalidMerkleRoot()` | root가 zero이거나 merkleRoot 미설정 |
 | `InvalidMerkleProof()` | Merkle proof 검증 실패 (전체 호출 revert) |
 | `InvalidArrayLength()` | claim 배열이 비어 있거나 길이 불일치 |
-| `UnexpectedNative()` | wmon 이외 주소에서 native MON 수신 |
+| `UnexpectedNative()` | wnative 이외 주소에서 native currency 수신 |
 | `UnknownAdapter()` | hop의 adapter가 세 볼트 보유 allowlist 레인 중 어느 것도 아님 — 토큰 push **전** 검사 |
 | `InvalidPath()` | 변환 path가 비어 있거나, 마지막 hop의 `tokenOut`이 대상 배당 토큰이 아님 |
 | `PathResidue()` | 중간 hop이 부분 체결되어 중간 토큰을 환불받음 — 중간 토큰은 `pendingSwap` 회계 밖이므로 변환 전체를 revert하고 깨끗하게 재시도 |

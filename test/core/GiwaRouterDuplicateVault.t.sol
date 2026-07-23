@@ -16,7 +16,7 @@ import {GiwaRouter} from "../../src/router/GiwaRouter.sol";
 import {Token} from "../../src/token/Token.sol";
 import {CreatorFeeVault} from "../../src/vault/CreatorFeeVault.sol";
 import {VaultRegistry} from "../../src/vault/VaultRegistry.sol";
-import {MockWMON} from "../mocks/MockWMON.sol";
+import {MockWrappedNative} from "../mocks/MockWrappedNative.sol";
 
 contract DuplicateVaultPool {}
 
@@ -52,7 +52,7 @@ contract GiwaRouterDuplicateVaultTest is Test {
     uint256 private constant MIN_TOKEN_RESERVE = 251_660_440_677_966_101_694_915_255;
 
     GiwaRouter private router;
-    MockWMON private wmon;
+    MockWrappedNative private wnative;
     CreatorFeeVault private creatorFeeVault;
 
     function setUp() public {
@@ -65,11 +65,11 @@ contract GiwaRouterDuplicateVaultTest is Test {
             )
         );
 
-        wmon = new MockWMON();
+        wnative = new MockWrappedNative();
         protocolManager.addQuoteToken(
-            address(wmon), VIRTUAL_RESERVE, VIRTUAL_TOKEN_RESERVE, MIN_TOKEN_RESERVE, 0, 1_000 ether, 100, 35
+            address(wnative), VIRTUAL_RESERVE, VIRTUAL_TOKEN_RESERVE, MIN_TOKEN_RESERVE, 0, 1_000 ether, 100, 35
         );
-        protocolManager.setV3QuoteConfig(address(wmon), 3_000, 5_000);
+        protocolManager.setV3QuoteConfig(address(wnative), 3_000, 5_000);
 
         TokenRegistry tokenRegistry = TokenRegistry(
             address(
@@ -107,7 +107,7 @@ contract GiwaRouterDuplicateVaultTest is Test {
                                 address(bondingCurve),
                                 address(creatorFeeProcessor),
                                 address(tokenRegistry),
-                                address(wmon),
+                                address(wnative),
                                 "creator-fee-vault"
                             )
                         )
@@ -128,7 +128,7 @@ contract GiwaRouterDuplicateVaultTest is Test {
                                 address(protocolManager),
                                 address(bondingCurve),
                                 address(tokenRegistry),
-                                address(wmon),
+                                address(wnative),
                                 swapAdapter,
                                 quoter
                             )
@@ -166,7 +166,7 @@ contract GiwaRouterDuplicateVaultTest is Test {
                 name: "Duplicate Vault",
                 symbol: "DUP",
                 tokenURI: "",
-                quoteToken: address(wmon),
+                quoteToken: address(wnative),
                 vaults: vaults,
                 salt: keccak256("duplicate-creator-fee-vault"),
                 dexType: ITokenRegistry.DexType.UniswapV3,

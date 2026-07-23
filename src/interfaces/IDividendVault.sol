@@ -39,7 +39,7 @@ interface IDividendVault is IVault {
     event Converted(address[] sourceTokens, address[] dividendTokens, uint256[] consumedQuote, uint256[] received);
     event SetMerkleRoot(bytes32 indexed merkleRoot);
     event Claim(address indexed holder, address[] sourceTokens, address[] dividendTokens, uint256[] amounts);
-    event SetWmon(address wmon);
+    event SetWnative(address wnative);
     event SetAdapters(address uniswapV2Adapter, address uniswapV3Adapter);
     event SetAllowedDividendToken(address indexed token, bool allowed);
 
@@ -70,7 +70,7 @@ interface IDividendVault is IVault {
     /// @notice Holders claim their dividend allocation for the current Merkle period.
     /// @dev msg.sender claims for itself. Per item: verify proof (revert on mismatch); skip if below
     ///      minBalance or fully claimed (amount <= claimedCumulative); pay (amount - claimedCumulative),
-    ///      then advance claimedCumulative. WMON -> native unwrap.
+    ///      then advance claimedCumulative. WNATIVE -> native unwrap.
     function claim(
         address[] calldata sourceTokens,
         address[] calldata dividendTokens,
@@ -84,8 +84,8 @@ interface IDividendVault is IVault {
     /// @notice Admin replaces the explicit adapter allowlist lanes. 0 disables that lane.
     function setAdapters(address uniswapV2Adapter_, address uniswapV3Adapter_) external;
 
-    /// @notice Admin sets the WMON singleton used for native unwrap on claim. 0 disables unwrap.
-    function setWmon(address newWmon) external;
+    /// @notice Admin sets the WNATIVE singleton used for native unwrap on claim. 0 disables unwrap.
+    function setWnative(address newWnative) external;
 
     /// @notice Admin opens or closes setup admission for an external dividend token.
     function setAllowedDividendToken(address token, bool allowed) external;
@@ -101,8 +101,8 @@ interface IDividendVault is IVault {
     /// @notice Current global Merkle root used for claim verification.
     function merkleRoot() external view returns (bytes32);
 
-    /// @notice WMON singleton used for native unwrap on claim. 0 disables unwrap.
-    function wmon() external view returns (address);
+    /// @notice WNATIVE singleton used for native unwrap on claim. 0 disables unwrap.
+    function wnative() external view returns (address);
 
     /// @notice GiwaRouter used directly for registered launch-token buy hops.
     function router() external view returns (address);

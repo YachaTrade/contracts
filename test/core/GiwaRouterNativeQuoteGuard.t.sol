@@ -7,7 +7,7 @@ import {IGiwaRouter} from "../../src/interfaces/IGiwaRouter.sol";
 import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
 import {GiwaRouter} from "../../src/router/GiwaRouter.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
-import {MockWMON} from "../mocks/MockWMON.sol";
+import {MockWrappedNative} from "../mocks/MockWrappedNative.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract GiwaRouterNativeQuoteGuardTest is SetUp {
@@ -18,7 +18,7 @@ contract GiwaRouterNativeQuoteGuardTest is SetUp {
         super.setUp();
 
         usdc = new MockERC20("USD Coin", "USDC", 6);
-        wmon = new MockWMON();
+        wnative = new MockWrappedNative();
 
         vm.startPrank(admin);
         protocolManager.addQuoteToken(address(usdc), 15_000e6, 1_000_000_000 ether, 800_000_000 ether, 0, 0, 0, 0);
@@ -36,7 +36,7 @@ contract GiwaRouterNativeQuoteGuardTest is SetUp {
                                 address(protocolManager),
                                 address(bondingCurve),
                                 address(tokenRegistry),
-                                address(wmon),
+                                address(wnative),
                                 address(v3SwapAdapter),
                                 address(quoterV2)
                             )

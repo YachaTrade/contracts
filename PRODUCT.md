@@ -64,7 +64,7 @@ FeeCollector.settle(pair, minAmountOut)
                  ├── BurnVault — buy token and burn to 0xdead
                  ├── LPVault — zap into LP and burn LP to 0xdead
                  ├── GiftVault — claimable gift balance, then burn after expiry
-                 └── CreatorFeeVault — per-token accrual; configured creator claims ERC-20 or WMON-unwrapped native
+                 └── CreatorFeeVault — per-token accrual; configured creator claims ERC-20 or WNATIVE-unwrapped native
 ```
 
 **BPS constraint:** `sum(vaults[i].bps) = 10,000` (max 5 vaults)
@@ -88,7 +88,7 @@ FeeCollector.settle(pair, minAmountOut)
 ```
 name, symbol          — token name and symbol
 tokenURI              — token metadata URI
-quoteToken            — quote token (WMON, USDC, etc.)
+quoteToken            — quote token (WNATIVE, USDC, etc.)
 creatorFeeRate        — owner-configured allowlisted creator fee rate
 vaults[]              — VaultAllocation[] (vault + bps + setupData, max 5, BPS sum = 10000)
 salt                  — CREATE2 salt

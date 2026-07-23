@@ -72,7 +72,7 @@
 | `getDexAmountOut(address token, uint256 amountIn, bool isBuy)` | nonpayable | 정식 V3 exact-input 견적. |
 | `getDexAmountIn(address token, uint256 amountOut, bool isBuy)` | nonpayable | 정식 V3 exact-output 견적. 전체 출력을 채울 수 없으면 revert한다. |
 | `bondingCurve()` / `tokenRegistry()` | view | 설정된 생명주기/메타데이터 의존성. |
-| `wrappedNative()` | view | 네이티브 경로에 사용할 WETH 호환 토큰. |
+| `wrappedNative()` | view | 네이티브 경로에 사용할 WNATIVE 호환 토큰. |
 | `v3SwapAdapter()` / `quoterV2()` | view | V3 실행/견적 의존성. |
 
 정식 QuoterV2는 revert 기반으로 스왑을 시뮬레이션하므로 quote 함수는 Solidity `view`가 아니다. 클라이언트는 `eth_call`로 호출해야 한다. 실제 거래 함수는 QuoterV2를 호출하지 않는다.

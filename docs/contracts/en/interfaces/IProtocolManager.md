@@ -13,7 +13,7 @@ Protocol-wide configuration management interface. Centralizes global fees, creat
 
 ```solidity
 struct QuoteConfig {
-    uint8 decimals;              // Token decimals (6=USDT, 18=WMON)
+    uint8 decimals;              // Token decimals (6=USDT, 18=WNATIVE)
     uint256 virtualReserve;      // Initial virtual quote reserve
     uint256 virtualTokenReserve; // Initial virtual token reserve
     uint256 minTokenReserve;     // Graduation threshold (minimum virtualTokenReserve)

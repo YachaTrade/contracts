@@ -13,20 +13,20 @@ import {IWrappedNative} from "../interfaces/IWrappedNative.sol";
 import {TransferHelper} from "../libraries/TransferHelper.sol";
 
 /// @title Treasury
-/// @notice Protocol fee + protocol treasury. Holds WMON (and other ERC20s) and exposes
+/// @notice Protocol fee + protocol treasury. Holds WNATIVE (and other ERC20s) and exposes
 ///         `restricted` withdrawal entrypoints gated by the ProtocolManager authority.
 /// @dev    UUPS upgradeable + AccessManaged. ProtocolManager is the authority; PM.owner()
 ///         is auto-permitted, other addresses can be granted via setOperatorPermission.
 contract Treasury is ITreasury, UUPSUpgradeable, AccessManagedUpgradeable {
     using SafeERC20 for IERC20;
 
-    /// @notice WMON token contract address.
-    address public wMon;
+    /// @notice WNATIVE token contract address.
+    address public wnative;
 
-    /// @notice Fallback function to receive native MON.
-    /// @dev    Only accepts MON from the WMON contract (i.e. WMON.withdraw refund).
+    /// @notice Fallback function to receive native currency.
+    /// @dev    Only accepts native currency from the WNATIVE contract during withdraw.
     receive() external payable {
-        assert(msg.sender == wMon);
+        assert(msg.sender == wnative);
     }
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -35,23 +35,23 @@ contract Treasury is ITreasury, UUPSUpgradeable, AccessManagedUpgradeable {
     }
 
     /// @param protocolManager_ ProtocolManager (acts as AccessManager authority).
-    /// @param wMon_            WMON token address.
-    function initialize(address protocolManager_, address wMon_) external initializer {
-        if (wMon_ == address(0)) revert ZeroAddress();
+    /// @param wnative_         WNATIVE token address.
+    function initialize(address protocolManager_, address wnative_) external initializer {
+        if (wnative_ == address(0)) revert ZeroAddress();
         __AccessManaged_init(protocolManager_);
-        wMon = wMon_;
+        wnative = wnative_;
     }
 
-    /// @notice Returns the total balance of WMON in the treasury.
+    /// @notice Returns the total balance of WNATIVE in the treasury.
     function totalAssets() public view returns (uint256) {
-        return IERC20(wMon).balanceOf(address(this));
+        return IERC20(wnative).balanceOf(address(this));
     }
 
-    /// @notice Unwrap `amount` WMON to native MON and forward to `receiver`.
+    /// @notice Unwrap `amount` WNATIVE to native currency and forward to `receiver`.
     function executeWithdrawal(address receiver, uint256 amount) external restricted {
         if (amount > totalAssets()) revert OverflowFund();
-        IWrappedNative(wMon).withdraw(amount);
-        TransferHelper.safeTransferMon(receiver, amount);
+        IWrappedNative(wnative).withdraw(amount);
+        TransferHelper.safeTransferNative(receiver, amount);
         emit Withdrawal(receiver, amount);
     }
 

@@ -120,11 +120,11 @@ Router는 현재 호출의 최대량만 가져오고 pool 최대 입력만 adapt
 
 - 네이티브 생성/매수는 현재 호출에 필요한 quote만 래핑한다.
 - 졸업 후 네이티브 매수는 `msg.value`를 래핑하고 계산된 현재 호출 환불액만 언래핑한다.
-- 네이티브 매도는 Router가 WETH를 받고 quote 수수료를 WETH로 지급한 뒤 현재 호출 순출력만 언래핑하여 `to`로 보낸다.
+- 네이티브 매도는 Router가 WNATIVE를 받고 quote 수수료를 WNATIVE로 지급한 뒤 현재 호출 순출력만 언래핑하여 `to`로 보낸다.
 - `receive()`는 설정된 wrapped-native 컨트랙트의 `withdraw` 전송만 허용한다.
 - 언래핑, 환불, 수신자 전송이 실패하면 스왑, 수수료 지급, permit, 토큰 이동이 모두 원자적으로 되돌아간다.
 
-기존 Router WETH/네이티브 잔액은 환불 계산에서 제외된다.
+기존 Router WNATIVE/네이티브 잔액은 환불 계산에서 제외된다.
 
 ## 견적
 

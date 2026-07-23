@@ -39,8 +39,8 @@ contract DividendVault is IDividendVault, UUPSUpgradeable, AccessManagedUpgradea
     // registered with canonical V3 metadata.
     IDexAdapter public uniswapV2Adapter;
     IDexAdapter public uniswapV3Adapter;
-    // WMON singleton used only to unwrap native MON on claim. 0 = disabled.
-    address public wmon;
+    // WNATIVE singleton used only to unwrap native currency on claim. 0 = disabled.
+    address public wnative;
 
     // ── Dividend config (per source token) ──
     mapping(address sourceToken => DividendConfig) private _config;
@@ -69,9 +69,9 @@ contract DividendVault is IDividendVault, UUPSUpgradeable, AccessManagedUpgradea
         _disableInitializers();
     }
 
-    /// @dev Accept native only from the configured wmon callback during withdraw.
+    /// @dev Accept native only from the configured WNATIVE callback during withdraw.
     receive() external payable {
-        if (msg.sender != wmon) revert UnexpectedNative();
+        if (msg.sender != wnative) revert UnexpectedNative();
     }
 
     function initialize(
@@ -274,7 +274,7 @@ contract DividendVault is IDividendVault, UUPSUpgradeable, AccessManagedUpgradea
 
     /// @notice Holders claim their dividend allocation for the current Merkle period.
     /// @dev msg.sender claims for itself. Per item: verify proof (revert on mismatch); pay
-    ///      (amount - claimedCumulative), then advance claimedCumulative. WMON -> native unwrap.
+    ///      (amount - claimedCumulative), then advance claimedCumulative. WNATIVE -> native unwrap.
     /// @dev Reverts the entire call on: proof failure (InvalidMerkleProof), unconfigured source
     ///      (SourceNotConfigured), holder below minBalance (BelowMinBalance), and insufficient vault
     ///      balance for the payout (InsufficientVaultBalance). Zero-amount and fully-claimed
@@ -320,10 +320,10 @@ contract DividendVault is IDividendVault, UUPSUpgradeable, AccessManagedUpgradea
             if (IERC20(dividendToken).balanceOf(address(this)) < payout) revert InsufficientVaultBalance();
 
             claimedCumulative[sourceToken][msg.sender][dividendToken] = amount; // high-water mark (== alreadyClaimed + payout)
-            address wmonCached = wmon;
-            bool unwrapNative = wmonCached != address(0) && dividendToken == wmonCached;
-            if (unwrapNative) IWrappedNative(wmonCached).withdraw(payout);
-            if (unwrapNative) TransferHelper.safeTransferMon(msg.sender, payout);
+            address wnativeCached = wnative;
+            bool unwrapNative = wnativeCached != address(0) && dividendToken == wnativeCached;
+            if (unwrapNative) IWrappedNative(wnativeCached).withdraw(payout);
+            if (unwrapNative) TransferHelper.safeTransferNative(msg.sender, payout);
             if (!unwrapNative) IERC20(dividendToken).safeTransfer(msg.sender, payout);
             paidAmounts[i] = payout;
         }
@@ -331,10 +331,10 @@ contract DividendVault is IDividendVault, UUPSUpgradeable, AccessManagedUpgradea
         emit Claim(msg.sender, sourceTokens, dividendTokens, paidAmounts);
     }
 
-    /// @notice Admin sets the WMON singleton used for native unwrap on claim. 0 disables unwrap.
-    function setWmon(address newWmon) external restricted {
-        wmon = newWmon;
-        emit SetWmon(newWmon);
+    /// @notice Admin sets the WNATIVE singleton used for native unwrap on claim. 0 disables unwrap.
+    function setWnative(address newWnative) external restricted {
+        wnative = newWnative;
+        emit SetWnative(newWnative);
     }
 
     /// @notice Admin replaces the explicit adapter allowlist lanes. 0 disables that lane.

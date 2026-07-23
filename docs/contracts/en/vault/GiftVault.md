@@ -74,7 +74,7 @@ Transitions: `Accumulating → Active` (on `setReceiver`), `Accumulating → Bur
 | `tokenRegistry` | `ITokenRegistry` | initialize | Pair / adapter lookup + quoteToken lookup |
 | `expiryDuration` | `uint256` | initialize / `setExpiryDuration` | Bind window length from `createdAt` |
 | `router` | `address` | initialize | `GiwaRouter` used for pre-graduation buyback-burn |
-| `wmon` | `address` | initialize | Wrapped-native singleton. When `claim`'s registered quote == `wmon`, the vault unwraps and forwards native MON. `address(0)` disables the unwrap branch (claims always do an ERC20 transfer) |
+| `wnative` | `address` | initialize | Wrapped-native singleton. When `claim`'s registered quote == `wnative`, the vault unwraps and forwards native currency. `address(0)` disables the unwrap branch (claims always do an ERC20 transfer) |
 | `_gifts` | `mapping(address => GiftInfo)` | setup / afterDeposit / setReceiver / claim | Per-token gift record. Single source for state + receiver + balance |
 
 ---
@@ -83,12 +83,12 @@ Transitions: `Accumulating → Active` (on `setReceiver`), `Accumulating → Bur
 
 | Function | Access | Description |
 |----------|--------|-------------|
-| `initialize(protocolManager_, creatorFeeProcessor_, bondingCurve_, tokenRegistry_, expiryDuration_, router_, wmon_, metadataURI_)` | initializer | UUPS initializer. `wmon_` enables native unwrap on `claim` when registered quote matches |
-| `receive() external payable` | `msg.sender == wmon` only | Accepts native callback from `IWrappedNative.withdraw`. Reverts `UnexpectedNative` for any other sender |
+| `initialize(protocolManager_, creatorFeeProcessor_, bondingCurve_, tokenRegistry_, expiryDuration_, router_, wnative_, metadataURI_)` | initializer | UUPS initializer. `wnative_` enables native unwrap on `claim` when registered quote matches |
+| `receive() external payable` | `msg.sender == wnative` only | Accepts native callback from `IWrappedNative.withdraw`. Reverts `UnexpectedNative` for any other sender |
 | `setup(token, data)` | `bondingCurve` only | Register per-token `(platform, id)` and stamp `createdAt`. `data = abi.encode(GiftTarget)` |
 | `afterDeposit(token, quoteToken, amount)` | `creatorFeeProcessor` only | State-dispatch: burn / accumulate / expire-and-burn |
 | `setReceiver(token, receiver)` | **restricted** | Bind or rotate the claim receiver. Pointer-only update — accumulated balance persists and is inherited by the incoming receiver. Allowed while `state != Burned` |
-| `claim(token)` | `msg.sender == gift.receiver`, `nonReentrant` | Withdraw the full accumulated balance to the bound receiver. Unwraps to native MON when registered quote == `wmon`. Repeatable |
+| `claim(token)` | `msg.sender == gift.receiver`, `nonReentrant` | Withdraw the full accumulated balance to the bound receiver. Unwraps to native currency when registered quote == `wnative`. Repeatable |
 | `setExpiryDuration(newDuration)` | restricted | Update the bind window length (applies to existing Accumulating tokens immediately) |
 | `getGiftInfo(token)` | view | Return the `GiftInfo` record |
 | `isExpired(token)` | view | `_expired[token]` |
@@ -169,8 +169,8 @@ receiver -> GiftVault.claim(token)
   |-- require amount > 0 (ZeroBalance)
   |-- gift.balance = 0                                # CEI: state cleared before external call
   |-- quoteToken = tokenRegistry.getQuoteToken(token)
-  |-- if wmon != 0 && quoteToken == wmon:
-  |     IWrappedNative(wmon).withdraw(amount)         # unwrap WMON → native MON into vault
+  |-- if wnative != 0 && quoteToken == wnative:
+  |     IWrappedNative(wnative).withdraw(amount)         # unwrap WNATIVE → native currency into vault
   |     (ok,) = receiver.call{value: amount}("")      # forward native to receiver
   |     require(ok, NativeTransferFailed)
   |-- else:
@@ -180,7 +180,7 @@ receiver -> GiftVault.claim(token)
 
 No expiry on claim. Repeatable — after a claim, new `afterDeposit` calls grow the balance and the same receiver can claim again.
 
-Defense in depth: `claim` carries `nonReentrant` (OZ `ReentrancyGuard`, ERC-7201 namespaced storage — proxy-safe) AND CEI is preserved (`gift.balance = 0` precedes the external call). Either guard alone is sufficient for the current shape, but both together harden against future cross-function paths that might share state with the WMON unwrap callback.
+Defense in depth: `claim` carries `nonReentrant` (OZ `ReentrancyGuard`, ERC-7201 namespaced storage — proxy-safe) AND CEI is preserved (`gift.balance = 0` precedes the external call). Either guard alone is sufficient for the current shape, but both together harden against future cross-function paths that might share state with the WNATIVE unwrap callback.
 
 ---
 
@@ -256,7 +256,7 @@ Trust model: the relayer chooses who can claim; the relayer *cannot* pull funds 
 | Duplicate setup | `bytes(gift.id).length != 0` → `AlreadyConfigured` |
 | Claim with zero balance | `balance > 0` check → `ZeroBalance` |
 | Native unwrap fails (receiver reverts in `receive`) | `(bool ok,) = receiver.call{value}("")` → `NativeTransferFailed`. Whole claim reverts; `gift.balance` is restored by the revert, allowing rotation via `setReceiver` and retry |
-| Stranded native (accidental funding, drained from elsewhere) | `receive()` accepts only `msg.sender == wmon` → `UnexpectedNative` for any other sender. Vault cannot accumulate native without going through the wmon→withdraw path |
+| Stranded native (accidental funding, drained from elsewhere) | `receive()` accepts only `msg.sender == wnative` → `UnexpectedNative` for any other sender. Vault cannot accumulate native without going through the wnative→withdraw path |
 
 ---
 

@@ -69,7 +69,7 @@ src/
 | `VaultRegistry` | UUPS Proxy | authority-restricted vault 레지스트리, ERC-165 인터페이스 검증 |
 | `BurnVault` | Singleton UUPS Proxy | 단계별 라우팅을 통한 바이백 소각 |
 | `LPVault` | Singleton UUPS Proxy | 설정 adapter를 통한 절반 스왑 + 유동성 추가 + LP 소각 |
-| `CreatorFeeVault` | Singleton UUPS Proxy | 토큰별 quoteToken을 누적하고, 설정된 creator가 나중에 ERC-20 또는 설정된 WMON quote의 native MON으로 claim |
+| `CreatorFeeVault` | Singleton UUPS Proxy | 토큰별 quoteToken을 누적하고, 설정된 creator가 나중에 ERC-20 또는 설정된 WNATIVE quote의 native currency로 claim |
 | `DividendVault` | Singleton UUPS Proxy | operator 변환 + 글로벌 Merkle root 기반 다중 dividend token 분배 |
 
 ## 수수료 시스템
@@ -101,7 +101,7 @@ NadFunPair.swap() / BondingCurve.buy()/sell()
                          └── BPS 기준으로 싱글톤 vault들에 분배:
                               ├── BurnVault: quoteToken → token 스왑 → 0xdead 소각
                               ├── LPVault: 절반 스왑 + 유동성 추가 + LP 소각
-                              └── CreatorFeeVault: 토큰별 누적 → creator claim (ERC-20 또는 WMON → native)
+                              └── CreatorFeeVault: 토큰별 누적 → creator claim (ERC-20 또는 WNATIVE → native)
 ```
 
 ## 주요 설계 결정
@@ -168,7 +168,7 @@ test/
 ├── token/              # CreatorFeeProcessor
 ├── vault/              # VaultRegistry, BurnVault, LPVault, CreatorFeeVault
 │   └── VaultAttack.t.sol          # 공격 벡터 (비활성화 vault, revert vault)
-├── mocks/              # MockERC20, MockWMON
+├── mocks/              # MockERC20, MockWrappedNative
 └── utils/              # (비어 있음 -- NadFunFactory가 UniswapV2Deployer를 대체)
 ```
 

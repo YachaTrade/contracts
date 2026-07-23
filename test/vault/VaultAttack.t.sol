@@ -101,7 +101,7 @@ contract VaultAttackTest is SetUp {
                                 address(bondingCurve),
                                 address(creatorFeeProcessor),
                                 address(tokenRegistry),
-                                address(wmon),
+                                address(wnative),
                                 ""
                             )
                         )

@@ -95,6 +95,6 @@ CLAUDE.md §3 "Self-Improvement Loop" 규칙에 따라 유지.
 - **부수효과:** wrapper 제거로 중계 단계(adapter→vault forward)도 사라짐 — router가 vault(msg.sender)에서 직접 pull/refund하므로 vault의 잔액-델타 회계가 그대로 성립.
 
 ## 2026-06-13: redund-해 보인다고 lane 들어내기 전에 입력 shape 전수 확인
-- **증상:** executeBondingBuy를 router hop으로 통합하면서 "라우터가 졸업 V2를 커버하니 nadSwapAdapter lane은 redundant"라 판단해 통째로 삭제(Option C). 사용자가 "nadswapadapter 없애면 안 됐다, USDC↔WMON은 nadfunrouter로 안 된다"고 정정 → 복원.
-- **근본 원인:** 라우터는 "토큰 주소"로만 시장을 해석한다(nad.fun V2 토큰 buy 전용). 일반 NadFunPair 풀(USDC/WMON, cross-quote 중간 다리)은 임의 pair를 받아야 하므로 라우터로 표현 불가 — nadSwapAdapter가 그 역할. 졸업 V2 토큰 하나만 보면 둘이 겹쳐 보이지만, **입력 shape(토큰 주소 vs 임의 pair 주소)가 다르다.**
+- **증상:** executeBondingBuy를 router hop으로 통합하면서 "라우터가 졸업 V2를 커버하니 nadSwapAdapter lane은 redundant"라 판단해 통째로 삭제(Option C). 사용자가 "nadswapadapter 없애면 안 됐다, USDC↔WNATIVE는 nadfunrouter로 안 된다"고 정정 → 복원.
+- **근본 원인:** 라우터는 "토큰 주소"로만 시장을 해석한다(nad.fun V2 토큰 buy 전용). 일반 NadFunPair 풀(USDC/WNATIVE, cross-quote 중간 다리)은 임의 pair를 받아야 하므로 라우터로 표현 불가 — nadSwapAdapter가 그 역할. 졸업 V2 토큰 하나만 보면 둘이 겹쳐 보이지만, **입력 shape(토큰 주소 vs 임의 pair 주소)가 다르다.**
 - **규칙:** 컴포넌트가 "겹쳐 보인다"고 제거하기 전에, 그게 받는 **입력의 전체 집합**을 확인하라. 한 가지 케이스(졸업 토큰 buy)에서 겹친다고 전체가 redundant인 건 아니다. router=토큰 buy, nadSwap=임의 풀 swap, uni=외부 풀 — 역할이 입력으로 갈린다.

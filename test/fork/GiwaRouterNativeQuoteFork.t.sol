@@ -15,6 +15,7 @@ import {IGiwaRouter} from "../../src/interfaces/IGiwaRouter.sol";
 import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
 import {IWrappedNative} from "../../src/interfaces/IWrappedNative.sol";
 import {MockERC20Permit} from "../mocks/MockERC20Permit.sol";
+import {GIWA_WNATIVE} from "../../script/deploy/normal/Deploy.s.sol";
 
 contract GiwaRouterNativeQuoteForkTest is SetUp {
     using SafeERC20 for IERC20;
@@ -23,7 +24,7 @@ contract GiwaRouterNativeQuoteForkTest is SetUp {
     uint128 private constant LIQUIDITY = 1_000_000 ether;
     uint256 private constant LIQUIDITY_BALANCE = 1_000_000 ether;
 
-    IWrappedNative private deployedWeth;
+    IWrappedNative private deployedWnative;
     MockERC20Permit private launchToken;
     address private pool;
 
@@ -34,9 +35,10 @@ contract GiwaRouterNativeQuoteForkTest is SetUp {
 
         vm.createSelectFork(vm.envString("RPC_URL"));
         super.setUp();
-        deployedWeth = IWrappedNative(vm.envAddress("WETH"));
+        deployedWnative = IWrappedNative(GIWA_WNATIVE);
+        assertGt(GIWA_WNATIVE.code.length, 0, "canonical WNATIVE has no code on this fork");
 
-        QuoterV2 deployedWethQuoter = new QuoterV2(address(v3Factory), address(deployedWeth));
+        QuoterV2 deployedWnativeQuoter = new QuoterV2(address(v3Factory), address(deployedWnative));
         GiwaRouter implementation = new GiwaRouter();
         giwaRouter = GiwaRouter(
             payable(address(
@@ -48,9 +50,9 @@ contract GiwaRouterNativeQuoteForkTest is SetUp {
                                 address(protocolManager),
                                 address(bondingCurve),
                                 address(tokenRegistry),
-                                address(deployedWeth),
+                                address(deployedWnative),
                                 address(v3SwapAdapter),
-                                address(deployedWethQuoter)
+                                address(deployedWnativeQuoter)
                             )
                         )
                     )
@@ -59,7 +61,7 @@ contract GiwaRouterNativeQuoteForkTest is SetUp {
 
         vm.startPrank(admin);
         protocolManager.addQuoteToken(
-            address(deployedWeth),
+            address(deployedWnative),
             virtualReserve,
             virtualTokenReserve,
             minTokenReserve,
@@ -68,25 +70,25 @@ contract GiwaRouterNativeQuoteForkTest is SetUp {
             defaultCurveProtocolFee,
             defaultDexProtocolFee
         );
-        protocolManager.setV3QuoteConfig(address(deployedWeth), FEE_TIER, 0);
+        protocolManager.setV3QuoteConfig(address(deployedWnative), FEE_TIER, 0);
         protocolManager.setOperatorPermission(
             address(this), address(tokenRegistry), TokenRegistry.registerV3.selector, true
         );
         vm.stopPrank();
 
         launchToken = new MockERC20Permit("Fork Native Launch", "FNL", 18);
-        pool = v3Factory.createPool(address(launchToken), address(deployedWeth), FEE_TIER);
+        pool = v3Factory.createPool(address(launchToken), address(deployedWnative), FEE_TIER);
         IUniswapV3Pool(pool).initialize(uint160(1 << 96));
 
         launchToken.mint(address(this), LIQUIDITY_BALANCE);
         vm.deal(address(this), LIQUIDITY_BALANCE);
-        deployedWeth.deposit{value: LIQUIDITY_BALANCE}();
+        deployedWnative.deposit{value: LIQUIDITY_BALANCE}();
         IUniswapV3Pool(pool).mint(address(this), -600, 600, LIQUIDITY, bytes(""));
 
-        tokenRegistry.registerV3(address(launchToken), pool, address(deployedWeth), FEE_TIER);
+        tokenRegistry.registerV3(address(launchToken), pool, address(deployedWnative), FEE_TIER);
         IBondingCurve.Curve memory curve;
         curve.token = address(launchToken);
-        curve.quoteToken = address(deployedWeth);
+        curve.quoteToken = address(deployedWnative);
         curve.graduated = true;
         curve.dexType = ITokenRegistry.DexType.UniswapV3;
         curve.pair = pool;
@@ -95,7 +97,8 @@ contract GiwaRouterNativeQuoteForkTest is SetUp {
         );
     }
 
-    function test_nativeGraduatedRoundTrip_usesDeployedWeth() public {
+    function test_nativeGraduatedRoundTrip_usesDeployedWnative() public {
+        assertEq(address(deployedWnative), GIWA_WNATIVE);
         uint256 nativeIn = 10 ether;
         vm.deal(user1, nativeIn);
 
@@ -119,7 +122,7 @@ contract GiwaRouterNativeQuoteForkTest is SetUp {
 
         assertGt(nativeOut, 0);
         assertEq(user1.balance - nativeBefore, nativeOut);
-        assertEq(deployedWeth.balanceOf(address(giwaRouter)), 0);
+        assertEq(deployedWnative.balanceOf(address(giwaRouter)), 0);
         assertEq(address(giwaRouter).balance, 0);
     }
 

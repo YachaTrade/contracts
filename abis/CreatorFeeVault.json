@@ -159,7 +159,7 @@
         "internalType": "address"
       },
       {
-        "name": "wmon_",
+        "name": "wnative_",
         "type": "address",
         "internalType": "address"
       },
@@ -312,7 +312,7 @@
   },
   {
     "type": "function",
-    "name": "wmon",
+    "name": "wnative",
     "inputs": [],
     "outputs": [
       {

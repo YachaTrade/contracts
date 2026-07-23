@@ -13,7 +13,7 @@
 
 ```solidity
 struct QuoteConfig {
-    uint8 decimals;              // 토큰 소수점 (6=USDT, 18=WMON)
+    uint8 decimals;              // 토큰 소수점 (6=USDT, 18=WNATIVE)
     uint256 virtualReserve;      // 초기 가상 quote 리저브
     uint256 virtualTokenReserve; // 초기 가상 토큰 리저브
     uint256 minTokenReserve;     // 졸업 임계값 (최소 virtualTokenReserve)

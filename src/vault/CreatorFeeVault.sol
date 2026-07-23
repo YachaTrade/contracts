@@ -31,11 +31,11 @@ contract CreatorFeeVault is IVault, UUPSUpgradeable, AccessManagedUpgradeable, R
     /// @inheritdoc IVault
     string public metadataURI;
 
-    /// @notice Wrapped native (e.g. WMON) singleton. When `claim`'s quoteToken matches,
-    ///         the vault unwraps and forwards native MON to the creator instead of WMON.
+    /// @notice Wrapped-native singleton. When `claim`'s quoteToken matches,
+    ///         the vault unwraps and forwards native currency to the creator instead of WNATIVE.
     /// @dev    Set at `initialize`. Pass `address(0)` to disable the unwrap branch (claims
     ///         always do an ERC20 transfer regardless of quote token).
-    address public wmon;
+    address public wnative;
 
     event Deposit(address indexed token, uint256 amount, uint256 newBalance);
     event Claim(address indexed token, address indexed creator, uint256 amount);
@@ -60,7 +60,7 @@ contract CreatorFeeVault is IVault, UUPSUpgradeable, AccessManagedUpgradeable, R
         address bondingCurve_,
         address creatorFeeProcessor_,
         address tokenRegistry_,
-        address wmon_,
+        address wnative_,
         string calldata metadataURI_
     ) external initializer {
         require(bondingCurve_ != address(0), "Zero bondingCurve");
@@ -72,7 +72,7 @@ contract CreatorFeeVault is IVault, UUPSUpgradeable, AccessManagedUpgradeable, R
         bondingCurve = bondingCurve_;
         creatorFeeProcessor = creatorFeeProcessor_;
         tokenRegistry = ITokenRegistry(tokenRegistry_);
-        wmon = wmon_;
+        wnative = wnative_;
         metadataURI = metadataURI_;
     }
 
@@ -102,7 +102,7 @@ contract CreatorFeeVault is IVault, UUPSUpgradeable, AccessManagedUpgradeable, R
     /// @dev `nonReentrant` + CEI defense in depth. State (`_balances[token]`) is zeroed
     ///      before the external call so reentrant `claim(token)` would already revert via
     ///      `ZeroBalance`; the modifier guards against future cross-function paths that
-    ///      could share state with `claim` and the WMON unwrap callback.
+    ///      could share state with `claim` and the WNATIVE unwrap callback.
     function claim(address token) external nonReentrant {
         address creator = _creators[token];
         if (msg.sender != creator) revert NotAuthorized();
@@ -112,9 +112,9 @@ contract CreatorFeeVault is IVault, UUPSUpgradeable, AccessManagedUpgradeable, R
         _balances[token] = 0;
 
         address quoteToken = tokenRegistry.getQuoteToken(token);
-        address wmonCached = wmon;
-        if (wmonCached != address(0) && quoteToken == wmonCached) {
-            IWrappedNative(wmonCached).withdraw(amount);
+        address wnativeCached = wnative;
+        if (wnativeCached != address(0) && quoteToken == wnativeCached) {
+            IWrappedNative(wnativeCached).withdraw(amount);
             (bool ok,) = creator.call{value: amount}("");
             if (!ok) revert NativeTransferFailed();
         } else {
@@ -123,11 +123,11 @@ contract CreatorFeeVault is IVault, UUPSUpgradeable, AccessManagedUpgradeable, R
         emit Claim(token, creator, amount);
     }
 
-    /// @dev Accept native only from the configured wmon contract (callback from
+    /// @dev Accept native only from the configured WNATIVE contract (callback from
     ///      `IWrappedNative.withdraw`). Rejects all other native sends to prevent
     ///      stranded balances and accidental funding.
     receive() external payable {
-        if (msg.sender != wmon) revert UnexpectedNative();
+        if (msg.sender != wnative) revert UnexpectedNative();
     }
 
     function setCreator(address token, address newCreator) external restricted {

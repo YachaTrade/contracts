@@ -8,7 +8,7 @@ pragma solidity ^0.8.24;
 import {SetUp} from "../SetUp.t.sol";
 import {GiwaRouter} from "../../src/router/GiwaRouter.sol";
 import {IGiwaRouter} from "../../src/interfaces/IGiwaRouter.sol";
-import {MockWMON} from "../mocks/MockWMON.sol";
+import {MockWrappedNative} from "../mocks/MockWrappedNative.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 /// @notice Used to test that a non-wrapped-native contract cannot send ETH to the giwaRouter.
@@ -19,16 +19,16 @@ contract EtherForwarder {
 }
 
 contract GiwaRouterReceiveTest is SetUp {
-    MockWMON wmonLocal;
+    MockWrappedNative wnativeLocal;
 
     address token;
 
     function setUp() public override {
         super.setUp();
 
-        // Build a giwaRouter whose wrappedNative points at a local MockWMON we control,
-        // so we can assert that MockWMON is the ONLY accepted ETH source.
-        wmonLocal = new MockWMON();
+        // Build a giwaRouter whose wrappedNative points at a local MockWrappedNative we control,
+        // so we can assert that MockWrappedNative is the ONLY accepted ETH source.
+        wnativeLocal = new MockWrappedNative();
 
         GiwaRouter impl = new GiwaRouter();
         giwaRouter = GiwaRouter(
@@ -41,7 +41,7 @@ contract GiwaRouterReceiveTest is SetUp {
                                 address(protocolManager),
                                 address(bondingCurve),
                                 address(tokenRegistry),
-                                address(wmonLocal),
+                                address(wnativeLocal),
                                 address(v3SwapAdapter),
                                 address(quoterV2)
                             )
@@ -53,8 +53,8 @@ contract GiwaRouterReceiveTest is SetUp {
         vm.prank(admin);
         bondingCurve.grantRole(routerRole, address(giwaRouter));
 
-        // Fund the local WMON with ETH so withdraw() can actually pay out.
-        vm.deal(address(wmonLocal), 100 ether);
+        // Fund the local WNATIVE with ETH so withdraw() can actually pay out.
+        vm.deal(address(wnativeLocal), 100 ether);
 
         token = _createToken();
         vm.warp(block.timestamp + 100 minutes);
@@ -88,16 +88,16 @@ contract GiwaRouterReceiveTest is SetUp {
     // ── Accepted path ──────────────────────────────────────────────
 
     function test_receive_accepts_whenWrappedNativeWithdrawsBack() public {
-        // Mint WMON to the giwaRouter, then have the giwaRouter itself call wmon.withdraw, which
+        // Mint WNATIVE to the giwaRouter, then have the giwaRouter itself call wnative.withdraw, which
         // triggers the ETH callback into receive() with msg.sender == _wrappedNative.
-        wmonLocal.mint(address(giwaRouter), 1 ether);
+        wnativeLocal.mint(address(giwaRouter), 1 ether);
 
         uint256 balanceBefore = address(giwaRouter).balance;
 
         // Make the giwaRouter perform the withdraw by impersonating it as msg.sender.
         vm.prank(address(giwaRouter));
-        wmonLocal.withdraw(1 ether);
+        wnativeLocal.withdraw(1 ether);
 
-        assertEq(address(giwaRouter).balance, balanceBefore + 1 ether, "giwaRouter received ETH from WMON withdraw");
+        assertEq(address(giwaRouter).balance, balanceBefore + 1 ether, "giwaRouter received ETH from WNATIVE withdraw");
     }
 }

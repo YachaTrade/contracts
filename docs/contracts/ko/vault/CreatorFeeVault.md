@@ -16,7 +16,7 @@ Claim 모델 기반 크리에이터 수수료 vault. 모든 토큰이 공유하�
 | `creatorFeeProcessor` | `address` | initialize | `afterDeposit` 호출 권한 |
 | `tokenRegistry` | `ITokenRegistry` | initialize | claim 시점에 토큰의 `quoteToken` 조회 |
 | `metadataURI` | `string` | initialize | 오프체인 메타데이터 URI (`IVault`) |
-| `wmon` | `address` | initialize | 래핑 네이티브 싱글톤. `claim` 시점의 등록 quote == `wmon`이면 unwrap해서 native MON으로 전송. `address(0)`이면 unwrap 비활성 (모든 quote에 대해 ERC20 transfer) |
+| `wnative` | `address` | initialize | 래핑 네이티브 싱글톤. `claim` 시점의 등록 quote == `wnative`이면 unwrap해서 native currency으로 전송. `address(0)`이면 unwrap 비활성 (모든 quote에 대해 ERC20 transfer) |
 | `_creators` | `mapping(address => address)` | setup / setCreator | 토큰별 creator 포인터; `claim`은 `msg.sender == _creators[token]` 조건 |
 | `_balances` | `mapping(address => uint256)` | afterDeposit / claim | 토큰별 누적 quoteToken 잔액 (claim 대기) |
 
@@ -26,14 +26,14 @@ Claim 모델 기반 크리에이터 수수료 vault. 모든 토큰이 공유하�
 
 | 함수 | 접근 | 설명 |
 |------|------|------|
-| `initialize(protocolManager_, bondingCurve_, creatorFeeProcessor_, tokenRegistry_, wmon_, metadataURI_)` | initializer | UUPS 초기화. `wmon_` 등록되면 `claim`에서 quote == wmon일 때 native unwrap 활성 |
+| `initialize(protocolManager_, bondingCurve_, creatorFeeProcessor_, tokenRegistry_, wnative_, metadataURI_)` | initializer | UUPS 초기화. `wnative_` 등록되면 `claim`에서 quote == wnative일 때 native unwrap 활성 |
 | `setup(token, data)` | `bondingCurve`만 | 토큰별 creator 등록. `data = abi.encode(creator)` |
 | `afterDeposit(token, _, amount)` | `creatorFeeProcessor`만 | creator 등록된 토큰이면 `_balances[token]`에 `amount` 누적 |
-| `claim(token)` | `msg.sender == _creators[token]`, `nonReentrant` | 누적 잔액 전액 인출. 등록 quote == `wmon`이면 unwrap해서 native MON으로 송금 |
+| `claim(token)` | `msg.sender == _creators[token]`, `nonReentrant` | 누적 잔액 전액 인출. 등록 quote == `wnative`이면 unwrap해서 native currency으로 송금 |
 | `setCreator(token, newCreator)` | **restricted** | 토큰별 creator 교체. 누적 잔액은 새 creator가 상속 (이전 creator는 claim 권한 상실) |
 | `getCreator(token)` | view | `_creators[token]` 조회 (0 = 미설정) |
 | `getBalance(token)` | view | `_balances[token]` 조회 |
-| `receive() external payable` | `msg.sender == wmon`만 | `IWrappedNative.withdraw` 콜백 수신. 다른 발신자는 `UnexpectedNative` revert |
+| `receive() external payable` | `msg.sender == wnative`만 | `IWrappedNative.withdraw` 콜백 수신. 다른 발신자는 `UnexpectedNative` revert |
 
 ---
 
@@ -75,8 +75,8 @@ creator -> CreatorFeeVault.claim(token)
   |-- require amount > 0 (ZeroBalance)
   |-- _balances[token] = 0                            # CEI: 외부 호출 전 state 정리
   |-- quoteToken = tokenRegistry.getQuoteToken(token)
-  |-- if wmon != 0 && quoteToken == wmon:
-  |     IWrappedNative(wmon).withdraw(amount)         # WMON unwrap → vault에 native MON
+  |-- if wnative != 0 && quoteToken == wnative:
+  |     IWrappedNative(wnative).withdraw(amount)         # WNATIVE unwrap → vault에 native currency
   |     (ok,) = creator.call{value: amount}("")       # native를 creator에게 전달
   |     require(ok, NativeTransferFailed)
   |-- else:
@@ -84,7 +84,7 @@ creator -> CreatorFeeVault.claim(token)
   +-- emit Claim(token, creator, amount)
 ```
 
-방어 다층 구성: `claim`에 `nonReentrant` (OZ `ReentrancyGuard`, ERC-7201 namespaced storage — proxy 안전) + CEI(`_balances[token] = 0`을 외부 호출 전에 적용). 둘 중 하나만 있어도 현 구조에선 충분하지만, 향후 WMON unwrap 콜백과 state를 공유하는 cross-function 경로가 추가될 가능성에 대비.
+방어 다층 구성: `claim`에 `nonReentrant` (OZ `ReentrancyGuard`, ERC-7201 namespaced storage — proxy 안전) + CEI(`_balances[token] = 0`을 외부 호출 전에 적용). 둘 중 하나만 있어도 현 구조에선 충분하지만, 향후 WNATIVE unwrap 콜백과 state를 공유하는 cross-function 경로가 추가될 가능성에 대비.
 
 ### `setCreator(token, newCreator)`
 
@@ -115,7 +115,7 @@ admin / operator -> CreatorFeeVault.setCreator(token, newCreator)
 
 3. Creator가 인출
    creator.claim(token)
-   -> 등록 quote == wmon 이면: unwrap해서 native MON 전송
+   -> 등록 quote == wnative 이면: unwrap해서 native currency 전송
    -> 그 외: ERC20 safeTransfer
    -> _balances[token] = 0
 
@@ -139,7 +139,7 @@ admin / operator -> CreatorFeeVault.setCreator(token, newCreator)
 | 잔액 0 claim | `_balances[token] > 0` → `ZeroBalance` |
 | Native 콜백을 통한 재진입 | `claim`에 `nonReentrant` (OZ `ReentrancyGuard`, ERC-7201 namespaced storage — proxy 안전) + CEI(외부 호출 전 `_balances[token] = 0`). 재진입한 `claim`은 가드에서 차단 |
 | Native unwrap 송금 실패 (creator의 receive에서 revert) | `(bool ok,) = creator.call{value}("")` → `NativeTransferFailed`. 전체 claim revert로 `_balances[token]` 복구. `setCreator`로 작동 가능한 주소로 교체 후 재시도 |
-| 임의 native 송금 (실수 입금, 다른 컨트랙트에서 흘러옴) | `receive()`는 `msg.sender == wmon`만 허용 → 그 외 발신자는 `UnexpectedNative` revert |
+| 임의 native 송금 (실수 입금, 다른 컨트랙트에서 흘러옴) | `receive()`는 `msg.sender == wnative`만 허용 → 그 외 발신자는 `UnexpectedNative` revert |
 | Rotation 탈취 | `setCreator`는 `restricted` — admin(PM owner) 또는 `setCreator` selector 권한 부여받은 operator만 호출 가능 |
 
 ---

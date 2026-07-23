@@ -4,9 +4,9 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {UniswapV3Factory} from "@uniswap/v3-core/contracts/UniswapV3Factory.sol";
-import {WETH} from "solady/tokens/WETH.sol";
+import {MockWrappedNative} from "../mocks/MockWrappedNative.sol";
 
-import {Deploy, GIWA_WETH} from "../../script/deploy/normal/Deploy.s.sol";
+import {Deploy, GIWA_WNATIVE} from "../../script/deploy/normal/Deploy.s.sol";
 import {V3LiquidityActor} from "../../src/actors/V3LiquidityActor.sol";
 import {BondingCurve} from "../../src/core/BondingCurve.sol";
 import {CreatorFeeProcessor} from "../../src/core/CreatorFeeProcessor.sol";
@@ -19,10 +19,11 @@ import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
 import {GiwaRouter} from "../../src/router/GiwaRouter.sol";
 import {Token} from "../../src/token/Token.sol";
 
-contract WethV3GraduationDeployHarness is Deploy {
+contract WnativeV3GraduationDeployHarness is Deploy {
     function deployCanonicalFixture(address v3Factory, address feeReceiver) external returns (Deployed memory d) {
         d.v3Factory = v3Factory;
-        (d.weth, d.protocolManager) = _deployCanonicalWethAndProtocolManager(address(this), feeReceiver, _testConfig());
+        (d.wnative, d.protocolManager) =
+            _deployCanonicalWnativeAndProtocolManager(address(this), feeReceiver, _testConfig());
         d.tokenRegistry = _deployTokenRegistry(d.protocolManager);
         d.creatorFeeProcessor = _deployCreatorFeeProcessor(d.protocolManager);
         d.v3SwapAdapter = _deployV3SwapAdapter(d.v3Factory, d.tokenRegistry);
@@ -32,8 +33,9 @@ contract WethV3GraduationDeployHarness is Deploy {
         LPManager(d.lpManager).setV3LiquidityActor(d.v3LiquidityActor, d.v3Factory);
         d.tokenImpl = address(new Token());
         d.bondingCurve = _deployBondingCurve(address(this), d.tokenImpl, d.protocolManager);
-        (d.quoterV2, d.giwaRouter) =
-            _deployV3Routing(d.protocolManager, d.bondingCurve, d.tokenRegistry, d.weth, d.v3SwapAdapter, d.v3Factory);
+        (d.quoterV2, d.giwaRouter) = _deployV3Routing(
+            d.protocolManager, d.bondingCurve, d.tokenRegistry, d.wnative, d.v3SwapAdapter, d.v3Factory
+        );
 
         d.vaultRegistry = _deployVaultRegistry(d.protocolManager);
         _deployVaults(d, "ipfs://creator-fee-vault");
@@ -59,29 +61,29 @@ contract WethV3GraduationDeployHarness is Deploy {
     }
 }
 
-contract WethV3GraduationE2ETest is Test {
+contract WnativeV3GraduationE2ETest is Test {
     uint256 private constant GRADUATION_QUOTE_IN = 800_000 ether;
 
     struct SettlementSnapshot {
         uint128 quoteLiquidity;
         uint128 tokenLiquidity;
         uint256 poolToken;
-        uint256 poolWeth;
+        uint256 poolWnative;
         uint256 lpToken;
-        uint256 lpWeth;
+        uint256 lpWnative;
         uint256 actorToken;
-        uint256 actorWeth;
+        uint256 actorWnative;
         uint256 feeReceiverToken;
-        uint256 feeReceiverWeth;
+        uint256 feeReceiverWnative;
         uint256 routerToken;
-        uint256 routerWeth;
+        uint256 routerWnative;
         uint256 adapterToken;
-        uint256 adapterWeth;
+        uint256 adapterWnative;
     }
 
     Deploy.Deployed private deployed;
     UniswapV3Factory private v3Factory;
-    WETH private weth;
+    MockWrappedNative private wnative;
     GiwaRouter private giwaRouter;
     BondingCurve private bondingCurve;
     TokenRegistry private tokenRegistry;
@@ -95,7 +97,7 @@ contract WethV3GraduationE2ETest is Test {
     address private pool;
 
     function setUp() public {
-        vm.etch(GIWA_WETH, type(WETH).runtimeCode);
+        vm.etch(GIWA_WNATIVE, type(MockWrappedNative).runtimeCode);
 
         creator = makeAddr("creator");
         graduator = makeAddr("graduator");
@@ -103,10 +105,10 @@ contract WethV3GraduationE2ETest is Test {
         feeReceiver = makeAddr("feeReceiver");
 
         v3Factory = new UniswapV3Factory();
-        WethV3GraduationDeployHarness harness = new WethV3GraduationDeployHarness();
+        WnativeV3GraduationDeployHarness harness = new WnativeV3GraduationDeployHarness();
         deployed = harness.deployCanonicalFixture(address(v3Factory), feeReceiver);
 
-        weth = WETH(payable(deployed.weth));
+        wnative = MockWrappedNative(payable(deployed.wnative));
         giwaRouter = GiwaRouter(payable(deployed.giwaRouter));
         bondingCurve = BondingCurve(payable(deployed.bondingCurve));
         tokenRegistry = TokenRegistry(deployed.tokenRegistry);
@@ -116,15 +118,15 @@ contract WethV3GraduationE2ETest is Test {
         _graduateToken();
         pool = tokenRegistry.getPool(token);
 
-        assertEq(deployed.weth, GIWA_WETH, "canonical WETH");
-        assertEq(giwaRouter.wrappedNative(), GIWA_WETH, "router WETH");
-        assertEq(tokenRegistry.getQuoteToken(token), GIWA_WETH, "registry WETH");
+        assertEq(deployed.wnative, GIWA_WNATIVE, "canonical WNATIVE");
+        assertEq(giwaRouter.wrappedNative(), GIWA_WNATIVE, "router WNATIVE");
+        assertEq(tokenRegistry.getQuoteToken(token), GIWA_WNATIVE, "registry WNATIVE");
         assertEq(CreatorFeeProcessor(deployed.creatorFeeProcessor).vaultCount(token), 1, "CreatorFeeVault only");
         assertEq(IERC20(token).balanceOf(deployed.lpManager), 0, "graduation token remainder");
-        assertEq(weth.balanceOf(deployed.lpManager), 0, "graduation WETH remainder");
+        assertEq(wnative.balanceOf(deployed.lpManager), 0, "graduation WNATIVE remainder");
     }
 
-    function test_wethV3_createGraduateBuyAndSellFullBalance() public {
+    function test_wnativeV3_createGraduateBuyAndSellFullBalance() public {
         _buyAndSellFullBalance(1 ether);
     }
 
@@ -136,11 +138,11 @@ contract WethV3GraduationE2ETest is Test {
     function _buyAndSellFullBalance(uint256 quoteIn) private {
         SettlementSnapshot memory beforeSwap = _snapshotSettlement();
 
-        _fundWeth(trader, quoteIn);
+        _fundWnative(trader, quoteIn);
         assertEq(IERC20(token).balanceOf(trader), 0, "fresh trader token balance");
-        assertEq(weth.balanceOf(trader), quoteIn, "funded trader WETH balance");
+        assertEq(wnative.balanceOf(trader), quoteIn, "funded trader WNATIVE balance");
         vm.prank(trader);
-        weth.approve(deployed.giwaRouter, quoteIn);
+        wnative.approve(deployed.giwaRouter, quoteIn);
 
         vm.prank(trader);
         uint256 tokenOut = giwaRouter.buy(
@@ -155,7 +157,7 @@ contract WethV3GraduationE2ETest is Test {
         vm.prank(trader);
         IERC20(token).approve(deployed.giwaRouter, fullBalance);
 
-        uint256 quoteBefore = weth.balanceOf(trader);
+        uint256 quoteBefore = wnative.balanceOf(trader);
         vm.prank(trader);
         uint256 quoteOut = giwaRouter.sell(
             IGiwaRouter.SellParams({
@@ -163,9 +165,9 @@ contract WethV3GraduationE2ETest is Test {
             })
         );
 
-        assertGt(quoteOut, 0, "post-graduation WETH output");
+        assertGt(quoteOut, 0, "post-graduation WNATIVE output");
         assertEq(IERC20(token).balanceOf(trader), 0, "seller token dust");
-        assertEq(weth.balanceOf(trader), quoteBefore + quoteOut, "same deployed WETH output");
+        assertEq(wnative.balanceOf(trader), quoteBefore + quoteOut, "same deployed WNATIVE output");
 
         _assertSettlement(beforeSwap);
     }
@@ -173,8 +175,8 @@ contract WethV3GraduationE2ETest is Test {
     function _assertSettlement(SettlementSnapshot memory beforeSwap) private view {
         ITokenRegistry.TokenInfo memory infoAfter = tokenRegistry.getTokenInfo(token);
         assertEq(infoAfter.pool, pool, "registry pool changed");
-        assertEq(infoAfter.quoteToken, deployed.weth, "quote token changed");
-        assertEq(v3Factory.getPool(token, deployed.weth, infoAfter.feeTier), pool, "factory pool changed");
+        assertEq(infoAfter.quoteToken, deployed.wnative, "quote token changed");
+        assertEq(v3Factory.getPool(token, deployed.wnative, infoAfter.feeTier), pool, "factory pool changed");
 
         (uint128 quoteLiquidityAfter, uint128 tokenLiquidityAfter) = _positionLiquidities();
         assertGt(quoteLiquidityAfter, 0, "quote position liquidity");
@@ -183,50 +185,50 @@ contract WethV3GraduationE2ETest is Test {
         assertEq(tokenLiquidityAfter, beforeSwap.tokenLiquidity, "token position changed");
 
         assertEq(IERC20(token).balanceOf(pool), beforeSwap.poolToken, "pool token round trip");
-        assertGt(weth.balanceOf(pool), beforeSwap.poolWeth, "pool WETH fees");
+        assertGt(wnative.balanceOf(pool), beforeSwap.poolWnative, "pool WNATIVE fees");
         assertEq(beforeSwap.lpToken, 0, "LPManager token before swap");
-        assertEq(beforeSwap.lpWeth, 0, "LPManager WETH before swap");
+        assertEq(beforeSwap.lpWnative, 0, "LPManager WNATIVE before swap");
         assertEq(IERC20(token).balanceOf(deployed.lpManager), 0, "LPManager token dust");
-        assertEq(weth.balanceOf(deployed.lpManager), 0, "LPManager WETH dust");
+        assertEq(wnative.balanceOf(deployed.lpManager), 0, "LPManager WNATIVE dust");
         assertEq(beforeSwap.actorToken, 0, "actor token before swap");
-        assertEq(beforeSwap.actorWeth, 0, "actor WETH before swap");
+        assertEq(beforeSwap.actorWnative, 0, "actor WNATIVE before swap");
         assertEq(IERC20(token).balanceOf(deployed.v3LiquidityActor), 0, "actor token dust");
-        assertEq(weth.balanceOf(deployed.v3LiquidityActor), 0, "actor WETH dust");
+        assertEq(wnative.balanceOf(deployed.v3LiquidityActor), 0, "actor WNATIVE dust");
         assertEq(IERC20(token).balanceOf(feeReceiver), beforeSwap.feeReceiverToken, "fee receiver token delta");
-        assertEq(weth.balanceOf(feeReceiver), beforeSwap.feeReceiverWeth, "fee receiver WETH delta");
+        assertEq(wnative.balanceOf(feeReceiver), beforeSwap.feeReceiverWnative, "fee receiver WNATIVE delta");
         assertEq(beforeSwap.routerToken, 0, "router token before swap");
-        assertEq(beforeSwap.routerWeth, 0, "router WETH before swap");
+        assertEq(beforeSwap.routerWnative, 0, "router WNATIVE before swap");
         assertEq(IERC20(token).balanceOf(deployed.giwaRouter), 0, "router token dust");
-        assertEq(weth.balanceOf(deployed.giwaRouter), 0, "router WETH dust");
+        assertEq(wnative.balanceOf(deployed.giwaRouter), 0, "router WNATIVE dust");
         assertEq(beforeSwap.adapterToken, 0, "adapter token before swap");
-        assertEq(beforeSwap.adapterWeth, 0, "adapter WETH before swap");
+        assertEq(beforeSwap.adapterWnative, 0, "adapter WNATIVE before swap");
         assertEq(IERC20(token).balanceOf(deployed.v3SwapAdapter), 0, "adapter token dust");
-        assertEq(weth.balanceOf(deployed.v3SwapAdapter), 0, "adapter WETH dust");
+        assertEq(wnative.balanceOf(deployed.v3SwapAdapter), 0, "adapter WNATIVE dust");
         assertEq(IERC20(token).allowance(deployed.giwaRouter, deployed.v3SwapAdapter), 0, "router token allowance dust");
-        assertEq(weth.allowance(deployed.giwaRouter, deployed.v3SwapAdapter), 0, "router WETH allowance dust");
+        assertEq(wnative.allowance(deployed.giwaRouter, deployed.v3SwapAdapter), 0, "router WNATIVE allowance dust");
     }
 
     function _snapshotSettlement() private view returns (SettlementSnapshot memory snapshot) {
         (snapshot.quoteLiquidity, snapshot.tokenLiquidity) = _positionLiquidities();
         snapshot.poolToken = IERC20(token).balanceOf(pool);
-        snapshot.poolWeth = weth.balanceOf(pool);
+        snapshot.poolWnative = wnative.balanceOf(pool);
         snapshot.lpToken = IERC20(token).balanceOf(deployed.lpManager);
-        snapshot.lpWeth = weth.balanceOf(deployed.lpManager);
+        snapshot.lpWnative = wnative.balanceOf(deployed.lpManager);
         snapshot.actorToken = IERC20(token).balanceOf(deployed.v3LiquidityActor);
-        snapshot.actorWeth = weth.balanceOf(deployed.v3LiquidityActor);
+        snapshot.actorWnative = wnative.balanceOf(deployed.v3LiquidityActor);
         snapshot.feeReceiverToken = IERC20(token).balanceOf(feeReceiver);
-        snapshot.feeReceiverWeth = weth.balanceOf(feeReceiver);
+        snapshot.feeReceiverWnative = wnative.balanceOf(feeReceiver);
         snapshot.routerToken = IERC20(token).balanceOf(deployed.giwaRouter);
-        snapshot.routerWeth = weth.balanceOf(deployed.giwaRouter);
+        snapshot.routerWnative = wnative.balanceOf(deployed.giwaRouter);
         snapshot.adapterToken = IERC20(token).balanceOf(deployed.v3SwapAdapter);
-        snapshot.adapterWeth = weth.balanceOf(deployed.v3SwapAdapter);
+        snapshot.adapterWnative = wnative.balanceOf(deployed.v3SwapAdapter);
     }
 
     function _createToken() private returns (address createdToken) {
-        uint256 deployFee = IProtocolManager(deployed.protocolManager).deployFee(deployed.weth);
-        _fundWeth(creator, deployFee);
+        uint256 deployFee = IProtocolManager(deployed.protocolManager).deployFee(deployed.wnative);
+        _fundWnative(creator, deployFee);
         vm.prank(creator);
-        weth.approve(deployed.giwaRouter, deployFee);
+        wnative.approve(deployed.giwaRouter, deployFee);
 
         IBondingCurve.VaultAllocation[] memory vaults = new IBondingCurve.VaultAllocation[](1);
         vaults[0] = IBondingCurve.VaultAllocation({
@@ -236,12 +238,12 @@ contract WethV3GraduationE2ETest is Test {
         vm.prank(creator);
         (createdToken,) = giwaRouter.create(
             IGiwaRouter.CreateParams({
-                name: "Canonical WETH Launch",
-                symbol: "CWETH",
+                name: "Canonical WNATIVE Launch",
+                symbol: "CWNATIVE",
                 tokenURI: "",
-                quoteToken: deployed.weth,
+                quoteToken: deployed.wnative,
                 vaults: vaults,
-                salt: keccak256("canonical-weth-graduation-e2e"),
+                salt: keccak256("canonical-wnative-graduation-e2e"),
                 dexType: ITokenRegistry.DexType.UniswapV3,
                 buyQuoteAmount: 0,
                 deadline: block.timestamp
@@ -252,9 +254,9 @@ contract WethV3GraduationE2ETest is Test {
     function _graduateToken() private {
         vm.roll(block.number + 2);
         vm.warp(block.timestamp + 100 minutes);
-        _fundWeth(graduator, GRADUATION_QUOTE_IN);
+        _fundWnative(graduator, GRADUATION_QUOTE_IN);
         vm.prank(graduator);
-        weth.approve(deployed.giwaRouter, GRADUATION_QUOTE_IN);
+        wnative.approve(deployed.giwaRouter, GRADUATION_QUOTE_IN);
 
         vm.prank(graduator);
         giwaRouter.buy(
@@ -266,10 +268,10 @@ contract WethV3GraduationE2ETest is Test {
         assertTrue(bondingCurve.getCurve(token).graduated, "curve not graduated");
     }
 
-    function _fundWeth(address account, uint256 amount) private {
+    function _fundWnative(address account, uint256 amount) private {
         vm.deal(account, amount);
         vm.prank(account);
-        weth.deposit{value: amount}();
+        wnative.deposit{value: amount}();
     }
 
     function _positionLiquidities() private view returns (uint128 quoteLiquidity, uint128 tokenLiquidity) {
