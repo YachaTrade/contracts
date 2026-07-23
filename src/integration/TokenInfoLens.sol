@@ -7,8 +7,8 @@ import {ITokenRegistryV1} from "./interfaces/ITokenRegistryV1.sol";
 /// @title TokenInfoLens
 /// @notice V1·V2 TokenRegistry를 동시에 조회해서 토큰의 세대와 quoteToken을 결정론적으로
 ///         리턴하는 stateless view 컨트랙트. Off-chain SDK/indexer 전용.
-/// @dev V1은 항상 WMON quote 토큰만 지원했으므로 WMON 주소를 constructor로 받아 V1
-///      매치 시 fallback으로 사용한다. V2는 TokenRegistry에 저장된 quoteToken을 그대로 노출.
+/// @dev V1은 항상 별도의 legacy wrapped-native quote 토큰만 지원했으므로 그 주소를 constructor로 받아
+///      V1 매치 시 fallback으로 사용한다. V2는 TokenRegistry에 저장된 quoteToken을 그대로 노출.
 contract TokenInfoLens {
     enum Version {
         None,
@@ -27,13 +27,15 @@ contract TokenInfoLens {
 
     ITokenRegistryV1 public immutable v1Registry;
     ITokenRegistry public immutable v2Registry;
-    address public immutable wmon;
+    address public immutable v1WrappedNative;
 
-    constructor(address v1Registry_, address v2Registry_, address wmon_) {
-        if (v1Registry_ == address(0) || v2Registry_ == address(0) || wmon_ == address(0)) revert ZeroAddress();
+    constructor(address v1Registry_, address v2Registry_, address v1WrappedNative_) {
+        if (v1Registry_ == address(0) || v2Registry_ == address(0) || v1WrappedNative_ == address(0)) {
+            revert ZeroAddress();
+        }
         v1Registry = ITokenRegistryV1(v1Registry_);
         v2Registry = ITokenRegistry(v2Registry_);
-        wmon = wmon_;
+        v1WrappedNative = v1WrappedNative_;
     }
 
     /// @notice 단일 토큰의 세대와 quoteToken을 조회.
@@ -55,7 +57,7 @@ contract TokenInfoLens {
         }
         (address pool,,) = v1Registry.tokenInfos(token);
         if (pool != address(0)) {
-            return TokenInfo({version: Version.V1, quoteToken: wmon});
+            return TokenInfo({version: Version.V1, quoteToken: v1WrappedNative});
         }
         return TokenInfo({version: Version.None, quoteToken: address(0)});
     }

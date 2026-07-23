@@ -53,13 +53,13 @@ RUN_FORK_TESTS=true forge test --match-path test/fork/GiwaRouterNativeQuoteFork.
 - Native-transfer refunds, failure behavior, and slippage around variable external execution.
 - Graduation and bonding-curve boundary cases.
 
-## Native Quote And WETH
+## Native Quote And WNATIVE
 
-- Let existing tooling consume ignored local `.env` values; never inspect or hardcode them. Expected keys include `RPC_URL`, `UNISWAP_V3_FACTORY`, and `WETH`.
-- Require the curve quote token to equal the Router's configured WETH before asset movement.
+- Let existing tooling consume ignored local `.env` values; never inspect or hardcode them. Expected keys include `RPC_URL`, `UNISWAP_V3_FACTORY`, and `WNATIVE`.
+- Require the curve quote token to equal the Router's configured WNATIVE before asset movement.
 - Wrap only the call-scoped routed quote amount and refund excess native without sweeping pre-existing Router balances.
-- Accept native value in `receive()` only from WETH during `withdraw`.
-- Gate fork tests using deployed WETH behind `RUN_FORK_TESTS=true`.
+- Accept native value in `receive()` only from WNATIVE during `withdraw`.
+- Gate fork tests using deployed WNATIVE behind `RUN_FORK_TESTS=true`.
 
 ## Validation And Reporting
 

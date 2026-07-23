@@ -106,7 +106,7 @@ Retained Legacy Fee Flow (Post-Graduation V2):
 | IVault | `src/interfaces/IVault.sol` | Minimal vault interface (afterDeposit + setup) |
 | IVaultRegistry | `src/interfaces/IVaultRegistry.sol` | VaultRegistry interface + VaultInfo struct |
 | IDividendVault | `src/interfaces/IDividendVault.sol` | DividendVault interface (`is IVault`): ConversionHop/DividendConfig structs, 전체 events/errors + 외부 API (IVaultRegistry/ICreatorFeeProcessor 패턴) |
-| IWrappedNative | `src/interfaces/IWrappedNative.sol` | WMON interface |
+| IWrappedNative | `src/interfaces/IWrappedNative.sol` | WNATIVE interface |
 | INadFunFactory | `src/dex/interfaces/INadFunFactory.sol` | Factory interface (createPair, getPair) |
 | INadFunPair | `src/dex/interfaces/INadFunPair.sol` | Pair interface (mint, burn, swap, sync, getAmountOut, getAmountIn) |
 | INadFunCallee | `src/dex/interfaces/INadFunCallee.sol` | Flash swap callback interface |
@@ -144,7 +144,7 @@ Retained Legacy Fee Flow (Post-Graduation V2):
 |----------|--------|-------------|
 | BurnVault | `src/vault/BurnVault.sol` | Buyback & burn (swap quoteToken → token via IDexAdapter → 0xdead) |
 | LPVault | `src/vault/LPVault.sol` | Swap half + addLiquidity via IDexAdapter + burn LP |
-| CreatorFeeVault | `src/vault/CreatorFeeVault.sol` | Accumulates quoteToken per token; configured creator claims ERC-20 or WMON-unwrapped native |
+| CreatorFeeVault | `src/vault/CreatorFeeVault.sol` | Accumulates quoteToken per token; configured creator claims ERC-20 or WNATIVE-unwrapped native |
 | DividendVault | `src/vault/DividendVault.sol` | Multi-token dividend vault (UUPS). Converts creator fees into 1–10 dividend tokens by creator-configured ratio. Global Merkle root + per-period holder claim. Conversion is bot-driven: afterDeposit records ratio splits; an operator converts through GiwaRouter for bonding or registered canonical-V3 tokens, NadSwapAdapter for explicit legacy pools, or the external V2/V3 adapter lanes. |
 | VaultRegistry | `src/vault/VaultRegistry.sol` | Authority-restricted singleton vault registry (UUPS, VaultType enum); owner or selector-authorized operators may mutate it. |
 
@@ -152,7 +152,7 @@ Retained Legacy Fee Flow (Post-Graduation V2):
 
 | Contract | Source | Description |
 |----------|--------|-------------|
-| TokenInfoLens | `src/integration/TokenInfoLens.sol` | Stateless view contract. 토큰 주소를 받아 `(version, quoteToken)` 리턴 — V1(`contract-v3`)은 `(V1, WMON)`, V2(`nadfun-contract-v2`)는 V2 registry 저장 quoteToken 그대로, 미등록은 `(None, address(0))`. 오프체인 SDK/indexer 전용. |
+| TokenInfoLens | `src/integration/TokenInfoLens.sol` | Stateless view contract. 토큰 주소를 받아 `(version, quoteToken)` 리턴 — V1(`contract-v3`)은 별도로 설정한 legacy V1 wrapped-native, V2는 V2 registry 저장 quoteToken 그대로, 미등록은 `(None, address(0))`. 오프체인 SDK/indexer 전용. |
 
 ---
 

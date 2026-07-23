@@ -34,10 +34,10 @@ import {V3SwapAdapter} from "../src/adapters/V3SwapAdapter.sol";
 
 // Mocks
 import {MockERC20} from "./mocks/MockERC20.sol";
-import {MockWMON} from "./mocks/MockWMON.sol";
+import {MockWrappedNative} from "./mocks/MockWrappedNative.sol";
 
 /// @title SetUp -- Shared base test contract for GIWA
-/// @notice Deploys the full protocol stack with real contracts (no mocks except MockERC20/MockWMON).
+/// @notice Deploys the full protocol stack with real contracts (no mocks except MockERC20/MockWrappedNative).
 /// @dev Deployment order mirrors the fresh V3-only deployment graph.
 contract SetUp is Test {
     // -- Addresses ------------------------------------------------
@@ -50,7 +50,7 @@ contract SetUp is Test {
 
     // -- Tokens ---------------------------------------------------
     MockERC20 public quoteToken;
-    MockWMON public wmon;
+    MockWrappedNative public wnative;
 
     // -- Core (UUPS Proxies) --------------------------------------
     ProtocolManager public protocolManager;
@@ -112,8 +112,8 @@ contract SetUp is Test {
         _loadProtocolConfig();
 
         // 2. Quote token + wrapped native
-        quoteToken = new MockERC20("WMON", "WMON", 18);
-        wmon = new MockWMON();
+        quoteToken = new MockERC20("WNATIVE", "WNATIVE", 18);
+        wnative = new MockWrappedNative();
 
         vm.startPrank(admin);
 
@@ -194,7 +194,7 @@ contract SetUp is Test {
         );
 
         // 9. GiwaRouter (UUPS proxy)
-        quoterV2 = new QuoterV2(address(v3Factory), address(wmon));
+        quoterV2 = new QuoterV2(address(v3Factory), address(wnative));
         GiwaRouter giwaRouterImpl = new GiwaRouter();
         giwaRouter = GiwaRouter(
             payable(address(
@@ -206,7 +206,7 @@ contract SetUp is Test {
                                 address(protocolManager),
                                 address(bondingCurve),
                                 address(tokenRegistry),
-                                address(wmon),
+                                address(wnative),
                                 address(v3SwapAdapter),
                                 address(quoterV2)
                             )
@@ -235,7 +235,7 @@ contract SetUp is Test {
                                 address(bondingCurve),
                                 address(creatorFeeProcessor),
                                 address(tokenRegistry),
-                                address(wmon),
+                                address(wnative),
                                 ""
                             )
                         )

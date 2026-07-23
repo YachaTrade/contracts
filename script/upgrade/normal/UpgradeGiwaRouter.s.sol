@@ -50,7 +50,7 @@ contract UpgradeGiwaRouter is Script {
             _readAddressSelector(proxy, GiwaRouter.tokenRegistry.selector) == tokenRegistry, "Upgrade: registry changed"
         );
         require(
-            _readAddressSelector(proxy, GiwaRouter.wrappedNative.selector) == wrappedNative, "Upgrade: WETH changed"
+            _readAddressSelector(proxy, GiwaRouter.wrappedNative.selector) == wrappedNative, "Upgrade: WNATIVE changed"
         );
         require(
             _readAddressSelector(proxy, GiwaRouter.v3SwapAdapter.selector) == v3SwapAdapter, "Upgrade: adapter changed"

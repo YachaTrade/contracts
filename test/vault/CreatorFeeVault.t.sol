@@ -38,7 +38,7 @@ contract CreatorFeeVaultTest is SetUp {
                                 bondingCurveAddr,
                                 address(this),
                                 address(tokenRegistry),
-                                address(wmon),
+                                address(wnative),
                                 ""
                             )
                         )
@@ -213,7 +213,7 @@ contract CreatorFeeVaultTest is SetUp {
             address(impl),
             abi.encodeCall(
                 CreatorFeeVault.initialize,
-                (address(protocolManager), address(0), address(this), address(tokenRegistry), address(wmon), "")
+                (address(protocolManager), address(0), address(this), address(tokenRegistry), address(wnative), "")
             )
         );
     }
@@ -225,7 +225,7 @@ contract CreatorFeeVaultTest is SetUp {
             address(impl),
             abi.encodeCall(
                 CreatorFeeVault.initialize,
-                (address(protocolManager), bondingCurveAddr, address(0), address(tokenRegistry), address(wmon), "")
+                (address(protocolManager), bondingCurveAddr, address(0), address(tokenRegistry), address(wnative), "")
             )
         );
     }
@@ -237,7 +237,7 @@ contract CreatorFeeVaultTest is SetUp {
             address(impl),
             abi.encodeCall(
                 CreatorFeeVault.initialize,
-                (address(protocolManager), bondingCurveAddr, address(this), address(0), address(wmon), "")
+                (address(protocolManager), bondingCurveAddr, address(this), address(0), address(wnative), "")
             )
         );
     }
@@ -329,27 +329,27 @@ contract CreatorFeeVaultTest is SetUp {
         assertTrue(vault.supportsInterface(type(IVault).interfaceId), "Should support IVault");
     }
 
-    // ── WMON unwrap ─────────────────────────────────────────────────
+    // ── WNATIVE unwrap ──────────────────────────────────────────────
 
-    function test_initialize_setsWmon() public view {
-        assertEq(vault.wmon(), address(wmon), "wmon should be set from initialize");
+    function test_initialize_setsWnative() public view {
+        assertEq(vault.wnative(), address(wnative), "wnative should be set from initialize");
     }
 
-    /// @notice claim() unwraps and forwards native MON when registered quote == wmon.
-    function test_claim_unwrapsWhenQuoteIsWmon() public {
+    /// @notice claim() unwraps and forwards native currency when registered quote == WNATIVE.
+    function test_claim_unwrapsWhenQuoteIsWnative() public {
         uint256 amount = 100 ether;
 
-        // Fund vault with WMON (simulates afterDeposit accumulation).
+        // Fund vault with WNATIVE (simulates afterDeposit accumulation).
         vm.deal(address(this), amount);
-        wmon.deposit{value: amount}();
-        wmon.transfer(address(vault), amount);
-        vault.afterDeposit(creatorFeeToken, address(wmon), amount);
+        wnative.deposit{value: amount}();
+        wnative.transfer(address(vault), amount);
+        vault.afterDeposit(creatorFeeToken, address(wnative), amount);
 
-        // Override the registered quote so claim() reads wmon.
+        // Override the registered quote so claim() reads WNATIVE.
         vm.mockCall(
             address(tokenRegistry),
             abi.encodeWithSelector(ITokenRegistry.getQuoteToken.selector, creatorFeeToken),
-            abi.encode(address(wmon))
+            abi.encode(address(wnative))
         );
 
         uint256 nativeBefore = recipient.balance;
@@ -357,14 +357,14 @@ contract CreatorFeeVaultTest is SetUp {
         vm.prank(recipient);
         vault.claim(creatorFeeToken);
 
-        assertEq(recipient.balance - nativeBefore, amount, "recipient should receive native MON");
-        assertEq(wmon.balanceOf(recipient), 0, "recipient should not receive WMON");
-        assertEq(wmon.balanceOf(address(vault)), 0, "vault should be drained");
+        assertEq(recipient.balance - nativeBefore, amount, "recipient should receive native currency");
+        assertEq(wnative.balanceOf(recipient), 0, "recipient should not receive WNATIVE");
+        assertEq(wnative.balanceOf(address(vault)), 0, "vault should be drained");
         assertEq(vault.getBalance(creatorFeeToken), 0, "balance state should be cleared");
     }
 
-    /// @notice Non-WMON quotes still ERC20-transfer (regression guard).
-    function test_claim_doesNotUnwrapForNonWmonQuote() public {
+    /// @notice Non-WNATIVE quotes still ERC20-transfer (regression guard).
+    function test_claim_doesNotUnwrapForNonWnativeQuote() public {
         uint256 amount = 100 ether;
         quoteToken.mint(address(vault), amount);
         vault.afterDeposit(creatorFeeToken, address(quoteToken), amount);
@@ -373,7 +373,7 @@ contract CreatorFeeVaultTest is SetUp {
         vault.claim(creatorFeeToken);
 
         assertEq(quoteToken.balanceOf(recipient), amount, "recipient should receive ERC20");
-        assertEq(recipient.balance, 0, "no native MON should be sent");
+        assertEq(recipient.balance, 0, "no native currency should be sent");
     }
 
     /// @notice Native transfer failure (recipient reverts in receive) reverts the whole claim,
@@ -382,9 +382,9 @@ contract CreatorFeeVaultTest is SetUp {
         uint256 amount = 50 ether;
 
         vm.deal(address(this), amount);
-        wmon.deposit{value: amount}();
-        wmon.transfer(address(vault), amount);
-        vault.afterDeposit(creatorFeeToken, address(wmon), amount);
+        wnative.deposit{value: amount}();
+        wnative.transfer(address(vault), amount);
+        vault.afterDeposit(creatorFeeToken, address(wnative), amount);
 
         // Replace the creator with a contract that reverts on native receive.
         RevertingReceiver bad = new RevertingReceiver();
@@ -394,7 +394,7 @@ contract CreatorFeeVaultTest is SetUp {
         vm.mockCall(
             address(tokenRegistry),
             abi.encodeWithSelector(ITokenRegistry.getQuoteToken.selector, creatorFeeToken),
-            abi.encode(address(wmon))
+            abi.encode(address(wnative))
         );
 
         vm.prank(address(bad));
@@ -402,12 +402,12 @@ contract CreatorFeeVaultTest is SetUp {
         vault.claim(creatorFeeToken);
     }
 
-    /// @notice receive() rejects native sent from any address other than the configured wmon.
-    function test_receive_revertsFromNonWmon() public {
+    /// @notice receive() rejects native sent from any address other than the configured WNATIVE.
+    function test_receive_revertsFromNonWnative() public {
         vm.deal(address(this), 1 ether);
 
         (bool ok, bytes memory ret) = address(vault).call{value: 1 ether}("");
-        assertFalse(ok, "non-wmon native transfer must fail");
+        assertFalse(ok, "non-wnative native transfer must fail");
         assertEq(bytes4(ret), CreatorFeeVault.UnexpectedNative.selector, "should revert with UnexpectedNative");
     }
 }

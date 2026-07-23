@@ -5,9 +5,9 @@ import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {UniswapV3Factory} from "@uniswap/v3-core/contracts/UniswapV3Factory.sol";
 import {IPeripheryImmutableState} from "@uniswap/v3-periphery/contracts/interfaces/IPeripheryImmutableState.sol";
-import {WETH} from "solady/tokens/WETH.sol";
+import {MockWrappedNative} from "../mocks/MockWrappedNative.sol";
 
-import {Deploy, GIWA_WETH} from "../../script/deploy/normal/Deploy.s.sol";
+import {Deploy, GIWA_WNATIVE} from "../../script/deploy/normal/Deploy.s.sol";
 import {V3LiquidityActor} from "../../src/actors/V3LiquidityActor.sol";
 import {BondingCurve} from "../../src/core/BondingCurve.sol";
 import {CreatorFeeProcessor} from "../../src/core/CreatorFeeProcessor.sol";
@@ -25,15 +25,15 @@ import {VaultRegistry} from "../../src/vault/VaultRegistry.sol";
 contract MultisigContractStub {}
 
 contract DeployHarness is Deploy {
-    function deployCanonicalWethAndProtocolManager(address admin, address feeReceiver)
+    function deployCanonicalWnativeAndProtocolManager(address admin, address feeReceiver)
         external
-        returns (address weth, address protocolManager)
+        returns (address wnative, address protocolManager)
     {
-        return _deployCanonicalWethAndProtocolManager(admin, feeReceiver, _testConfig());
+        return _deployCanonicalWnativeAndProtocolManager(admin, feeReceiver, _testConfig());
     }
 
-    function canonicalWeth() external view returns (address) {
-        return _canonicalWeth();
+    function canonicalWnative() external view returns (address) {
+        return _canonicalWnative();
     }
 
     function readUint24(string memory key) external view returns (uint24) {
@@ -49,8 +49,8 @@ contract DeployHarness is Deploy {
         returns (Deployed memory d)
     {
         d.v3Factory = v3Factory;
-        (d.weth, d.protocolManager) =
-            _deployCanonicalWethAndProtocolManager(address(this), address(0xFEE), _testConfig());
+        (d.wnative, d.protocolManager) =
+            _deployCanonicalWnativeAndProtocolManager(address(this), address(0xFEE), _testConfig());
         d.tokenRegistry = _deployTokenRegistry(d.protocolManager);
         d.creatorFeeProcessor = _deployCreatorFeeProcessor(d.protocolManager);
         d.v3SwapAdapter = _deployV3SwapAdapter(d.v3Factory, d.tokenRegistry);
@@ -60,8 +60,9 @@ contract DeployHarness is Deploy {
         LPManager(d.lpManager).setV3LiquidityActor(d.v3LiquidityActor, d.v3Factory);
         d.tokenImpl = address(this);
         d.bondingCurve = _deployBondingCurve(address(this), d.tokenImpl, d.protocolManager);
-        (d.quoterV2, d.giwaRouter) =
-            _deployV3Routing(d.protocolManager, d.bondingCurve, d.tokenRegistry, d.weth, d.v3SwapAdapter, d.v3Factory);
+        (d.quoterV2, d.giwaRouter) = _deployV3Routing(
+            d.protocolManager, d.bondingCurve, d.tokenRegistry, d.wnative, d.v3SwapAdapter, d.v3Factory
+        );
 
         d.vaultRegistry = _deployVaultRegistry(d.protocolManager);
         _deployVaults(d, "ipfs://creator-fee-vault");
@@ -87,37 +88,37 @@ contract DeployHarness is Deploy {
     }
 }
 
-contract ProtocolWethQuoteTest is Test {
+contract ProtocolWnativeQuoteTest is Test {
     address private constant FEE_RECEIVER = address(0xFEE);
 
     function setUp() public {
-        vm.etch(GIWA_WETH, type(WETH).runtimeCode);
+        vm.etch(GIWA_WNATIVE, type(MockWrappedNative).runtimeCode);
     }
 
-    function test_canonicalWethPredeployIsReusedWithoutCreate() public {
+    function test_canonicalWnativePredeployIsReusedWithoutCreate() public {
         DeployHarness harness = new DeployHarness();
         uint64 nonceBefore = vm.getNonce(address(harness));
 
-        (address weth, address protocolManagerAddress) =
-            harness.deployCanonicalWethAndProtocolManager(address(harness), FEE_RECEIVER);
+        (address wnative, address protocolManagerAddress) =
+            harness.deployCanonicalWnativeAndProtocolManager(address(harness), FEE_RECEIVER);
 
-        assertEq(weth, 0x4200000000000000000000000000000000000006);
-        assertEq(weth, harness.canonicalWeth());
+        assertEq(wnative, 0x4200000000000000000000000000000000000006);
+        assertEq(wnative, harness.canonicalWnative());
         assertEq(vm.getNonce(address(harness)), nonceBefore + 2, "only ProtocolManager impl and proxy should deploy");
 
-        IProtocolManager.QuoteConfig memory wethConfig = ProtocolManager(protocolManagerAddress).getConfig(weth);
-        assertTrue(wethConfig.active);
-        assertEq(wethConfig.dexProtocolFeeRate, 0);
-        assertEq(wethConfig.v3FeeTier, 3000);
-        assertEq(wethConfig.lpFeeProtocolShareBps, 5000);
+        IProtocolManager.QuoteConfig memory wnativeConfig = ProtocolManager(protocolManagerAddress).getConfig(wnative);
+        assertTrue(wnativeConfig.active);
+        assertEq(wnativeConfig.dexProtocolFeeRate, 0);
+        assertEq(wnativeConfig.v3FeeTier, 3000);
+        assertEq(wnativeConfig.lpFeeProtocolShareBps, 5000);
     }
 
-    function test_canonicalWethRequiresPredeployCode() public {
-        vm.etch(GIWA_WETH, hex"");
+    function test_canonicalWnativeRequiresPredeployCode() public {
+        vm.etch(GIWA_WNATIVE, hex"");
         DeployHarness harness = new DeployHarness();
 
-        vm.expectRevert("Deploy: canonical WETH missing code");
-        harness.canonicalWeth();
+        vm.expectRevert("Deploy: canonical WNATIVE missing code");
+        harness.canonicalWnative();
     }
 
     function test_readUint24RejectsOverflow() public {
@@ -180,7 +181,7 @@ contract ProtocolWethQuoteTest is Test {
             deployed.protocolManager,
             "Processor authority"
         );
-        assertEq(CreatorFeeVault(payable(deployed.creatorFeeVault)).wmon(), GIWA_WETH);
+        assertEq(CreatorFeeVault(payable(deployed.creatorFeeVault)).wnative(), GIWA_WNATIVE);
         assertTrue(VaultRegistry(deployed.vaultRegistry).isActive(deployed.creatorFeeVault));
         _assertRegistrationLogs(logs, deployed);
         assertEq(
@@ -223,18 +224,18 @@ contract ProtocolWethQuoteTest is Test {
     }
 
     function _assertRouting(Deploy.Deployed memory deployed, address factory) private view {
-        assertEq(deployed.weth, GIWA_WETH);
+        assertEq(deployed.wnative, GIWA_WNATIVE);
         GiwaRouter router = GiwaRouter(payable(deployed.giwaRouter));
         assertEq(router.authority(), deployed.protocolManager);
         assertEq(router.bondingCurve(), deployed.bondingCurve);
         assertEq(router.tokenRegistry(), deployed.tokenRegistry);
-        assertEq(router.wrappedNative(), GIWA_WETH);
+        assertEq(router.wrappedNative(), GIWA_WNATIVE);
         assertEq(router.v3SwapAdapter(), deployed.v3SwapAdapter);
         assertEq(router.quoterV2(), deployed.quoterV2);
 
         IPeripheryImmutableState quoter = IPeripheryImmutableState(deployed.quoterV2);
         assertEq(quoter.factory(), address(factory));
-        assertEq(quoter.WETH9(), GIWA_WETH);
+        assertEq(quoter.WETH9(), GIWA_WNATIVE);
         assertEq(IV3SwapAdapter(deployed.v3SwapAdapter).factory(), address(factory));
         assertEq(IV3SwapAdapter(deployed.v3SwapAdapter).tokenRegistry(), deployed.tokenRegistry);
         assertEq(V3PoolDeployer(deployed.v3PoolDeployer).factory(), address(factory));

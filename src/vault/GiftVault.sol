@@ -75,11 +75,11 @@ contract GiftVault is IVault, UUPSUpgradeable, AccessManagedUpgradeable, Reentra
     /// @inheritdoc IVault
     string public metadataURI;
 
-    /// @notice Wrapped native (e.g. WMON) singleton. When `claim`'s quoteToken matches,
-    ///         the vault unwraps and forwards native MON to the receiver instead of WMON.
+    /// @notice Wrapped-native singleton. When `claim`'s quoteToken matches,
+    ///         the vault unwraps and forwards native currency to the receiver instead of WNATIVE.
     /// @dev    Set at `initialize`. Pass `address(0)` to disable the unwrap branch (claims
     ///         always do an ERC20 transfer regardless of quote token).
-    address public wmon;
+    address public wnative;
 
     event VaultSetup(address indexed token, Platform platform, string id);
     event Deposit(address indexed token, uint256 amount, uint256 newBalance);
@@ -114,7 +114,7 @@ contract GiftVault is IVault, UUPSUpgradeable, AccessManagedUpgradeable, Reentra
         address tokenRegistry_,
         uint256 expiryDuration_,
         address router_,
-        address wmon_,
+        address wnative_,
         string calldata metadataURI_
     ) external initializer {
         if (creatorFeeProcessor_ == address(0)) revert ZeroAddress();
@@ -130,7 +130,7 @@ contract GiftVault is IVault, UUPSUpgradeable, AccessManagedUpgradeable, Reentra
         tokenRegistry = ITokenRegistry(tokenRegistry_);
         expiryDuration = expiryDuration_;
         router = router_;
-        wmon = wmon_;
+        wnative = wnative_;
         metadataURI = metadataURI_;
     }
 
@@ -215,7 +215,7 @@ contract GiftVault is IVault, UUPSUpgradeable, AccessManagedUpgradeable, Reentra
     /// @dev `nonReentrant` + CEI defense in depth. State (`gift.balance`) is zeroed before
     ///      the external call so reentrant `claim(token)` would already revert via
     ///      `ZeroBalance`; the modifier guards against future cross-function paths that
-    ///      could share state with `claim` and the WMON unwrap callback.
+    ///      could share state with `claim` and the WNATIVE unwrap callback.
     function claim(address token) external nonReentrant {
         GiftInfo storage gift = _gifts[token];
         if (gift.state != State.Active) revert NotReceiver();
@@ -228,9 +228,9 @@ contract GiftVault is IVault, UUPSUpgradeable, AccessManagedUpgradeable, Reentra
 
         address receiver = gift.receiver;
         address quoteToken = tokenRegistry.getQuoteToken(token);
-        address wmonCached = wmon;
-        if (wmonCached != address(0) && quoteToken == wmonCached) {
-            IWrappedNative(wmonCached).withdraw(amount);
+        address wnativeCached = wnative;
+        if (wnativeCached != address(0) && quoteToken == wnativeCached) {
+            IWrappedNative(wnativeCached).withdraw(amount);
             (bool ok,) = receiver.call{value: amount}("");
             if (!ok) revert NativeTransferFailed();
         } else {
@@ -239,11 +239,11 @@ contract GiftVault is IVault, UUPSUpgradeable, AccessManagedUpgradeable, Reentra
         emit Claim(token, receiver, amount);
     }
 
-    /// @dev Accept native only from the configured wmon contract (callback from
+    /// @dev Accept native only from the configured WNATIVE contract (callback from
     ///      `IWrappedNative.withdraw`). Rejects all other native sends to prevent
     ///      stranded balances and accidental funding.
     receive() external payable {
-        if (msg.sender != wmon) revert UnexpectedNative();
+        if (msg.sender != wnative) revert UnexpectedNative();
     }
 
     function _queueBuybackAndBurn(address token, address quoteToken, uint256 amount) internal {

@@ -4,7 +4,7 @@
 
 **Goal:** Rebuild NadFun V2 as a fresh-deployment Solidity 0.8.24 launchpad that graduates into permanent canonical Uniswap V3 dual-range positions and distributes collected LP fees as quote token according to ProtocolManager configuration.
 
-**Architecture:** Preserve the V2 UUPS core, deterministic Token clones, unified router, and vault allocation system. Replace the custom V2 factory/pair and creator-fee settlement path with V3PoolDeployer, a contract-v3-compatible V3LiquidityActor, V3-aware LPManager, and authenticated V3SwapAdapter. Keep the contract-v3 price, bonding-tick, range, mint, and collect formulas structurally identical, changing only WMON names into per-token quote-token data and adding the agreed access, slippage, and distribution boundaries.
+**Architecture:** Preserve the V2 UUPS core, deterministic Token clones, unified router, and vault allocation system. Replace the custom V2 factory/pair and creator-fee settlement path with V3PoolDeployer, a contract-v3-compatible V3LiquidityActor, V3-aware LPManager, and authenticated V3SwapAdapter. Keep the contract-v3 price, bonding-tick, range, mint, and collect formulas structurally identical, changing only WNATIVE names into per-token quote-token data and adding the agreed access, slippage, and distribution boundaries.
 
 **Tech Stack:** Solidity 0.8.24, Foundry, OpenZeppelin upgradeable contracts, Solady, Uniswap V3 core commit 6562c52e8f75f0c10f9deaf44861847585fc8129, Uniswap V3 periphery commit b325bb0905d922ae61fcc7df85ee802e8df5e96c.
 

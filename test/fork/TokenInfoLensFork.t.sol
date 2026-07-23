@@ -9,13 +9,13 @@ import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
 
 /// @notice Fork test exercising TokenInfoLens against the real Monad mainnet
 ///         TokenRegistry contracts (V1 in contract-v3, V2 in nadfun-contract-v2)
-///         plus the real WMON.
+///         plus the real legacy V1 wrapped-native token.
 /// @dev Skips unless `RUN_FORK_TESTS=true` and `RPC_URL` is set.
 contract TokenInfoLensForkTest is Test {
     // Mainnet registry addresses (operator-confirmed)
     address internal constant V1_REGISTRY = 0x3Be9198208c198e2a4dab9A575764C8468DC83c6;
     address internal constant V2_REGISTRY = 0x3CBF1E9F8847A4c968Bb2636696723CC82b91565;
-    address internal constant WMON = 0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A;
+    address internal constant LEGACY_V1_WRAPPED_NATIVE = 0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A;
 
     // Known registered tokens (operator-confirmed)
     address internal constant V1_TOKEN = 0x23c26BD5D55e0d3c1985e23eF2a377C0e2547777;
@@ -28,22 +28,25 @@ contract TokenInfoLensForkTest is Test {
             vm.skip(true, "Set RUN_FORK_TESTS=true to run fork tests");
         }
         vm.createSelectFork(vm.envString("RPC_URL"));
-        lens = new TokenInfoLens(V1_REGISTRY, V2_REGISTRY, WMON);
+        lens = new TokenInfoLens(V1_REGISTRY, V2_REGISTRY, LEGACY_V1_WRAPPED_NATIVE);
     }
 
     function test_fork_sanity_registriesHaveCode() public view {
         assertGt(V1_REGISTRY.code.length, 0, "V1 registry has no code on this fork");
         assertGt(V2_REGISTRY.code.length, 0, "V2 registry has no code on this fork");
-        assertGt(WMON.code.length, 0, "WMON has no code on this fork");
+        assertGt(LEGACY_V1_WRAPPED_NATIVE.code.length, 0, "legacy V1 wrapped native has no code on this fork");
+        assertEq(lens.v1WrappedNative(), LEGACY_V1_WRAPPED_NATIVE);
     }
 
-    function test_fork_v1Token_classifiedAsV1_withWmonQuote() public view {
+    function test_fork_v1Token_classifiedAsV1_withLegacyWrappedNativeQuote() public view {
         (address pool,,) = ITokenRegistryV1(V1_REGISTRY).tokenInfos(V1_TOKEN);
         assertTrue(pool != address(0), "V1 token must be registered in V1 registry");
 
         TokenInfoLens.TokenInfo memory info = lens.getTokenInfo(V1_TOKEN);
         assertEq(uint256(info.version), uint256(TokenInfoLens.Version.V1));
-        assertEq(info.quoteToken, WMON, "V1 token should report WMON as quoteToken");
+        assertEq(
+            info.quoteToken, LEGACY_V1_WRAPPED_NATIVE, "V1 token should report legacy wrapped native as quoteToken"
+        );
     }
 
     function test_fork_v2Token_classifiedAsV2_withRegistryQuote() public view {
@@ -80,7 +83,7 @@ contract TokenInfoLensForkTest is Test {
         assertEq(got.length, 4);
 
         assertEq(uint256(got[0].version), uint256(TokenInfoLens.Version.V1));
-        assertEq(got[0].quoteToken, WMON);
+        assertEq(got[0].quoteToken, LEGACY_V1_WRAPPED_NATIVE);
 
         assertEq(uint256(got[1].version), uint256(TokenInfoLens.Version.V2));
         assertEq(got[1].quoteToken, ITokenRegistry(V2_REGISTRY).getTokenInfo(V2_TOKEN).quoteToken);

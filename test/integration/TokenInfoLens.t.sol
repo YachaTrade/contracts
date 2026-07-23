@@ -10,18 +10,15 @@ contract TokenInfoLensTest is SetUp {
     MockTokenRegistryV1 internal v1;
     TokenInfoLens internal lens;
 
-    // Test WMON: use the real wmon deployed by SetUp so the V1 fallback returns a
-    // recognizable address that's also non-zero. We cast its address to plain `address`
-    // so we don't depend on the IWrappedNative interface in assertions.
-    address internal wmonAddr;
+    address internal constant V1_WRAPPED_NATIVE = 0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A;
 
     address internal unregistered = address(0xCAFE);
 
     function setUp() public override {
         super.setUp();
         v1 = new MockTokenRegistryV1();
-        wmonAddr = address(wmon);
-        lens = new TokenInfoLens(address(v1), address(tokenRegistry), wmonAddr);
+        assertTrue(V1_WRAPPED_NATIVE != address(wnative), "V1 fallback must be distinct from canonical WNATIVE");
+        lens = new TokenInfoLens(address(v1), address(tokenRegistry), V1_WRAPPED_NATIVE);
 
         vm.prank(admin);
         protocolManager.setOperatorPermission(
@@ -33,15 +30,15 @@ contract TokenInfoLensTest is SetUp {
 
     function test_constructor_revertsWhenV1IsZero() public {
         vm.expectRevert(TokenInfoLens.ZeroAddress.selector);
-        new TokenInfoLens(address(0), address(tokenRegistry), wmonAddr);
+        new TokenInfoLens(address(0), address(tokenRegistry), V1_WRAPPED_NATIVE);
     }
 
     function test_constructor_revertsWhenV2IsZero() public {
         vm.expectRevert(TokenInfoLens.ZeroAddress.selector);
-        new TokenInfoLens(address(v1), address(0), wmonAddr);
+        new TokenInfoLens(address(v1), address(0), V1_WRAPPED_NATIVE);
     }
 
-    function test_constructor_revertsWhenWmonIsZero() public {
+    function test_constructor_revertsWhenV1WrappedNativeIsZero() public {
         vm.expectRevert(TokenInfoLens.ZeroAddress.selector);
         new TokenInfoLens(address(v1), address(tokenRegistry), address(0));
     }
@@ -49,7 +46,7 @@ contract TokenInfoLensTest is SetUp {
     function test_constructor_setsImmutableGetters() public view {
         assertEq(address(lens.v1Registry()), address(v1));
         assertEq(address(lens.v2Registry()), address(tokenRegistry));
-        assertEq(lens.wmon(), wmonAddr);
+        assertEq(lens.v1WrappedNative(), V1_WRAPPED_NATIVE);
     }
 
     // ── getTokenInfo ─────────────────────────────────────────────
@@ -76,13 +73,13 @@ contract TokenInfoLensTest is SetUp {
         assertEq(info.quoteToken, address(quoteToken));
     }
 
-    function test_getTokenInfo_returnsV1_withWmonAsQuoteToken() public {
+    function test_getTokenInfo_returnsV1_withLegacyWrappedNativeAsQuoteToken() public {
         address token = address(0xA000000000000000000000000000000000000001);
         v1.register(token, address(0xb000000000000000000000000000000000000001));
 
         TokenInfoLens.TokenInfo memory info = lens.getTokenInfo(token);
         assertEq(uint256(info.version), uint256(TokenInfoLens.Version.V1));
-        assertEq(info.quoteToken, wmonAddr);
+        assertEq(info.quoteToken, V1_WRAPPED_NATIVE);
     }
 
     function test_getTokenInfo_returnsNone_whenV1HasPoolZeroButOtherFieldsSet() public {
@@ -105,7 +102,7 @@ contract TokenInfoLensTest is SetUp {
         assertTrue(pool != address(0), "V1 must be registered");
         assertTrue(tokenRegistry.isRegistered(token), "V2 must be registered");
 
-        // Tie-break: lens must pick V2 with V2's quoteToken (not WMON).
+        // Tie-break: lens must pick V2 with V2's quoteToken (not the V1 fallback).
         TokenInfoLens.TokenInfo memory info = lens.getTokenInfo(token);
         assertEq(uint256(info.version), uint256(TokenInfoLens.Version.V2));
         assertEq(info.quoteToken, address(quoteToken));
@@ -140,7 +137,7 @@ contract TokenInfoLensTest is SetUp {
         assertEq(got[0].quoteToken, address(0));
 
         assertEq(uint256(got[1].version), uint256(TokenInfoLens.Version.V1));
-        assertEq(got[1].quoteToken, wmonAddr);
+        assertEq(got[1].quoteToken, V1_WRAPPED_NATIVE);
 
         assertEq(uint256(got[2].version), uint256(TokenInfoLens.Version.V2));
         assertEq(got[2].quoteToken, address(quoteToken));

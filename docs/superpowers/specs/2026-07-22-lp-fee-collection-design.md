@@ -81,7 +81,7 @@ The launch-token swap itself generates new V3 LP fees. Those fees remain in the 
 
 ## Multiple Quote Tokens
 
-Collection never assumes WETH. Each launch token resolves its quote token through TokenRegistry, and each quote token resolves its LP split through ProtocolManager. A single batch may contain tokens with different quote tokens and different `lpFeeProtocolShareBps` values. CreatorFeeProcessor receives the resolved quote token for every token-specific distribution.
+Collection never assumes WNATIVE. Each launch token resolves its quote token through TokenRegistry, and each quote token resolves its LP split through ProtocolManager. A single batch may contain tokens with different quote tokens and different `lpFeeProtocolShareBps` values. CreatorFeeProcessor receives the resolved quote token for every token-specific distribution.
 
 ## FeeCollector and Creator Trade-Fee Removal
 

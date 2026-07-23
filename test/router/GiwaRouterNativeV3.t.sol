@@ -49,7 +49,7 @@ contract GiwaRouterNativeV3Test is SetUp {
 
         vm.startPrank(admin);
         protocolManager.addQuoteToken(
-            address(wmon),
+            address(wnative),
             virtualReserve,
             virtualTokenReserve,
             minTokenReserve,
@@ -58,7 +58,7 @@ contract GiwaRouterNativeV3Test is SetUp {
             defaultCurveProtocolFee,
             NATIVE_PROTOCOL_FEE_RATE
         );
-        protocolManager.setV3QuoteConfig(address(wmon), NATIVE_FEE_TIER, 0);
+        protocolManager.setV3QuoteConfig(address(wnative), NATIVE_FEE_TIER, 0);
         protocolManager.setOperatorPermission(
             address(this), address(tokenRegistry), TokenRegistry.registerV3.selector, true
         );
@@ -66,20 +66,20 @@ contract GiwaRouterNativeV3Test is SetUp {
 
         regularNative = _createNativeFixture("Native Regular", false);
         partialNative = _createNativeFixture("Native Partial", true);
-        vm.deal(address(wmon), PARTIAL_BALANCE);
+        vm.deal(address(wnative), PARTIAL_BALANCE);
     }
 
     function test_buyWithNativeGraduated_wrapsOnlyMsgValueAndRefundsUnusedNative() public {
         Fixture memory fixture = partialNative;
         uint256 quoteInMax = PARTIAL_INPUT;
-        uint256 wethDonation = 7 ether;
+        uint256 wnativeDonation = 7 ether;
         uint256 nativeDonation = 11 ether;
-        wmon.mint(address(giwaRouter), wethDonation);
+        wnative.mint(address(giwaRouter), wnativeDonation);
         vm.deal(address(giwaRouter), nativeDonation);
         vm.deal(user1, quoteInMax + 1 ether);
         uint256 userNativeBefore = user1.balance;
-        uint256 poolQuoteBefore = wmon.balanceOf(fixture.pool);
-        uint256 feeReceiverQuoteBefore = wmon.balanceOf(feeReceiver);
+        uint256 poolQuoteBefore = wnative.balanceOf(fixture.pool);
+        uint256 feeReceiverQuoteBefore = wnative.balanceOf(feeReceiver);
 
         vm.prank(user1);
         uint256 tokenOut = giwaRouter.buyWithNative{value: quoteInMax}(
@@ -88,15 +88,15 @@ contract GiwaRouterNativeV3Test is SetUp {
             })
         );
 
-        uint256 poolQuoteIn = wmon.balanceOf(fixture.pool) - poolQuoteBefore;
+        uint256 poolQuoteIn = wnative.balanceOf(fixture.pool) - poolQuoteBefore;
         uint256 protocolFeeMax = FullMath.mulDivRoundingUp(quoteInMax, fixture.protocolFeeRate, BPS);
         uint256 poolQuoteInMax = quoteInMax - protocolFeeMax;
         uint256 protocolFee = FullMath.mulDivRoundingUp(protocolFeeMax, poolQuoteIn, poolQuoteInMax);
         assertGt(tokenOut, 0);
         assertLt(poolQuoteIn, poolQuoteInMax);
         assertEq(userNativeBefore - user1.balance, poolQuoteIn + protocolFee);
-        assertEq(wmon.balanceOf(feeReceiver) - feeReceiverQuoteBefore, protocolFee);
-        assertEq(wmon.balanceOf(address(giwaRouter)), wethDonation);
+        assertEq(wnative.balanceOf(feeReceiver) - feeReceiverQuoteBefore, protocolFee);
+        assertEq(wnative.balanceOf(address(giwaRouter)), wnativeDonation);
         assertEq(address(giwaRouter).balance, nativeDonation);
     }
 
@@ -104,9 +104,9 @@ contract GiwaRouterNativeV3Test is SetUp {
         Fixture memory fixture = regularNative;
         uint256 quoteInMax = 10 ether;
         uint256 tokenOut = 1 ether;
-        uint256 wethDonation = 7 ether;
+        uint256 wnativeDonation = 7 ether;
         uint256 nativeDonation = 11 ether;
-        wmon.mint(address(giwaRouter), wethDonation);
+        wnative.mint(address(giwaRouter), wnativeDonation);
         vm.deal(address(giwaRouter), nativeDonation);
         vm.deal(user1, quoteInMax);
         uint256 userNativeBefore = user1.balance;
@@ -123,17 +123,17 @@ contract GiwaRouterNativeV3Test is SetUp {
         assertLt(quoteIn, quoteInMax);
         assertEq(userNativeBefore - user1.balance, quoteIn);
         assertEq(fixture.launchToken.balanceOf(user2) - recipientTokenBefore, tokenOut);
-        assertEq(wmon.balanceOf(address(giwaRouter)), wethDonation);
+        assertEq(wnative.balanceOf(address(giwaRouter)), wnativeDonation);
         assertEq(address(giwaRouter).balance, nativeDonation);
     }
 
-    function test_sellToNativeGraduated_paysFeeInWethAndSendsNetNative() public {
+    function test_sellToNativeGraduated_paysFeeInWnativeAndSendsNetNative() public {
         Fixture memory fixture = regularNative;
         uint256 tokenInMax = 10 ether;
         _fundAndApproveLaunch(fixture, user1, tokenInMax);
         uint256 userNativeBefore = user1.balance;
-        uint256 feeReceiverQuoteBefore = wmon.balanceOf(feeReceiver);
-        uint256 poolQuoteBefore = wmon.balanceOf(fixture.pool);
+        uint256 feeReceiverQuoteBefore = wnative.balanceOf(feeReceiver);
+        uint256 poolQuoteBefore = wnative.balanceOf(fixture.pool);
 
         vm.prank(user1);
         uint256 nativeOut = giwaRouter.sellToNative(
@@ -146,11 +146,11 @@ contract GiwaRouterNativeV3Test is SetUp {
             })
         );
 
-        uint256 quoteOutBeforeProtocolFee = poolQuoteBefore - wmon.balanceOf(fixture.pool);
+        uint256 quoteOutBeforeProtocolFee = poolQuoteBefore - wnative.balanceOf(fixture.pool);
         uint256 protocolFee = FullMath.mulDivRoundingUp(quoteOutBeforeProtocolFee, fixture.protocolFeeRate, BPS);
         assertEq(nativeOut, quoteOutBeforeProtocolFee - protocolFee);
         assertEq(user1.balance - userNativeBefore, nativeOut);
-        assertEq(wmon.balanceOf(feeReceiver) - feeReceiverQuoteBefore, protocolFee);
+        assertEq(wnative.balanceOf(feeReceiver) - feeReceiverQuoteBefore, protocolFee);
     }
 
     function test_sellToNativeWithPermitGraduated_usesSharedAccounting() public {
@@ -186,9 +186,9 @@ contract GiwaRouterNativeV3Test is SetUp {
         Fixture memory fixture = regularNative;
         uint256 amountInMax = 10 ether;
         uint256 nativeOut = 1 ether;
-        uint256 wethDonation = 7 ether;
+        uint256 wnativeDonation = 7 ether;
         uint256 nativeDonation = 11 ether;
-        wmon.mint(address(giwaRouter), wethDonation);
+        wnative.mint(address(giwaRouter), wnativeDonation);
         vm.deal(address(giwaRouter), nativeDonation);
         uint256 userTokenBefore = _fundAndApproveLaunch(fixture, user1, amountInMax);
         uint256 recipientNativeBefore = user2.balance;
@@ -208,11 +208,11 @@ contract GiwaRouterNativeV3Test is SetUp {
         assertLt(tokenIn, amountInMax);
         assertEq(userTokenBefore - fixture.launchToken.balanceOf(user1), tokenIn);
         assertEq(user2.balance - recipientNativeBefore, nativeOut);
-        assertEq(wmon.balanceOf(address(giwaRouter)), wethDonation);
+        assertEq(wnative.balanceOf(address(giwaRouter)), wnativeDonation);
         assertEq(address(giwaRouter).balance, nativeDonation);
     }
 
-    function test_nativeV3Route_rejectsNonWethQuoteTokenBeforePermitOrAssetMovement() public {
+    function test_nativeV3Route_rejectsNonWnativeQuoteTokenBeforePermitOrAssetMovement() public {
         address foreignToken = _createForeignQuoteFixture();
 
         vm.deal(user1, 2 ether);
@@ -241,11 +241,11 @@ contract GiwaRouterNativeV3Test is SetUp {
         );
     }
 
-    function test_nativeV3Route_doesNotSweepPreexistingWethOrNative() public {
+    function test_nativeV3Route_doesNotSweepPreexistingWnativeOrNative() public {
         Fixture memory fixture = regularNative;
-        uint256 wethDonation = 3 ether;
+        uint256 wnativeDonation = 3 ether;
         uint256 nativeDonation = 5 ether;
-        wmon.mint(address(giwaRouter), wethDonation);
+        wnative.mint(address(giwaRouter), wnativeDonation);
         vm.deal(address(giwaRouter), nativeDonation);
         _fundAndApproveLaunch(fixture, user1, 10 ether);
 
@@ -260,7 +260,7 @@ contract GiwaRouterNativeV3Test is SetUp {
             })
         );
 
-        assertEq(wmon.balanceOf(address(giwaRouter)), wethDonation);
+        assertEq(wnative.balanceOf(address(giwaRouter)), wnativeDonation);
         assertEq(address(giwaRouter).balance, nativeDonation);
     }
 
@@ -270,7 +270,7 @@ contract GiwaRouterNativeV3Test is SetUp {
         uint256 tokenIn = 10 ether;
         uint256 userTokenBefore = _fundAndApproveLaunch(fixture, user1, tokenIn);
         uint256 poolTokenBefore = fixture.launchToken.balanceOf(fixture.pool);
-        uint256 feeReceiverQuoteBefore = wmon.balanceOf(feeReceiver);
+        uint256 feeReceiverQuoteBefore = wnative.balanceOf(feeReceiver);
 
         vm.expectRevert(IGiwaRouter.NativeTransferFailed.selector);
         vm.prank(user1);
@@ -286,7 +286,7 @@ contract GiwaRouterNativeV3Test is SetUp {
 
         assertEq(fixture.launchToken.balanceOf(user1), userTokenBefore);
         assertEq(fixture.launchToken.balanceOf(fixture.pool), poolTokenBefore);
-        assertEq(wmon.balanceOf(feeReceiver), feeReceiverQuoteBefore);
+        assertEq(wnative.balanceOf(feeReceiver), feeReceiverQuoteBefore);
     }
 
     function uniswapV3MintCallback(uint256 amount0Owed, uint256 amount1Owed, bytes calldata) external {
@@ -298,7 +298,7 @@ contract GiwaRouterNativeV3Test is SetUp {
 
     function _createNativeFixture(string memory label, bool partialFill) private returns (Fixture memory fixture) {
         fixture.launchToken = new MockERC20Permit(label, label, 18);
-        fixture.pool = v3Factory.createPool(address(fixture.launchToken), address(wmon), NATIVE_FEE_TIER);
+        fixture.pool = v3Factory.createPool(address(fixture.launchToken), address(wnative), NATIVE_FEE_TIER);
         fixture.feeTier = NATIVE_FEE_TIER;
         fixture.protocolFeeRate = NATIVE_PROTOCOL_FEE_RATE;
 
@@ -306,7 +306,7 @@ contract GiwaRouterNativeV3Test is SetUp {
         uint160 sqrtPrice;
         if (partialFill) {
             sqrtPrice = TickMath.getSqrtRatioAtTick(
-                address(wmon) < address(fixture.launchToken) ? int24(-886_000) : int24(886_000)
+                address(wnative) < address(fixture.launchToken) ? int24(-886_000) : int24(886_000)
             );
         } else {
             sqrtPrice = uint160(1 << 96);
@@ -315,7 +315,7 @@ contract GiwaRouterNativeV3Test is SetUp {
 
         uint256 balance = partialFill ? PARTIAL_BALANCE : REGULAR_BALANCE;
         fixture.launchToken.mint(address(this), balance);
-        wmon.mint(address(this), balance);
+        wnative.mint(address(this), balance);
         _mintPool = fixture.pool;
         if (partialFill) {
             int24 spacing = pool.tickSpacing();
@@ -331,8 +331,8 @@ contract GiwaRouterNativeV3Test is SetUp {
         }
         _mintPool = address(0);
 
-        tokenRegistry.registerV3(address(fixture.launchToken), fixture.pool, address(wmon), fixture.feeTier);
-        _mockGraduatedCurve(address(fixture.launchToken), address(wmon), fixture.pool);
+        tokenRegistry.registerV3(address(fixture.launchToken), fixture.pool, address(wnative), fixture.feeTier);
+        _mockGraduatedCurve(address(fixture.launchToken), address(wnative), fixture.pool);
     }
 
     function _createForeignQuoteFixture() private returns (address launchToken) {

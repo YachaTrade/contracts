@@ -244,8 +244,8 @@ git commit -m "refactor: remove fee collector and legacy V2 runtime"
 - Modify: `script/deploy/normal/UpdateQuoteToken.s.sol`
 - Modify: `test/SetUp.t.sol`
 - Modify: `test/script/QuoteTokenScripts.t.sol`
-- Modify: `test/integration/ProtocolWethQuote.t.sol`
-- Modify: `test/integration/WethV3GraduationE2E.t.sol`
+- Modify: `test/integration/ProtocolWnativeQuote.t.sol`
+- Modify: `test/integration/WnativeV3GraduationE2E.t.sol`
 
 **Interfaces:**
 - Consumes: the new Processor constructor, LPManager initializer/collect selector, and reduced ProtocolManager config.
@@ -261,14 +261,14 @@ Deploy CreatorFeeProcessor with ProtocolManager, deploy V3SwapAdapter before LPM
 
 - [ ] **Step 3: Remove stale environment/config fields**
 
-Stop reading `SETTLEMENT_THRESHOLD`, `CREATOR_FEE_RATES`, and `SETTLER`. Preserve `LP_FEE_PROTOCOL_SHARE_BPS`, multiple quote tokens, canonical WETH, and V3 factory owner/tier guards.
+Stop reading `SETTLEMENT_THRESHOLD`, `CREATOR_FEE_RATES`, and `SETTLER`. Preserve `LP_FEE_PROTOCOL_SHARE_BPS`, multiple quote tokens, canonical WNATIVE, and V3 factory owner/tier guards.
 
 - [ ] **Step 4: Run focused validation**
 
 ```bash
 forge test --match-path test/script/QuoteTokenScripts.t.sol -vv
-forge test --match-path test/integration/ProtocolWethQuote.t.sol -vv
-forge test --match-path test/integration/WethV3GraduationE2E.t.sol -vv
+forge test --match-path test/integration/ProtocolWnativeQuote.t.sol -vv
+forge test --match-path test/integration/WnativeV3GraduationE2E.t.sol -vv
 forge fmt --check
 forge build
 git diff --check
@@ -277,14 +277,14 @@ git diff --check
 - [ ] **Step 5: Commit**
 
 ```bash
-git add script/deploy/normal test/SetUp.t.sol test/script/QuoteTokenScripts.t.sol test/integration/ProtocolWethQuote.t.sol test/integration/WethV3GraduationE2E.t.sol
+git add script/deploy/normal test/SetUp.t.sol test/script/QuoteTokenScripts.t.sol test/integration/ProtocolWnativeQuote.t.sol test/integration/WnativeV3GraduationE2E.t.sol
 git commit -m "feat: deploy direct LP fee routing"
 ```
 
 ### Task 6: Add full lifecycle and security regression coverage
 
 **Files:**
-- Create or modify: `test/integration/WethV3LpFeeCollectionE2E.t.sol`
+- Create or modify: `test/integration/WnativeV3LpFeeCollectionE2E.t.sol`
 - Modify: `test/invariant/LPPrincipalLock.invariant.t.sol`
 - Modify: remaining compile-affected V3 router, vault, and attack tests
 
@@ -303,7 +303,7 @@ Cover callback reentrancy, malformed pool metadata, taxed/short-credit behavior,
 - [ ] **Step 3: Run broad validation**
 
 ```bash
-forge test --match-path test/integration/WethV3LpFeeCollectionE2E.t.sol -vv
+forge test --match-path test/integration/WnativeV3LpFeeCollectionE2E.t.sol -vv
 forge test --match-path test/invariant/LPPrincipalLock.invariant.t.sol -vv
 forge test
 forge fmt --check
@@ -334,7 +334,7 @@ Review direct asset flow, authorization, UUPS initialization/storage, canonical 
 
 - [ ] **Step 2: Safely update ignored environment inputs**
 
-Remove reliance on obsolete settlement/creator-rate inputs without printing the file. Reuse Factory `0x00a131Cf1fbEE9b02C4632756a813A32BC250849`, canonical WETH, fee tier 10000, and the approved quote configuration.
+Remove reliance on obsolete settlement/creator-rate inputs without printing the file. Reuse Factory `0x00a131Cf1fbEE9b02C4632756a813A32BC250849`, canonical WNATIVE, fee tier 10000, and the approved quote configuration.
 
 - [ ] **Step 3: Simulate the fresh deployment**
 

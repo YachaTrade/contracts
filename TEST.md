@@ -22,7 +22,7 @@ forge test --gas-report
 forge test --match-path 'test/router/GiwaRouterV3Swap.t.sol' -vvv
 forge test --match-path 'test/adapters/V3SwapAdapter.t.sol' -vvv
 
-# 실제 WETH/Quoter fork 검증 (RPC_URL 등 배포 환경 필요)
+# 실제 WNATIVE/Quoter fork 검증 (RPC_URL 등 배포 환경 필요)
 RUN_FORK_TESTS=true forge test --match-path test/fork/GiwaRouterNativeQuoteFork.t.sol -vvv
 ```
 
@@ -42,8 +42,8 @@ test/
 │   ├── GiwaRouter.t.sol           # 커브 라우팅, exact-in/out, native quote
 │   ├── GiwaRouterCreate.t.sol     # 라우터 토큰 생성
 │   ├── GiwaRouterPermit.t.sol     # EIP-2612 permit 진입점
-│   ├── GiwaRouterNativeQuoteGuard.t.sol # native quote/WETH 일치 가드
-│   ├── GiwaRouterReceive.t.sol    # WETH 전용 receive 가드
+│   ├── GiwaRouterNativeQuoteGuard.t.sol # native quote/WNATIVE 일치 가드
+│   ├── GiwaRouterReceive.t.sol    # WNATIVE 전용 receive 가드
 │   ├── ProtocolManager.t.sol      # 프로토콜 설정
 │   ├── ProtocolManagerV3.t.sol    # V3 quote/pool fee 설정
 │   ├── V3PoolDeployer.t.sol       # canonical pool 배포/등록
@@ -62,7 +62,7 @@ test/
 ├── adapters/           # V3SwapAdapter와 유지 중인 외부/V2 adapter 단위 테스트
 │   └── V3SwapAdapter.t.sol        # canonical callback/context/delta 방어
 ├── fork/               # 환경 게이트 fork 통합 테스트
-│   └── GiwaRouterNativeQuoteFork.t.sol # 실제 WETH + QuoterV2 경로
+│   └── GiwaRouterNativeQuoteFork.t.sol # 실제 WNATIVE + QuoterV2 경로
 ├── modules/            # 모듈 (LPManager/V3LiquidityActor) 테스트
 │   ├── LPManager.t.sol            # 유동성 추가, LP 잠금
 │   └── ModuleAttack.t.sol         # 공격 벡터 (이중 LP, 극단 수수료, 크리에이터 수수료율 allowlist)
@@ -75,7 +75,7 @@ test/
 │   ├── DividendVault.t.sol        # 배당 변환(라우터 lane·uni lane hop)·Merkle claim·V1 게이트
 │   ├── VaultAttack.t.sol          # 공격 벡터 (비활성 vault, reverting vault)
 │   └── VaultRegistry.t.sol        # 등록, 비활성화, ERC-165 검증
-├── mocks/              # MockERC20, MockWMON, MockGiwaRouter, MockV3Pool, MockUniswapV2Pair, MockCapricornPool, ...
+├── mocks/              # MockERC20, MockWrappedNative, MockGiwaRouter, MockV3Pool, MockUniswapV2Pair, MockCapricornPool, ...
 └── utils/              # (비어있음 — NadFunFactory가 UniswapV2Deployer 대체)
 ```
 
@@ -154,7 +154,7 @@ contract MyFeatureTest is SetUp {
 | `RouterV2.t.sol` | LPManager (legacy V2) | NadFunPair 유동성 추가 및 LP 회계 회귀 |
 | `GiwaRouter*.t.sol` | GiwaRouter | 커브 라우팅, create, permit, native quote/receive 가드 |
 | `GiwaRouterV3Swap.t.sol` | GiwaRouter V3 | exact-input/output 4방향 fee, quote, 부분 체결/refund, donation 격리 |
-| `GiwaRouterNativeV3.t.sol` | GiwaRouter native V3 | WETH wrap/unwrap, call-scoped refund, 잔액 격리 |
+| `GiwaRouterNativeV3.t.sol` | GiwaRouter native V3 | WNATIVE wrap/unwrap, call-scoped refund, 잔액 격리 |
 | `V3SwapAdapter.t.sol` | V3SwapAdapter | canonical pool 검증, 콜백 인증, delta/allowance/reentrancy 방어 |
 | `Graduation.t.sol` | 졸업 프로세스 | LP 배포, graduateFee 차감 |
 | `ProtocolManager.t.sol` | ProtocolManager | 수수료 설정, quote 토큰 관리 |
@@ -189,8 +189,7 @@ contract MyFeatureTest is SetUp {
 |------|------|------|
 | `MockERC20` | `test/mocks/` | 민팅 가능한 기본 ERC20 (quoteToken으로 사용) |
 | `MockERC20Permit` | `test/mocks/` | EIP-2612 Permit 지원 ERC20 (GiwaRouter permit 테스트용) |
-| `MockWMON` | `test/mocks/` | Wrapped Native 토큰 (네이티브 토큰 테스트용) |
-| `MockLvMonMinter` | `test/mocks/` | 유지 중인 ILvMonMinter mock; 현재 GiwaRouter 테스트에서는 사용하지 않음 |
+| `MockWrappedNative` | `test/mocks/` | Wrapped Native 토큰 (네이티브 토큰 테스트용) |
 | `MockGiwaRouter` | `test/mocks/` | router.buy mock — 실제 라우터처럼 전액 pull 후 refund(consumeBps/nextOut로 부분 소비 시뮬레이션). DividendVault router hop 검증용 |
 | `MockV3Pool` | `test/mocks/` | V3 mint/liquidity-actor 동작 및 mint callback 공격 모드 시뮬레이션 |
 | `MockUniswapV2Pair` | `test/mocks/` | 외부 표준 V2 pair mock (UniswapV2ExternalAdapter 테스트용) |
@@ -200,7 +199,7 @@ contract MyFeatureTest is SetUp {
 
 `V3SwapAdapter.t.sol`은 swap/callback 공격 검증을 위해 파일 내부의 `MaliciousSwapPool` fixture를 사용합니다.
 
-> `SetUp`의 프로토콜 스택은 실제 컨트랙트를 사용하고, quote token·WETH·외부 pool 등 명시된 fixture만 mock입니다. NadFunFactory가 외부 Uniswap V2 Deployer를 대체합니다.
+> `SetUp`의 프로토콜 스택은 실제 컨트랙트를 사용하고, quote token·WNATIVE·외부 pool 등 명시된 fixture만 mock입니다. NadFunFactory가 외부 Uniswap V2 Deployer를 대체합니다.
 
 > **현재 invariant 공백:** 릴리스 검증 계획의 `test/invariant/LPPrincipalLock.invariant.t.sol` 파일은 아직 저장소에 없습니다. 해당 명령은 invariant 통과 증거가 아니라 미구현 테스트 공백으로 보고해야 합니다.
 

@@ -147,7 +147,7 @@ contract ProtocolManagerTest is SetUp {
         protocolManager.setSnipingPenaltyTable(table);
     }
 
-    // NOTE: quoteToken (WMON 18 decimals) is already registered by SetUp
+    // NOTE: quoteToken (WNATIVE 18 decimals) is already registered by SetUp
     function test_addQuoteToken() public {
         vm.prank(admin);
         protocolManager.addQuoteToken(address(usdc), 15_000e6, 1e9 ether, 200_000_000 ether, 0, 0, 0, 0);

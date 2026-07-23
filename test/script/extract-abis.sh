@@ -49,7 +49,7 @@ printf '%s\n' \
 chmod +x "$RACE_BIN/rm"
 
 EXPECTED=(
-  BondingCurve CreatorFeeProcessor CreatorFeeVault GiwaRouter LPManager ProtocolManager QuoterV2
+  BondingCurve CreatorFeeProcessor CreatorFeeVault GiwaRouter Lens LPManager ProtocolManager QuoterV2
   Token TokenRegistry UniswapV3Factory V3LiquidityActor V3PoolDeployer V3SwapAdapter VaultRegistry
 )
 

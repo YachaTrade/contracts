@@ -19,8 +19,8 @@
 
 **블로커:** 없음. NadFunFactory/NadFunPair(core) 완료.
 
-- [x] `NadFunRouter02` (UUPS Proxy, `src/router/NadFunRouter02.sol`) — UniswapV2Router02-compatible 독립 컨트랙트로 출시. addLiquidity/removeLiquidity(permit 지원) + 수수료 인식 멀티홉 스왑 + `createPair` + WMON 래핑/언래핑 포함.
-- [x] WMON 래핑/언래핑 지원 (`addLiquidityETH`, `swapExactETHForTokens` 등 `...ETH` 변형)
+- [x] `NadFunRouter02` (UUPS Proxy, `src/router/NadFunRouter02.sol`) — UniswapV2Router02-compatible 독립 컨트랙트로 출시. addLiquidity/removeLiquidity(permit 지원) + 수수료 인식 멀티홉 스왑 + `createPair` + WNATIVE 래핑/언래핑 포함.
+- [x] WNATIVE 래핑/언래핑 지원 (`addLiquidityETH`, `swapExactETHForTokens` 등 `...ETH` 변형)
 - [x] optimal quote 계산 (`quote()`) — `NadFunLibrary`로 구현
 - [x] 역할 분리: `NadFunRouter`(본딩커브 라이프사이클)와 `NadFunRouter02`(졸업 후 유동성 + 스왑) 분리. EIP-170 24KB 제한으로 인한 분리.
 - [x] 테스트: `test/router/RouterLiquidity.t.sol`, `test/router/RouterSwap.t.sol`, `test/libraries/NadFunLibrary.t.sol`

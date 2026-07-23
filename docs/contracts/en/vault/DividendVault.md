@@ -34,10 +34,10 @@ State variables are grouped in the source under section headers — Protocol wir
 | `bondingCurve` | `address` | Authorization for `setup` calls |
 | `router` | `address` | GiwaRouter — `executeConversion`'s router hop calls `buy` for bonding-phase or registered canonical-V3 tokens. Wired at `initialize`, not a `setAdapters` lane |
 | `bondingCurveV1` | `IBondingCurveV1` | V1 BondingCurve (`src/integration/interfaces/IBondingCurveV1.sol`) — admission gate source of truth: `createdAt != 0` = V1 membership (survives graduation), `isGraduated` = one-way graduation flag |
-| `nadSwapAdapter` | `IDexAdapter` | Vault-held allowlist lane for general NadFunPair pool hops — vanilla pools (e.g. USDC/WMON) and cross-quote bridge legs the router can't express, since the router only buys nad.fun tokens by address (0 = lane disabled) |
+| `nadSwapAdapter` | `IDexAdapter` | Vault-held allowlist lane for general NadFunPair pool hops — vanilla pools (e.g. USDC/WNATIVE) and cross-quote bridge legs the router can't express, since the router only buys nad.fun tokens by address (0 = lane disabled) |
 | `uniswapV2Adapter` | `IDexAdapter` | Vault-held allowlist lane for external Uniswap V2 pair hops (0 = lane disabled) |
 | `uniswapV3Adapter` | `IDexAdapter` | Vault-held allowlist lane for Capricorn CL / Uniswap V3 pool hops (0 = lane disabled) |
-| `wmon` | `address` | WMON singleton used ONLY to unwrap native MON on claim (0 = unwrap disabled) |
+| `wnative` | `address` | WNATIVE singleton used ONLY to unwrap native currency on claim (0 = unwrap disabled) |
 
 > **Two hop kinds, both fund-safe.** `executeConversion` dispatches each hop one of two ways: a **router hop** (`hop.adapter == router`) calls `GiwaRouter.buy` directly — the router is the init-time trusted address, so the equality check is the router-lane allowlist; or an **adapter hop** through one of the three held lanes (`nadSwapAdapter`/`uniswapV2Adapter`/`uniswapV3Adapter`, wired via `setAdapters`), membership-checked before pushing tokens (`UnknownAdapter`). A rogue or mistyped adapter in a bot-supplied path cannot receive funds, and an unset lane cannot match. GiwaRouter is **not** wrapped in `IDexAdapter`: it is a higher-level router with a pull pattern and lifecycle dispatch, so the vault calls it directly. `nadSwapAdapter` handles explicit legacy NadFunPair pools that GiwaRouter's graduated V3 path rejects.
 
@@ -121,7 +121,7 @@ State variables are grouped in the source under section headers — Protocol wir
 | `executeConversion(ConversionOrder[] orders)` | restricted (operator bot) | The single conversion entry point: convert pending quote slices through explicit `ConversionHop[]` adapter paths — batched, sequential, atomic (any order's failure reverts the whole batch); `nonReentrant` |
 | `setMerkleRoot(newRoot)` | restricted (operator) | Publish a new global Merkle root (starts a new claim period) |
 | `claim(sourceTokens[], dividendTokens[], amounts[], merkleProofs[])` | anyone (self-claim) | Claim dividend allocations; leaf amount is the full cumulative accrued, pays only `amount - claimedCumulative` |
-| `setWmon(newWmon)` | restricted (admin) | Set WMON address for native unwrap on claim (`0` disables unwrap) |
+| `setWnative(newWnative)` | restricted (admin) | Set WNATIVE address for native unwrap on claim (`0` disables unwrap) |
 | `setAdapters(nadSwapAdapter, uniswapV2Adapter, uniswapV3Adapter)` | restricted (admin) | Replace the three adapter lanes (individual `0` = that lane disabled). The router hop needs no lane wiring — it's the init-time `router` |
 | `setAllowedDividendToken(token, allowed)` | restricted (admin) | Open or close `setup` admission for an external (non-V2-registered) dividend token. Admission (`true`) requires deployed code (`NotContract`) and blocks pre-graduation V1 tokens (`V1TokenNotGraduated`); removal is check-free |
 | `getConfig(sourceToken)` | external view | Returns `DividendConfig` for a source token |
@@ -138,7 +138,7 @@ BondingCurve -> DividendVault.setup(sourceToken, abi.encode(dividendTokens, rati
   |     |-- dt == quoteToken                       → OK (no-conversion slot, credited at afterDeposit)
   |     |-- tokenRegistryV2.isRegistered(dt)       → OK (nad.fun V2 token, bonding or graduated)
   |     |-- allowedDividendToken[dt]               → OK (admin-admitted external token)
-  |     |-- protocolManager.isAllowed(dt)          → OK (configured quote token, e.g. WMON / LvMON)
+  |     |-- protocolManager.isAllowed(dt)          → OK (configured quote token, e.g. WNATIVE / LvMON)
   |     |-- bondingCurveV1.createdAt(dt) != 0 && isGraduated(dt) → OK (graduated V1 token, has a DEX pool)
   |     +-- else                                   → revert UnsupportedDividendToken
   |-- No duplicate dividendTokens
@@ -146,7 +146,7 @@ BondingCurve -> DividendVault.setup(sourceToken, abi.encode(dividendTokens, rati
 ```
 
 > **No quote-match validation.** `setup` only gates *admission* — it does not care which quote a dividend
-> token trades against. Cross-quote markets (e.g. an LvMON-quoted source paying a WMON-quoted dividend
+> token trades against. Cross-quote markets (e.g. an LvMON-quoted source paying a WNATIVE-quoted dividend
 > token, or a USDT-quoted asset like XAUT) are handled entirely by the bot's path construction at
 > conversion time. Graduated V1 tokens and external ERC20s enter through `setAllowedDividendToken(dt,
 > true)` — which itself blocks codeless addresses and pre-graduation V1 tokens (see the V1 admission
@@ -154,7 +154,7 @@ BondingCurve -> DividendVault.setup(sourceToken, abi.encode(dividendTokens, rati
 > knowledge.
 >
 > **Configured quote tokens are auto-admitted.** Any token marked active in the ProtocolManager
-> (`protocolManager.isAllowed(dt)`) — the protocol's blessed quote assets such as WMON and LvMON — is
+> (`protocolManager.isAllowed(dt)`) — the protocol's blessed quote assets such as WNATIVE and LvMON — is
 > accepted as a dividend token for *any* source without a manual `allowedDividendToken` entry. The bot
 > bridges the quote at conversion time.
 
@@ -281,13 +281,13 @@ holder -> DividendVault.claim(sourceTokens[], dividendTokens[], amounts[], merkl
   |        (cumulative NOT advanced — reclaimable once vault is funded)
   |     7. claimedCumulative[sourceToken][msg.sender][dividendToken] = amount  (CEI: high-water mark before transfer)
   |     8. payout (inline):
-  |           dividendToken == wmon && wmon != 0:
-  |             IWrappedNative(wmon).withdraw(payout)
-  |             TransferHelper.safeTransferMon(msg.sender, payout)
+  |           dividendToken == wnative && wnative != 0:
+  |             IWrappedNative(wnative).withdraw(payout)
+  |             TransferHelper.safeTransferNative(msg.sender, payout)
   |           else: IERC20(dividendToken).safeTransfer(msg.sender, payout)
   +-- After all items: emit Claim(msg.sender, sourceTokens[], dividendTokens[], paidAmounts[])
 
-receive() external payable { if (msg.sender != wmon) revert UnexpectedNative(); }
+receive() external payable { if (msg.sender != wnative) revert UnexpectedNative(); }
 ```
 
 ---
@@ -310,7 +310,7 @@ are all bot path-construction problems; the contract never changes.
 |---|---|---|
 | Source quoteToken itself | none — `afterDeposit` credits `dividendBalance` directly | — |
 | V2 token (bonding **or** graduated — the router dispatches) | `executeConversion` | single router hop: `hop.adapter = router`, `tokenOut = the token` (`pair` ignored) |
-| V1 graduated token (Capricorn CL) | `executeConversion` | `uniswapV3Adapter` hops; multi-hop if the source quote differs from the pool quote (e.g. LvMON→WMON→token). Admin admits at setup via `setAllowedDividendToken` |
+| V1 graduated token (Capricorn CL) | `executeConversion` | `uniswapV3Adapter` hops; multi-hop if the source quote differs from the pool quote (e.g. LvMON→WNATIVE→token). Admin admits at setup via `setAllowedDividendToken` |
 | General NadFunPair pool (vanilla pool / cross-quote bridge leg) | `executeConversion` | `nadSwapAdapter` hop: `hop.adapter = nadSwapAdapter`, `pair = the NadFunPair` |
 | Other external ERC20 / cross-quote markets (e.g. XAUT/USDT) | `executeConversion` | any multi-hop combination of router hops + the three adapter lanes. Admin admits at setup via `setAllowedDividendToken` |
 | Cross-quote V2 bonding token | multi-hop ending in the router lane (e.g. `quoteA →(uni) quoteB →(router) token`) — settles only on full consume: a graduation-cap refund on a non-first hop reverts `PathResidue`; the bot retries with a smaller `quoteIn` | — |
@@ -340,7 +340,7 @@ already periodic root publishing.
 
 - Supporting a new adapter *kind* requires a contract upgrade adding a held lane and a flat dispatch
   branch — extension friction traded for fail-loud path safety.
-- `wmon` now serves ONLY the claim native-unwrap; it plays no role in conversion.
+- `wnative` now serves ONLY the claim native-unwrap; it plays no role in conversion.
 
 ---
 
@@ -352,7 +352,7 @@ already periodic root publishing.
 | `afterDeposit` | CreatorFeeProcessor | `msg.sender == creatorFeeProcessor` |
 | `executeConversion` | operator bot | `restricted` + `nonReentrant` |
 | `setMerkleRoot` | operator | `restricted` |
-| `setWmon` | admin | `restricted` |
+| `setWnative` | admin | `restricted` |
 | `setAdapters` | admin | `restricted` |
 | `setAllowedDividendToken` | admin | `restricted` |
 | `_authorizeUpgrade` | admin | `restricted` |
@@ -369,7 +369,7 @@ already periodic root publishing.
 | `Converted` | `address[] sourceTokens, address[] dividendTokens, uint256[] consumedQuote, uint256[] received` (one entry per batch order) |
 | `SetMerkleRoot` | `bytes32 indexed merkleRoot` |
 | `Claim` | `address indexed holder, address[] sourceTokens, address[] dividendTokens, uint256[] amounts` (skipped items report `0`) |
-| `SetWmon` | `address wmon` |
+| `SetWnative` | `address wnative` |
 | `SetAdapters` | `address nadSwapAdapter, address uniswapV2Adapter, address uniswapV3Adapter` |
 | `SetAllowedDividendToken` | `address indexed token, bool allowed` |
 
@@ -394,7 +394,7 @@ already periodic root publishing.
 | `InvalidMerkleRoot()` | Root is zero or merkleRoot not set |
 | `InvalidMerkleProof()` | Merkle proof verification failed (entire call reverts) |
 | `InvalidArrayLength()` | Claim arrays are empty or lengths differ |
-| `UnexpectedNative()` | Native MON received from address other than wmon |
+| `UnexpectedNative()` | Native currency received from address other than wnative |
 | `UnknownAdapter()` | A hop's adapter is not one of the three vault-held allowlist lanes — checked BEFORE pushing tokens |
 | `InvalidPath()` | Conversion path is empty, or the last hop's `tokenOut` is not the target dividend token |
 | `PathResidue()` | An intermediate hop partially filled and refunded a mid-path token — intermediate tokens sit outside `pendingSwap` accounting, so the whole conversion reverts for a clean retry |

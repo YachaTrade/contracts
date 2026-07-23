@@ -170,8 +170,8 @@ forge build
 forge test
 
 # Focused lifecycle and LP-fee tests
-forge test --match-path test/integration/WethV3GraduationE2E.t.sol -vvv
-forge test --match-path test/integration/WethV3LpFeeCollectionE2E.t.sol -vvv
+forge test --match-path test/integration/WnativeV3GraduationE2E.t.sol -vvv
+forge test --match-path test/integration/WnativeV3LpFeeCollectionE2E.t.sol -vvv
 forge test --match-path test/modules/LPManagerCollect.t.sol -vvv
 forge test --match-path test/invariant/LPPrincipalLock.invariant.t.sol -vvv
 
@@ -210,7 +210,7 @@ Implementation addresses are listed separately for upgrade and deployment auditi
 
 | Contract | Deployment kind | Address | Creation transaction |
 | --- | --- | --- | --- |
-| WETH | Canonical predeploy | [`0x4200000000000000000000000000000000000006`](https://sepolia-explorer.giwa.io/address/0x4200000000000000000000000000000000000006) | Predeploy |
+| WNATIVE | Canonical predeploy | [`0x4200000000000000000000000000000000000006`](https://sepolia-explorer.giwa.io/address/0x4200000000000000000000000000000000000006) | Predeploy |
 | UniswapV3Factory | Standalone | [`0x00a131Cf1fbEE9b02C4632756a813A32BC250849`](https://sepolia-explorer.giwa.io/address/0x00a131Cf1fbEE9b02C4632756a813A32BC250849) | [`0xa6ac…25d4`](https://sepolia-explorer.giwa.io/tx/0xa6ac410b71e5f04a9b466816b0bfd49878f909e897ddf67bd8b8e90db96125d4) |
 | ProtocolManager | UUPS proxy | [`0x839AAE0711DDf9A3E8381d73Fbc8bD9146cc762e`](https://sepolia-explorer.giwa.io/address/0x839AAE0711DDf9A3E8381d73Fbc8bD9146cc762e) | [`0xdfa0…a830`](https://sepolia-explorer.giwa.io/tx/0xdfa05924db3c6cc6e45da4448a89dec6fe7bceb61a1d33db156a1c3a4ebca830) |
 | TokenRegistry | UUPS proxy | [`0xB9E1a129818fE17300152E067b978eA9098100F0`](https://sepolia-explorer.giwa.io/address/0xB9E1a129818fE17300152E067b978eA9098100F0) | [`0xb637…6c5b`](https://sepolia-explorer.giwa.io/tx/0xb637ac9344586c8017b34ed63cdd083be924eb9853eb58b741315104d93f6c5b) |
@@ -241,7 +241,7 @@ Implementation addresses are listed separately for upgrade and deployment auditi
 | CreatorFeeVault | Implementation | [`0x21A3455b170FD35b7089216791D72bDD2dbf9E53`](https://sepolia-explorer.giwa.io/address/0x21A3455b170FD35b7089216791D72bDD2dbf9E53) | [`0xf602…a986`](https://sepolia-explorer.giwa.io/tx/0xf602c2fdb5afe66d573a54cb1ccf6e28aa6a965831661e5bfd8771358355a986) |
 
 These tables cover the contracts created by the current GIWA Sepolia V3 deployment
-plus the canonical WETH predeploy reused by the protocol. Legacy mainnet Safe batches
+plus the canonical WNATIVE predeploy reused by the protocol. Legacy mainnet Safe batches
 under `deploy/` are separate operational artifacts and are not part of this deployment.
 
 The V3 factory is deployed separately, then passed to the protocol deployment.

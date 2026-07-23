@@ -11,7 +11,7 @@ BondingCurve는 기존 Router + TokenFactory의 기능을 하나의 컨트랙트
 **v1 대비 주요 변경사항:**
 - **ERC20 거래**: 모든 본딩 커브 거래가 ERC20 견적 토큰을 사용합니다. BondingCurve는 잔액 감지(balance-detection) 패턴을 사용하며, 호출자는 buy/sell 호출 전에 토큰을 미리 전송해야 합니다. 코어 함수는 명시적 금액 파라미터 없이 잔액 변화량(balance delta)에서 입금액을 감지합니다.
 - **ProtocolManager**: 기존 CurveRegistry + FeeManager + AdminModule을 대체합니다. 각 토큰의 본딩 커브 매개변수(virtualReserve, minTokenReserve)는 ProtocolManager의 견적 토큰별 설정에서 가져옵니다.
-- **다중 견적 토큰**: 서로 다른 토큰이 서로 다른 견적 토큰(WMON, USDT 등)을 사용할 수 있습니다.
+- **다중 견적 토큰**: 서로 다른 토큰이 서로 다른 견적 토큰(WNATIVE, USDT 등)을 사용할 수 있습니다.
 - **가상 리저브 AMM**: reserve + circulatingSupply 대신 virtualQuoteReserve + virtualTokenReserve를 사용합니다.
 
 ## 토큰 생성 흐름
@@ -104,7 +104,7 @@ penaltyQuote → feeReceiver (견적 토큰으로)
 struct Curve {
     address token;                  // Token 클론 (일반 ERC20)
     address creator;                // 토큰 생성자
-    address quoteToken;             // 견적 토큰 (예: WMON, USDT)
+    address quoteToken;             // 견적 토큰 (예: WNATIVE, USDT)
     uint256 virtualQuoteReserve;    // AMM 견적 리저브 (가상 + 실제)
     uint256 virtualTokenReserve;    // AMM 토큰 리저브 (가상 + 실제)
     uint64 createdAtBlock;          // 생성 블록 번호 (안티스나이핑 인덱스 기준)

@@ -7,9 +7,9 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {UniswapV3Factory} from "@uniswap/v3-core/contracts/UniswapV3Factory.sol";
 import {IUniswapV3Pool} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
-import {WETH} from "solady/tokens/WETH.sol";
+import {MockWrappedNative} from "../mocks/MockWrappedNative.sol";
 
-import {Deploy, GIWA_WETH} from "../../script/deploy/normal/Deploy.s.sol";
+import {Deploy, GIWA_WNATIVE} from "../../script/deploy/normal/Deploy.s.sol";
 import {V3LiquidityActor} from "../../src/actors/V3LiquidityActor.sol";
 import {BondingCurve} from "../../src/core/BondingCurve.sol";
 import {LPManager} from "../../src/core/LPManager.sol";
@@ -23,13 +23,14 @@ import {GiwaRouter} from "../../src/router/GiwaRouter.sol";
 import {Token} from "../../src/token/Token.sol";
 import {CreatorFeeVault} from "../../src/vault/CreatorFeeVault.sol";
 
-contract WethV3LpFeeCollectionDeployHarness is Deploy {
+contract WnativeV3LpFeeCollectionDeployHarness is Deploy {
     function deployCanonicalFixture(address v3Factory, address feeReceiver, address collector)
         external
         returns (Deployed memory d)
     {
         d.v3Factory = v3Factory;
-        (d.weth, d.protocolManager) = _deployCanonicalWethAndProtocolManager(address(this), feeReceiver, _testConfig());
+        (d.wnative, d.protocolManager) =
+            _deployCanonicalWnativeAndProtocolManager(address(this), feeReceiver, _testConfig());
         d.tokenRegistry = _deployTokenRegistry(d.protocolManager);
         d.creatorFeeProcessor = _deployCreatorFeeProcessor(d.protocolManager);
         d.v3SwapAdapter = _deployV3SwapAdapter(d.v3Factory, d.tokenRegistry);
@@ -39,8 +40,9 @@ contract WethV3LpFeeCollectionDeployHarness is Deploy {
         LPManager(d.lpManager).setV3LiquidityActor(d.v3LiquidityActor, d.v3Factory);
         d.tokenImpl = address(new Token());
         d.bondingCurve = _deployBondingCurve(address(this), d.tokenImpl, d.protocolManager);
-        (d.quoterV2, d.giwaRouter) =
-            _deployV3Routing(d.protocolManager, d.bondingCurve, d.tokenRegistry, d.weth, d.v3SwapAdapter, d.v3Factory);
+        (d.quoterV2, d.giwaRouter) = _deployV3Routing(
+            d.protocolManager, d.bondingCurve, d.tokenRegistry, d.wnative, d.v3SwapAdapter, d.v3Factory
+        );
         d.vaultRegistry = _deployVaultRegistry(d.protocolManager);
         _deployVaults(d, "ipfs://creator-fee-vault");
         _registerModules(d);
@@ -69,7 +71,7 @@ contract WethV3LpFeeCollectionDeployHarness is Deploy {
     }
 }
 
-contract WethV3LpFeeCollectionE2ETest is Test {
+contract WnativeV3LpFeeCollectionE2ETest is Test {
     uint256 private constant GRADUATION_QUOTE_IN = 800_000 ether;
     uint256 private constant POST_GRADUATION_QUOTE_IN = 100 ether;
     bytes32 private constant FEES_COLLECTED_TOPIC =
@@ -92,8 +94,8 @@ contract WethV3LpFeeCollectionE2ETest is Test {
     }
 
     Deploy.Deployed private deployed;
-    WethV3LpFeeCollectionDeployHarness private harness;
-    WETH private weth;
+    WnativeV3LpFeeCollectionDeployHarness private harness;
+    MockWrappedNative private wnative;
     GiwaRouter private giwaRouter;
     BondingCurve private bondingCurve;
     TokenRegistry private tokenRegistry;
@@ -108,7 +110,7 @@ contract WethV3LpFeeCollectionE2ETest is Test {
     address private feeReceiverAtCollection;
 
     function setUp() public {
-        vm.etch(GIWA_WETH, type(WETH).runtimeCode);
+        vm.etch(GIWA_WNATIVE, type(MockWrappedNative).runtimeCode);
 
         creator = makeAddr("creator");
         graduator = makeAddr("graduator");
@@ -116,9 +118,9 @@ contract WethV3LpFeeCollectionE2ETest is Test {
         feeReceiverAtAccrual = makeAddr("feeReceiverAtAccrual");
         feeReceiverAtCollection = makeAddr("feeReceiverAtCollection");
 
-        harness = new WethV3LpFeeCollectionDeployHarness();
+        harness = new WnativeV3LpFeeCollectionDeployHarness();
         deployed = harness.deployCanonicalFixture(address(new UniswapV3Factory()), feeReceiverAtAccrual, address(this));
-        weth = WETH(payable(deployed.weth));
+        wnative = MockWrappedNative(payable(deployed.wnative));
         giwaRouter = GiwaRouter(payable(deployed.giwaRouter));
         bondingCurve = BondingCurve(payable(deployed.bondingCurve));
         tokenRegistry = TokenRegistry(deployed.tokenRegistry);
@@ -140,7 +142,7 @@ contract WethV3LpFeeCollectionE2ETest is Test {
         _graduate(token);
         address pool = tokenRegistry.getPool(token);
 
-        assertEq(token < deployed.weth, launchTokenIsToken0, "deterministic token ordering");
+        assertEq(token < deployed.wnative, launchTokenIsToken0, "deterministic token ordering");
         _assertGraduationSupplyAccounted(token, pool);
         _roundTripFullBalance(token);
 
@@ -156,9 +158,9 @@ contract WethV3LpFeeCollectionE2ETest is Test {
     function _collectAndAssert(address token, uint256 pendingTokenFee, uint256 pendingQuoteFee) private {
         CollectionSnapshot memory snapshot = CollectionSnapshot({
             positions: _positionHash(token),
-            oldReceiverQuote: weth.balanceOf(feeReceiverAtAccrual),
-            newReceiverQuote: weth.balanceOf(feeReceiverAtCollection),
-            vaultQuote: weth.balanceOf(deployed.creatorFeeVault),
+            oldReceiverQuote: wnative.balanceOf(feeReceiverAtAccrual),
+            newReceiverQuote: wnative.balanceOf(feeReceiverAtCollection),
+            vaultQuote: wnative.balanceOf(deployed.creatorFeeVault),
             creatorCredit: creatorFeeVault.getBalance(token)
         });
 
@@ -171,9 +173,9 @@ contract WethV3LpFeeCollectionE2ETest is Test {
         lpManager.collect(tokens);
         CollectedFees memory fees = _decodeCollection(vm.getRecordedLogs(), token);
 
-        assertEq(weth.balanceOf(feeReceiverAtAccrual), snapshot.oldReceiverQuote, "stale fee receiver paid");
-        uint256 receiverQuoteDelta = weth.balanceOf(feeReceiverAtCollection) - snapshot.newReceiverQuote;
-        uint256 vaultQuoteDelta = weth.balanceOf(deployed.creatorFeeVault) - snapshot.vaultQuote;
+        assertEq(wnative.balanceOf(feeReceiverAtAccrual), snapshot.oldReceiverQuote, "stale fee receiver paid");
+        uint256 receiverQuoteDelta = wnative.balanceOf(feeReceiverAtCollection) - snapshot.newReceiverQuote;
+        uint256 vaultQuoteDelta = wnative.balanceOf(deployed.creatorFeeVault) - snapshot.vaultQuote;
         uint256 creatorCreditDelta = creatorFeeVault.getBalance(token) - snapshot.creatorCredit;
         uint256 actualDistributedQuote = receiverQuoteDelta + vaultQuoteDelta;
         assertGe(actualDistributedQuote, pendingQuoteFee, "distribution omitted independently observed quote fee");
@@ -197,10 +199,10 @@ contract WethV3LpFeeCollectionE2ETest is Test {
 
     function _createToken(bool launchTokenIsToken0) private returns (address token) {
         bytes32 salt = _saltForOrdering(launchTokenIsToken0);
-        uint256 deployFee = IProtocolManager(deployed.protocolManager).deployFee(deployed.weth);
-        _fundWeth(creator, deployFee);
+        uint256 deployFee = IProtocolManager(deployed.protocolManager).deployFee(deployed.wnative);
+        _fundWnative(creator, deployFee);
         vm.prank(creator);
-        weth.approve(deployed.giwaRouter, deployFee);
+        wnative.approve(deployed.giwaRouter, deployFee);
 
         IBondingCurve.VaultAllocation[] memory vaults = new IBondingCurve.VaultAllocation[](1);
         vaults[0] = IBondingCurve.VaultAllocation({
@@ -210,10 +212,10 @@ contract WethV3LpFeeCollectionE2ETest is Test {
         vm.prank(creator);
         (token,) = giwaRouter.create(
             IGiwaRouter.CreateParams({
-                name: "Canonical WETH LP Fee",
+                name: "Canonical WNATIVE LP Fee",
                 symbol: "CWLP",
                 tokenURI: "",
-                quoteToken: deployed.weth,
+                quoteToken: deployed.wnative,
                 vaults: vaults,
                 salt: salt,
                 dexType: ITokenRegistry.DexType.UniswapV3,
@@ -225,9 +227,9 @@ contract WethV3LpFeeCollectionE2ETest is Test {
 
     function _saltForOrdering(bool launchTokenIsToken0) private view returns (bytes32 salt) {
         for (uint256 nonce; nonce < 256; ++nonce) {
-            salt = keccak256(abi.encode("weth-v3-lp-fee-e2e", launchTokenIsToken0, nonce));
+            salt = keccak256(abi.encode("wnative-v3-lp-fee-e2e", launchTokenIsToken0, nonce));
             address predicted = Clones.predictDeterministicAddress(deployed.tokenImpl, salt, deployed.bondingCurve);
-            if ((predicted < deployed.weth) == launchTokenIsToken0) return salt;
+            if ((predicted < deployed.wnative) == launchTokenIsToken0) return salt;
         }
         revert("ordering salt not found");
     }
@@ -235,9 +237,9 @@ contract WethV3LpFeeCollectionE2ETest is Test {
     function _graduate(address token) private {
         vm.roll(block.number + 2);
         vm.warp(block.timestamp + 100 minutes);
-        _fundWeth(graduator, GRADUATION_QUOTE_IN);
+        _fundWnative(graduator, GRADUATION_QUOTE_IN);
         vm.prank(graduator);
-        weth.approve(deployed.giwaRouter, GRADUATION_QUOTE_IN);
+        wnative.approve(deployed.giwaRouter, GRADUATION_QUOTE_IN);
         vm.prank(graduator);
         giwaRouter.buy(
             IGiwaRouter.BuyParams({
@@ -248,9 +250,9 @@ contract WethV3LpFeeCollectionE2ETest is Test {
     }
 
     function _roundTripFullBalance(address token) private {
-        _fundWeth(trader, POST_GRADUATION_QUOTE_IN);
+        _fundWnative(trader, POST_GRADUATION_QUOTE_IN);
         vm.prank(trader);
-        weth.approve(deployed.giwaRouter, POST_GRADUATION_QUOTE_IN);
+        wnative.approve(deployed.giwaRouter, POST_GRADUATION_QUOTE_IN);
         vm.prank(trader);
         uint256 tokenOut = giwaRouter.buy(
             IGiwaRouter.BuyParams({
@@ -283,17 +285,17 @@ contract WethV3LpFeeCollectionE2ETest is Test {
 
     function _assertNoCallResidue(address token) private view {
         assertEq(IERC20(token).balanceOf(deployed.lpManager), 0, "LPManager token residue");
-        assertEq(weth.balanceOf(deployed.lpManager), 0, "LPManager quote residue");
+        assertEq(wnative.balanceOf(deployed.lpManager), 0, "LPManager quote residue");
         assertEq(IERC20(token).balanceOf(deployed.creatorFeeProcessor), 0, "processor token residue");
-        assertEq(weth.balanceOf(deployed.creatorFeeProcessor), 0, "processor quote residue");
+        assertEq(wnative.balanceOf(deployed.creatorFeeProcessor), 0, "processor quote residue");
         assertEq(IERC20(token).balanceOf(deployed.v3LiquidityActor), 0, "actor token residue");
-        assertEq(weth.balanceOf(deployed.v3LiquidityActor), 0, "actor quote residue");
+        assertEq(wnative.balanceOf(deployed.v3LiquidityActor), 0, "actor quote residue");
         assertEq(IERC20(token).balanceOf(deployed.v3SwapAdapter), 0, "adapter token residue");
-        assertEq(weth.balanceOf(deployed.v3SwapAdapter), 0, "adapter quote residue");
+        assertEq(wnative.balanceOf(deployed.v3SwapAdapter), 0, "adapter quote residue");
         assertEq(IERC20(token).allowance(deployed.lpManager, deployed.v3SwapAdapter), 0, "adapter token allowance");
-        assertEq(weth.allowance(deployed.lpManager, deployed.creatorFeeProcessor), 0, "processor quote allowance");
+        assertEq(wnative.allowance(deployed.lpManager, deployed.creatorFeeProcessor), 0, "processor quote allowance");
         assertEq(IERC20(token).allowance(deployed.lpManager, deployed.v3LiquidityActor), 0, "actor token allowance");
-        assertEq(weth.allowance(deployed.lpManager, deployed.v3LiquidityActor), 0, "actor quote allowance");
+        assertEq(wnative.allowance(deployed.lpManager, deployed.v3LiquidityActor), 0, "actor quote allowance");
     }
 
     function _decodeCollection(Vm.Log[] memory logs, address token) private view returns (CollectedFees memory fees) {
@@ -302,7 +304,7 @@ contract WethV3LpFeeCollectionE2ETest is Test {
                 logs[i].emitter == deployed.lpManager && logs[i].topics.length == 3
                     && logs[i].topics[0] == FEES_COLLECTED_TOPIC
                     && address(uint160(uint256(logs[i].topics[1]))) == token
-                    && address(uint160(uint256(logs[i].topics[2]))) == deployed.weth
+                    && address(uint160(uint256(logs[i].topics[2]))) == deployed.wnative
             ) {
                 (fees.tokenFee, fees.directQuoteFee, fees.swappedQuote, fees.protocolQuote, fees.creatorQuote) =
                     abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256));
@@ -350,9 +352,9 @@ contract WethV3LpFeeCollectionE2ETest is Test {
         );
     }
 
-    function _fundWeth(address account, uint256 amount) private {
+    function _fundWnative(address account, uint256 amount) private {
         vm.deal(account, amount);
         vm.prank(account);
-        weth.deposit{value: amount}();
+        wnative.deposit{value: amount}();
     }
 }

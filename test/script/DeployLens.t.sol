@@ -155,7 +155,7 @@ contract DeployLensTest is SetUp {
                                 address(protocolManager),
                                 address(wrongBondingCurve),
                                 address(tokenRegistry),
-                                address(wmon),
+                                address(wnative),
                                 address(v3SwapAdapter),
                                 address(quoterV2)
                             )
@@ -188,7 +188,7 @@ contract DeployLensTest is SetUp {
                                 address(protocolManager),
                                 address(bondingCurve),
                                 address(tokenRegistry),
-                                address(wmon),
+                                address(wnative),
                                 address(v3SwapAdapter),
                                 address(quoterV2)
                             )

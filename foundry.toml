@@ -20,6 +20,7 @@ remappings = [
 
 fs_permissions = [
     { access = "read", path = "test/utils/bytecodes" },
+    { access = "read", path = "deploy" },
 ]
 
 [fmt]

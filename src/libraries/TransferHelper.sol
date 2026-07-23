@@ -2,11 +2,11 @@
 pragma solidity ^0.8.24;
 
 library TransferHelper {
-    error MonTransferFailed();
+    error NativeTransferFailed();
 
-    /// @notice Forward native MON to `to`. Reverts on call failure.
-    function safeTransferMon(address to, uint256 value) internal {
+    /// @notice Forward native currency to `to`. Reverts on call failure.
+    function safeTransferNative(address to, uint256 value) internal {
         (bool success,) = to.call{value: value}("");
-        if (!success) revert MonTransferFailed();
+        if (!success) revert NativeTransferFailed();
     }
 }

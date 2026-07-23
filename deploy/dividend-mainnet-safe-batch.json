@@ -4,7 +4,7 @@
   "createdAt": 1781757762000,
   "meta": {
     "name": "DividendVault mainnet \u2014 upgrade VR + register + wire + allowlist",
-    "description": "Atomic batch: VaultRegistry impl upgrade, register DividendVault (0xD6858E77...), grant bot operator perms, set adapters + WMON, allowlist 6 non-quote dividend tokens (USDC/USDT/WETH/AUSD/LV/XAUt0).",
+    "description": "Atomic batch: VaultRegistry impl upgrade, register DividendVault (0xD6858E77...), grant bot operator perms, set adapters + WNATIVE, allowlist 6 non-quote dividend tokens (USDC/USDT/WNATIVE/AUSD/LV/XAUt0).",
     "txBuilderVersion": "1.17.0",
     "createdFromSafeAddress": "0x63c46054C584231415d17A881f22b7898ceaDeB1",
     "createdFromOwnerAddress": "",
@@ -42,14 +42,14 @@
     {
       "to": "0xD6858E770aE97dF74B86BD5CddCd1Dd5D0c34BFC",
       "value": "0",
-      "data": "0x50e9dd39000000000000000000000000251886ada13aa3fb2b02bb101fd9a263cca7ede40000000000000000000000002c981764fbe929fdfacbba53520889daf72d5a5f000000000000000000000000d44a9bc56d0e7e26c0fb6822b9b3ceb489a48649",
+      "data": "0x02f059960000000000000000000000002c981764fbe929fdfacbba53520889daf72d5a5f000000000000000000000000d44a9bc56d0e7e26c0fb6822b9b3ceb489a48649",
       "contractMethod": null,
       "contractInputsValues": null
     },
     {
       "to": "0xD6858E770aE97dF74B86BD5CddCd1Dd5D0c34BFC",
       "value": "0",
-      "data": "0xb004a3a00000000000000000000000003bd359c1119da7da1d913d1c4d2b7c461115433a",
+      "data": "0xa15cb6ac0000000000000000000000003bd359c1119da7da1d913d1c4d2b7c461115433a",
       "contractMethod": null,
       "contractInputsValues": null
     },

@@ -5,8 +5,8 @@ pragma solidity ^0.8.24;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-contract MockWMON is ERC20 {
-    constructor() ERC20("Wrapped MON", "WMON") {}
+contract MockWrappedNative is ERC20 {
+    constructor() ERC20("Wrapped Native", "WNATIVE") {}
 
     function deposit() external payable {
         _mint(msg.sender, msg.value);
@@ -15,7 +15,7 @@ contract MockWMON is ERC20 {
     function withdraw(uint256 amount) external {
         _burn(msg.sender, amount);
         (bool success,) = msg.sender.call{value: amount}("");
-        require(success, "ETH transfer failed");
+        require(success, "native transfer failed");
     }
 
     /// @dev Test-only: mint without requiring native deposit

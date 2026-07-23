@@ -73,7 +73,7 @@ Graduated V3 exact-output execution rejects partial output. The bonding-curve br
 | `getDexAmountIn(address token, uint256 amountOut, bool isBuy)` | nonpayable | Canonical V3 exact-output quote. Reverts when full output cannot be quoted. |
 | `bondingCurve()` | view | Configured BondingCurve. |
 | `tokenRegistry()` | view | Configured TokenRegistry. |
-| `wrappedNative()` | view | Configured WETH-compatible wrapped-native token. |
+| `wrappedNative()` | view | Configured WNATIVE-compatible wrapped-native token. |
 | `v3SwapAdapter()` | view | Configured canonical V3 adapter. |
 | `quoterV2()` | view | Configured QuoterV2. |
 

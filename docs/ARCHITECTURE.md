@@ -153,7 +153,7 @@ tokenSalt     = keccak256(salt, "token")
 
 **V3 quote-side protocol fee:** exact-input buy는 최대 fee를 먼저 제외하고 실제 pool 사용량 비율만큼 fee를 올림 계산한다. exact-input sell은 pool quote output에 fee를 적용한다. exact-output buy는 pool 입력에서 gross quote를 역산하고, exact-output sell은 사용자 net output에서 pool gross output을 역산한다. 실행 시점의 `dexProtocolFeeRate`와 `feeReceiver`를 사용한다.
 
-**Native 안전성:** token quote가 router의 configured wrapped-native와 일치해야 한다. 호출 범위의 routed 금액만 wrap하며, 남은 native를 refund하고 기존 router WETH/native 잔액은 sweep하지 않는다. `receive()`는 WETH `withdraw`만 허용한다.
+**Native 안전성:** token quote가 router의 configured wrapped-native와 일치해야 한다. 호출 범위의 routed 금액만 wrap하며, 남은 native를 refund하고 기존 router WNATIVE/native 잔액은 sweep하지 않는다. `receive()`는 WNATIVE `withdraw`만 허용한다.
 
 #### V3SwapAdapter (Singleton)
 > `src/adapters/V3SwapAdapter.sol`
@@ -391,7 +391,7 @@ ProtocolManager owner 또는 selector-authorized operator가 관리하는 author
 | `BurnVault` | singleton UUPS proxy | 본딩: GiwaRouter.buy()+burn; 졸업 후: registry adapter 스왑+burn → 0xdead |
 | `GiftVault` | singleton UUPS proxy | claimable gift balance; 만료 후 본딩: GiwaRouter.buy()+burn, 졸업 후: registry adapter 스왑+burn → 0xdead |
 | `LPVault` | singleton UUPS proxy | 본딩: early return(누적); 졸업 후: 절반 스왑 → addLiquidity → LP 소각 |
-| `CreatorFeeVault` | singleton UUPS proxy | `setup()`으로 토큰별 creator를 설정하고 quoteToken 잔액을 누적. creator가 `claim(token)`으로 ERC-20을 인출하며, 등록 quote가 설정된 WMON이면 native MON으로 unwrap 후 수령 |
+| `CreatorFeeVault` | singleton UUPS proxy | `setup()`으로 토큰별 creator를 설정하고 quoteToken 잔액을 누적. creator가 `claim(token)`으로 ERC-20을 인출하며, 등록 quote가 설정된 WNATIVE이면 native currency으로 unwrap 후 수령 |
 
 ---
 
@@ -641,7 +641,7 @@ Phase 6: Revenue Distribution (Phase-Aware)
   └─ BurnVault: bonding → GiwaRouter.buy()+burn; post-grad → registry adapter swap+burn
   └─ GiftVault: claimable until expiry; expired bonding → GiwaRouter.buy()+burn; post-grad → registry adapter swap+burn
   └─ LPVault: bonding → early return (accumulate); post-grad → swap+addLiquidity+burn LP
-  └─ CreatorFeeVault: quoteToken을 토큰별 누적; creator가 ERC-20 또는 WMON-unwrapped native로 claim (phase-independent)
+  └─ CreatorFeeVault: quoteToken을 토큰별 누적; creator가 ERC-20 또는 WNATIVE-unwrapped native로 claim (phase-independent)
 ```
 
 For a token already registered as `DexType.UniswapV3`, the current runtime path is instead:
@@ -773,7 +773,7 @@ Test count changes frequently; use `forge test` as the source of truth.
 | BondingCurveTest | varies | Buy/sell, reserve, anti-sniping |
 | RouterV2Test | varies | Retained V2 LPManager regression |
 | GiwaRouterTest / GiwaRouterV3SwapTest | varies | Curve dispatch, four V3 fee flows, quoting, slippage, partial fill, refunds, donations |
-| GiwaRouterNativeV3Test | varies | WETH-only native routing and call-scoped refund isolation |
+| GiwaRouterNativeV3Test | varies | WNATIVE-only native routing and call-scoped refund isolation |
 | V3SwapAdapterTest | varies | Canonical pool/callback/context/delta/reentrancy checks |
 | CreatorFeeProcessorV2Test | varies | quoteToken distribution to vaults |
 | BurnVaultV2Test | varies | Buyback & burn via NadFunPair |

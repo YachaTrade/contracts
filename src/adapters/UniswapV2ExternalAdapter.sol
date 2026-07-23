@@ -9,7 +9,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 /// @title UniswapV2ExternalAdapter — IDexAdapter for an external Uniswap V2 pair.
 /// @notice Stateless. Push pattern: caller transfers tokenIn to the adapter, adapter forwards to the
 ///         caller-supplied pair. The pair is admin-fixed in DividendVault, so no factory/getPair here.
-///         Used for whitelisted external ERC20 dividend tokens (e.g. USDT/USDC/WETH).
+///         Used for whitelisted external ERC20 dividend tokens (e.g. USDT/USDC/WNATIVE).
 contract UniswapV2ExternalAdapter is IDexAdapter {
     using SafeERC20 for IERC20;
 

@@ -225,7 +225,7 @@ LPVault:
   본딩 단계:         early return (누적만, 작업 없음)
   졸업 후:           quoteToken → 절반을 token으로 스왑 → addLiquidity → LP → 0xdead
 
-CreatorFeeVault:     quoteToken → 토큰별 누적 → creator가 ERC-20 또는 WMON-unwrapped native로 claim (단계 무관)
+CreatorFeeVault:     quoteToken → 토큰별 누적 → creator가 ERC-20 또는 WNATIVE-unwrapped native로 claim (단계 무관)
 ```
 
 ---

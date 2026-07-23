@@ -222,7 +222,7 @@ LPVault:
   Bonding phase:        early return (accumulate, no action)
   Post-graduation:      quoteToken → swap half to token → addLiquidity → LP → 0xdead
 
-CreatorFeeVault:        quoteToken → per-token accrual → creator claim as ERC-20 or WMON-unwrapped native (phase-independent)
+CreatorFeeVault:        quoteToken → per-token accrual → creator claim as ERC-20 or WNATIVE-unwrapped native (phase-independent)
 ```
 
 ---

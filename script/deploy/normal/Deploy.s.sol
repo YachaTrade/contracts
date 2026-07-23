@@ -24,7 +24,7 @@ import {ProtocolManager} from "../../../src/core/ProtocolManager.sol";
 import {BondingCurve} from "../../../src/core/BondingCurve.sol";
 import {V3SwapAdapter} from "../../../src/adapters/V3SwapAdapter.sol";
 
-address constant GIWA_WETH = 0x4200000000000000000000000000000000000006;
+address constant GIWA_WNATIVE = 0x4200000000000000000000000000000000000006;
 
 /// @title Deploy -- full canonical Uniswap V3 protocol deployment script
 /// @notice Deploys all contracts in correct order, initializes and configures them.
@@ -55,7 +55,7 @@ contract Deploy is Script {
     }
 
     struct Deployed {
-        address weth;
+        address wnative;
         address tokenImpl;
         address creatorFeeProcessor;
         address tokenRegistry;
@@ -101,8 +101,9 @@ contract Deploy is Script {
         Deployed memory d;
         d.v3Factory = v3Factory;
 
-        // ── 1. Reuse canonical WETH predeploy + ProtocolManager ──────
-        (d.weth, d.protocolManager) = _deployCanonicalWethAndProtocolManager(deployer, feeReceiver, protocolConfig);
+        // ── 1. Reuse canonical WNATIVE predeploy + ProtocolManager ──────
+        (d.wnative, d.protocolManager) =
+            _deployCanonicalWnativeAndProtocolManager(deployer, feeReceiver, protocolConfig);
 
         // ── 2. TokenRegistry (UUPS proxy) ────────────────────────────
         d.tokenRegistry = _deployTokenRegistry(d.protocolManager);
@@ -124,8 +125,9 @@ contract Deploy is Script {
         d.bondingCurve = _deployBondingCurve(deployer, d.tokenImpl, d.protocolManager);
 
         // ── 7. Canonical V3 quote dependency + GiwaRouter ────────────
-        (d.quoterV2, d.giwaRouter) =
-            _deployV3Routing(d.protocolManager, d.bondingCurve, d.tokenRegistry, d.weth, d.v3SwapAdapter, d.v3Factory);
+        (d.quoterV2, d.giwaRouter) = _deployV3Routing(
+            d.protocolManager, d.bondingCurve, d.tokenRegistry, d.wnative, d.v3SwapAdapter, d.v3Factory
+        );
 
         // ── 8. VaultRegistry ─────────────────────────────────────────
         d.vaultRegistry = _deployVaultRegistry(d.protocolManager);
@@ -180,24 +182,24 @@ contract Deploy is Script {
 
     // ── Internal: ProtocolManager ────────────────────────────────────
 
-    function _canonicalWeth() internal view returns (address weth) {
-        weth = GIWA_WETH;
-        require(weth.code.length > 0, "Deploy: canonical WETH missing code");
+    function _canonicalWnative() internal view returns (address wnative) {
+        wnative = GIWA_WNATIVE;
+        require(wnative.code.length > 0, "Deploy: canonical WNATIVE missing code");
     }
 
-    function _deployCanonicalWethAndProtocolManager(
+    function _deployCanonicalWnativeAndProtocolManager(
         address admin,
         address feeReceiver,
         ProtocolDeploymentConfig memory config
-    ) internal returns (address weth, address protocolManager) {
-        weth = _canonicalWeth();
-        protocolManager = _deployProtocolManager(admin, feeReceiver, weth, config);
+    ) internal returns (address wnative, address protocolManager) {
+        wnative = _canonicalWnative();
+        protocolManager = _deployProtocolManager(admin, feeReceiver, wnative, config);
     }
 
     function _deployProtocolManager(
         address admin,
         address feeReceiver,
-        address weth,
+        address wnative,
         ProtocolDeploymentConfig memory config
     ) internal returns (address) {
         address proxy = _deployProxy(
@@ -205,7 +207,7 @@ contract Deploy is Script {
         );
 
         ProtocolManager pm = ProtocolManager(proxy);
-        _addV3QuoteToken(pm, weth, config.quoteToken);
+        _addV3QuoteToken(pm, wnative, config.quoteToken);
         pm.setSnipingPenaltyTable(config.snipingPenaltyTable);
 
         return proxy;
@@ -308,11 +310,11 @@ contract Deploy is Script {
         );
     }
 
-    function _deployQuoterV2(address v3Factory_, address weth_) internal returns (address quoterV2) {
-        quoterV2 = address(new QuoterV2(v3Factory_, weth_));
+    function _deployQuoterV2(address v3Factory_, address wnative_) internal returns (address quoterV2) {
+        quoterV2 = address(new QuoterV2(v3Factory_, wnative_));
         IPeripheryImmutableState immutableState = IPeripheryImmutableState(quoterV2);
         require(immutableState.factory() == v3Factory_, "Deploy: QuoterV2 factory mismatch");
-        require(immutableState.WETH9() == weth_, "Deploy: QuoterV2 WETH mismatch");
+        require(immutableState.WETH9() == wnative_, "Deploy: QuoterV2 WNATIVE mismatch");
     }
 
     function _deployV3SwapAdapter(address v3Factory_, address tokenRegistry_) internal returns (address) {
@@ -323,17 +325,18 @@ contract Deploy is Script {
         address protocolManager_,
         address bondingCurve_,
         address tokenRegistry_,
-        address weth_,
+        address wnative_,
         address v3SwapAdapter_,
         address v3Factory_
     ) internal returns (address quoterV2, address giwaRouter) {
-        require(weth_ == _canonicalWeth(), "Deploy: non-canonical WETH");
+        require(wnative_ == _canonicalWnative(), "Deploy: non-canonical WNATIVE");
         require(IV3SwapAdapter(v3SwapAdapter_).factory() == v3Factory_, "Deploy: swap adapter factory mismatch");
         require(
             IV3SwapAdapter(v3SwapAdapter_).tokenRegistry() == tokenRegistry_, "Deploy: swap adapter registry mismatch"
         );
-        quoterV2 = _deployQuoterV2(v3Factory_, weth_);
-        giwaRouter = _deployGiwaRouter(protocolManager_, bondingCurve_, tokenRegistry_, weth_, v3SwapAdapter_, quoterV2);
+        quoterV2 = _deployQuoterV2(v3Factory_, wnative_);
+        giwaRouter =
+            _deployGiwaRouter(protocolManager_, bondingCurve_, tokenRegistry_, wnative_, v3SwapAdapter_, quoterV2);
     }
 
     // ── Internal: VaultRegistry ─────────────────────────────────────
@@ -349,7 +352,7 @@ contract Deploy is Script {
         address bondingCurve_,
         address creatorFeeProcessor_,
         address tokenRegistry_,
-        address weth_,
+        address wnative_,
         address vaultRegistry_,
         string memory metadataURI_
     ) internal returns (address) {
@@ -357,7 +360,7 @@ contract Deploy is Script {
             address(new CreatorFeeVault()),
             abi.encodeCall(
                 CreatorFeeVault.initialize,
-                (protocolManager_, bondingCurve_, creatorFeeProcessor_, tokenRegistry_, weth_, metadataURI_)
+                (protocolManager_, bondingCurve_, creatorFeeProcessor_, tokenRegistry_, wnative_, metadataURI_)
             )
         );
         VaultRegistry(vaultRegistry_)
@@ -371,7 +374,7 @@ contract Deploy is Script {
             d.bondingCurve,
             d.creatorFeeProcessor,
             d.tokenRegistry,
-            d.weth,
+            d.wnative,
             d.vaultRegistry,
             creatorFeeVaultMetadataURI
         );
@@ -415,7 +418,7 @@ contract Deploy is Script {
         address protocolManager_,
         address bondingCurve_,
         address tokenRegistry_,
-        address weth_,
+        address wnative_,
         address v3SwapAdapter_,
         address quoterV2_
     ) internal returns (address) {
@@ -423,7 +426,7 @@ contract Deploy is Script {
             address(new GiwaRouter()),
             abi.encodeCall(
                 GiwaRouter.initialize,
-                (protocolManager_, bondingCurve_, tokenRegistry_, weth_, v3SwapAdapter_, quoterV2_)
+                (protocolManager_, bondingCurve_, tokenRegistry_, wnative_, v3SwapAdapter_, quoterV2_)
             )
         );
     }
@@ -451,12 +454,12 @@ contract Deploy is Script {
         QuoteTokenConfig memory expectedConfig = _quoteTokenConfig();
 
         require(pm.feeReceiver() == vm.envAddress("FEE_RECEIVER"), "Verify: feeReceiver mismatch");
-        _verifyQuoteTokenConfig(pm, d.weth, expectedConfig, 0);
-        IProtocolManager.QuoteConfig memory wethConfig = pm.getConfig(d.weth);
-        require(wethConfig.v3FeeTier == expectedConfig.v3FeeTier, "Verify: WETH V3 fee tier mismatch");
+        _verifyQuoteTokenConfig(pm, d.wnative, expectedConfig, 0);
+        IProtocolManager.QuoteConfig memory wnativeConfig = pm.getConfig(d.wnative);
+        require(wnativeConfig.v3FeeTier == expectedConfig.v3FeeTier, "Verify: WNATIVE V3 fee tier mismatch");
         require(
-            wethConfig.lpFeeProtocolShareBps == expectedConfig.lpFeeProtocolShareBps,
-            "Verify: WETH LP fee share mismatch"
+            wnativeConfig.lpFeeProtocolShareBps == expectedConfig.lpFeeProtocolShareBps,
+            "Verify: WNATIVE LP fee share mismatch"
         );
 
         uint256[] memory expectedTable = _snipingPenaltyTable();
@@ -491,7 +494,7 @@ contract Deploy is Script {
     }
 
     function _verifyV3Wiring(Deployed memory d) internal view {
-        require(d.weth == _canonicalWeth(), "Verify: non-canonical WETH");
+        require(d.wnative == _canonicalWnative(), "Verify: non-canonical WNATIVE");
         require(d.v3Factory.code.length > 0, "Verify: V3 factory missing code");
         require(
             IUniswapV3Factory(d.v3Factory).owner() == vm.envAddress("MULTISIG"), "Verify: V3 factory owner mismatch"
@@ -523,13 +526,13 @@ contract Deploy is Script {
 
         IPeripheryImmutableState quoter = IPeripheryImmutableState(d.quoterV2);
         require(quoter.factory() == d.v3Factory, "Verify: QuoterV2 factory mismatch");
-        require(quoter.WETH9() == d.weth, "Verify: QuoterV2 WETH mismatch");
+        require(quoter.WETH9() == d.wnative, "Verify: QuoterV2 WNATIVE mismatch");
 
         GiwaRouter router = GiwaRouter(payable(d.giwaRouter));
         require(router.authority() == d.protocolManager, "Verify: GiwaRouter authority mismatch");
         require(router.bondingCurve() == d.bondingCurve, "Verify: GiwaRouter curve mismatch");
         require(router.tokenRegistry() == d.tokenRegistry, "Verify: GiwaRouter registry mismatch");
-        require(router.wrappedNative() == d.weth, "Verify: GiwaRouter WETH mismatch");
+        require(router.wrappedNative() == d.wnative, "Verify: GiwaRouter WNATIVE mismatch");
         require(router.v3SwapAdapter() == d.v3SwapAdapter, "Verify: GiwaRouter adapter mismatch");
         require(router.quoterV2() == d.quoterV2, "Verify: GiwaRouter quoter mismatch");
     }
@@ -592,7 +595,7 @@ contract Deploy is Script {
         console.log("========================================");
         console.log("Deployment complete!");
         console.log("========================================");
-        _logEnvAddress("WETH_ADDRESS", d.weth);
+        _logEnvAddress("WNATIVE_ADDRESS", d.wnative);
         _logEnvAddress("TOKEN_IMPL", d.tokenImpl);
         _logEnvAddress("PROTOCOL_MANAGER", d.protocolManager);
         _logEnvAddress("TOKEN_REGISTRY", d.tokenRegistry);

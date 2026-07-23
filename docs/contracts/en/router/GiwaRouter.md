@@ -120,11 +120,11 @@ The Router pulls only the current call's maximum, approves the adapter only for 
 
 - Native creation and buys wrap only the current call's routed quote amount.
 - Graduated native buys initially wrap `msg.value`, then unwrap only the calculated call refund.
-- Native sells receive WETH at the Router, pay the quote-token fee in WETH, unwrap only the call's net output, and send it to `to`.
+- Native sells receive WNATIVE at the Router, pay the quote-token fee in WNATIVE, unwrap only the call's net output, and send it to `to`.
 - `receive()` accepts native currency only from the configured wrapped-native contract during `withdraw`.
 - A failed unwrap/refund/recipient transfer reverts the complete swap, fee payment, permit, and token movement.
 
-Existing Router WETH or native balances are excluded from refund equations.
+Existing Router WNATIVE or native balances are excluded from refund equations.
 
 ## Quotes
 

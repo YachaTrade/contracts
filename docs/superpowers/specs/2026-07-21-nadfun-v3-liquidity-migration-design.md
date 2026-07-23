@@ -4,7 +4,7 @@
 
 Build a fresh-deployment NadFun contract repository by taking the current `nadfun-contract-v2` architecture as the baseline and replacing its custom Uniswap V2-style launch DEX with canonical Uniswap V3 pools. The new system keeps the V2 repository's Solidity 0.8.24, Foundry, UUPS core modules, deterministic token clones, unified lifecycle router, and vault allocation model.
 
-The Uniswap V3 price, tick, range, liquidity, and direct-pool position formulas are ported from `nads-pump/contract-v3`. The formulas are generalized from a single WMON quote asset to the quote token registered for each launch, without changing their economic meaning.
+The Uniswap V3 price, tick, range, liquidity, and direct-pool position formulas are ported from `nads-pump/contract-v3`. The formulas are generalized from a single WNATIVE quote asset to the quote token registered for each launch, without changing their economic meaning.
 
 ## Source Baseline and Copy Policy
 
@@ -215,7 +215,7 @@ The following logic is ported from `contract-v3` without changing formulas:
 - `LiquidityAmounts` calculation for direct V3 pool minting;
 - position fee realization through zero-liquidity burn followed by pool collect.
 
-The WMON-specific names become quote-token names, and global WMON configuration becomes per-token registry data. Bounds checks are added for zero amounts, square-root price range, tick ordering, tick spacing, fee tier, multiplication overflow, and zero liquidity. These checks do not alter valid reference outputs.
+The WNATIVE-specific names become quote-token names, and global WNATIVE configuration becomes per-token registry data. Bounds checks are added for zero amounts, square-root price range, tick ordering, tick spacing, fee tier, multiplication overflow, and zero liquidity. These checks do not alter valid reference outputs.
 
 ## Security and Failure Semantics
 
