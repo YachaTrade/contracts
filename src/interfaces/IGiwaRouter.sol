@@ -27,9 +27,11 @@ interface IGiwaRouter {
     error InvalidV3Quote();
 
     /// @dev For graduated buys, `amountIn` is the quote input used including protocol fee.
-    event Buy(address indexed buyer, address indexed token, uint256 amountIn, uint256 amountOut, bool graduated);
+    event RouterBuy(address indexed buyer, address indexed token, uint256 amountIn, uint256 amountOut, bool graduated);
     /// @dev For graduated sells, `amountIn` is launch-token input used and `amountOut` is quote output after protocol fee.
-    event Sell(address indexed seller, address indexed token, uint256 amountIn, uint256 amountOut, bool graduated);
+    event RouterSell(
+        address indexed seller, address indexed token, uint256 amountIn, uint256 amountOut, bool graduated
+    );
     event Create(address indexed token, address indexed creator);
 
     struct CreateParams {

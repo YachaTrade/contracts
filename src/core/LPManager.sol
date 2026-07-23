@@ -40,7 +40,6 @@ contract LPManager is ILPManager, UUPSUpgradeable, AccessManagedUpgradeable {
     error DuplicateToken(address token);
     error UnauthorizedCaller();
     error BalanceDelta();
-    event V3Allocation(address indexed token, address indexed pool, uint256 tokenUsed, uint256 quoteUsed);
 
     constructor() {
         _disableInitializers();
@@ -120,14 +119,11 @@ contract LPManager is ILPManager, UUPSUpgradeable, AccessManagedUpgradeable {
         uint256 quoteBalanceEntry = IERC20(live.quoteToken).balanceOf(address(this));
         (uint256 tokenFee, uint256 directQuoteFee) = _collectRawFees(token, live, tokenBalanceEntry, quoteBalanceEntry);
         uint256 swappedQuote = _swapCollectedToken(token, live, tokenFee, tokenBalanceEntry);
-        (uint256 protocolQuote, uint256 creatorQuote) =
-            _distributeCollectedQuote(token, live.quoteToken, directQuoteFee + swappedQuote);
+        _distributeCollectedQuote(token, live.quoteToken, directQuoteFee + swappedQuote);
 
         _requireBalance(IERC20(token), tokenBalanceEntry);
         _requireBalance(IERC20(live.quoteToken), quoteBalanceEntry);
-        emit V3FeesCollected(
-            token, live.quoteToken, tokenFee, directQuoteFee, swappedQuote, protocolQuote, creatorQuote
-        );
+        emit Collect(token, live.pool, directQuoteFee, tokenFee, block.timestamp);
     }
 
     function _validatedStoredPool(address token) private view returns (ILPManager.PoolData memory live) {
@@ -241,7 +237,7 @@ contract LPManager is ILPManager, UUPSUpgradeable, AccessManagedUpgradeable {
         _settle(d.token0, b0, a0, u0);
         _settle(d.token1, b1, a1, u1);
         _pools[p.token] = d;
-        emit V3Allocation(p.token, d.pool, d.quoteIsToken0 ? u1 : u0, d.quoteIsToken0 ? u0 : u1);
+        emit Allocate(p.token, d.pool, d.quoteIsToken0 ? u0 : u1, d.quoteIsToken0 ? u1 : u0, block.timestamp);
     }
 
     function increaseLiquidity(address token, uint256 tokenAmount, uint256 quoteAmount)

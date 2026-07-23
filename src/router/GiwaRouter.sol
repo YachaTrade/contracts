@@ -207,7 +207,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
 
         if (amountOut < params.amountOutMin) revert InsufficientOutput();
         _refundNative(msg.sender, refund, graduated);
-        emit Buy(msg.sender, params.token, quoteIn, amountOut, graduated);
+        emit RouterBuy(msg.sender, params.token, quoteIn, amountOut, graduated);
     }
 
     /// @inheritdoc IGiwaRouter
@@ -393,7 +393,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
             _requireBalanceEquals(quote, address(this), routerBalanceBefore);
         }
 
-        emit Buy(msg.sender, params.token, amountIn, params.amountOut, graduated);
+        emit RouterBuy(msg.sender, params.token, amountIn, params.amountOut, graduated);
     }
 
     /// @inheritdoc IGiwaRouter
@@ -437,7 +437,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
         uint256 refund = msg.value - amountIn;
         _refundNative(msg.sender, refund, graduated);
 
-        emit Buy(msg.sender, params.token, amountIn, params.amountOut, graduated);
+        emit RouterBuy(msg.sender, params.token, amountIn, params.amountOut, graduated);
     }
 
     /// @inheritdoc IGiwaRouter
@@ -660,7 +660,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
             _requireBalanceEquals(quote, address(this), routerBalanceBefore);
         }
 
-        emit Buy(request.payer, request.token, quoteIn, tokenOut, graduated);
+        emit RouterBuy(request.payer, request.token, quoteIn, tokenOut, graduated);
     }
 
     function _sell(V3ExactInputRequest memory request, bool native) private returns (uint256 quoteOut) {
@@ -690,7 +690,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
             _unwrapAndTransferNative(recipient, quoteOut);
             if (!graduated) _requireBalanceEquals(nativeQuoteToken, address(this), nativeQuoteBalanceBefore);
         }
-        emit Sell(request.payer, request.token, tokenIn, quoteOut, graduated);
+        emit RouterSell(request.payer, request.token, tokenIn, quoteOut, graduated);
     }
 
     function _exactOutSell(V3ExactOutputRequest memory request, bool native) private returns (uint256 tokenIn) {
@@ -722,7 +722,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
             _unwrapAndTransferNative(recipient, quoteOut);
             if (!graduated) _requireBalanceEquals(nativeQuoteToken, address(this), nativeQuoteBalanceBefore);
         }
-        emit Sell(request.payer, request.token, tokenIn, quoteOut, graduated);
+        emit RouterSell(request.payer, request.token, tokenIn, quoteOut, graduated);
     }
 
     function _buyV3(V3ExactInputRequest memory request)
