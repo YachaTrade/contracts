@@ -203,9 +203,18 @@ forge script script/deploy/normal/DeployV3Factory.s.sol \
 # 2. Deploy and wire the protocol
 forge script script/deploy/normal/Deploy.s.sol \
   --rpc-url "$RPC_URL" --broadcast
+
+# 3. Deploy the immutable lifecycle Lens against the GiwaRouter proxy
+forge script script/deploy/normal/DeployLens.s.sol:DeployLens \
+  --rpc-url "$RPC_URL" --broadcast
 ```
 
 The main deployment reuses the chain's canonical wrapped-native token, deploys the V3-only launch stack, registers only `CreatorFeeVault`, applies selector permissions, and transfers final administration to `MULTISIG`. Operational values are supplied through the local environment; never commit private keys or environment files.
+
+The Lens deployment requires `CHAIN_ID`, `PRIVATE_KEY`, `DEPLOYER`, `GIWA_ROUTER`,
+`BONDING_CURVE`, `TOKEN_REGISTRY`, and `PROTOCOL_MANAGER`. The script validates the
+chain, signer, Router proxy implementation, independently supplied dependencies, and
+the deployed Lens wiring before reporting the new address.
 
 ## Security Properties
 

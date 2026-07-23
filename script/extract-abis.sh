@@ -109,6 +109,7 @@ CONTRACTS=(
   "CreatorFeeProcessor|CreatorFeeProcessor.sol/CreatorFeeProcessor.json"
   "CreatorFeeVault|CreatorFeeVault.sol/CreatorFeeVault.json"
   "GiwaRouter|GiwaRouter.sol/GiwaRouter.json"
+  "Lens|Lens.sol/Lens.json"
   "LPManager|LPManager.sol/LPManager.json"
   "ProtocolManager|ProtocolManager.sol/ProtocolManager.json"
   "QuoterV2|QuoterV2.sol/QuoterV2.json"
