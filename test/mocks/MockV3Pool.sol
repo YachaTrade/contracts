@@ -69,6 +69,8 @@ contract MockV3Pool {
     mapping(bytes32 key => PositionState state) private _positions;
     mapping(bytes32 key => Collection amounts) private _collections;
     mapping(int24 tick => bool initialized) private _initializedTicks;
+    mapping(int24 tick => uint256 feeGrowthOutside0X128) private _tickFeeGrowthOutside0X128;
+    mapping(int24 tick => uint256 feeGrowthOutside1X128) private _tickFeeGrowthOutside1X128;
 
     constructor(
         address factory_,
@@ -111,6 +113,14 @@ contract MockV3Pool {
     function setFeeGrowth(uint256 feeGrowth0X128, uint256 feeGrowth1X128) external {
         feeGrowthGlobal0X128 = feeGrowth0X128;
         feeGrowthGlobal1X128 = feeGrowth1X128;
+    }
+
+    function setTickFeeGrowthOutside(int24 tick, uint256 feeGrowthOutside0X128, uint256 feeGrowthOutside1X128)
+        external
+    {
+        _initializedTicks[tick] = true;
+        _tickFeeGrowthOutside0X128[tick] = feeGrowthOutside0X128;
+        _tickFeeGrowthOutside1X128[tick] = feeGrowthOutside1X128;
     }
 
     function slot0() external view returns (uint160, int24, uint16, uint16, uint16, uint8, bool) {
@@ -218,6 +228,8 @@ contract MockV3Pool {
             bool initialized
         )
     {
+        feeGrowthOutside0X128 = _tickFeeGrowthOutside0X128[tick];
+        feeGrowthOutside1X128 = _tickFeeGrowthOutside1X128[tick];
         initialized = _initializedTicks[tick];
     }
 

@@ -118,6 +118,8 @@ contract MockActor is IV3LiquidityActor {
     bool public shouldRevert;
     bytes32 public qpos;
     bytes32 public tpos;
+    uint256 public fee0;
+    uint256 public fee1;
 
     constructor(address owner_, address factory_) {
         owner = owner_;
@@ -136,6 +138,11 @@ contract MockActor is IV3LiquidityActor {
         used0 = a;
         used1 = b;
         shouldRevert = r;
+    }
+
+    function setFees(uint256 fee0_, uint256 fee1_) external {
+        fee0 = fee0_;
+        fee1 = fee1_;
     }
 
     function mint(ILPManager.PoolData calldata d, uint256 a0, uint256 a1) external returns (uint256, uint256) {
@@ -159,13 +166,14 @@ contract MockActor is IV3LiquidityActor {
         return (0, 0);
     }
 
-    function viewFees(address) external pure returns (uint256, uint256) {
-        return (0, 0);
+    function viewFees(address) external view returns (uint256, uint256) {
+        return (fee0, fee1);
     }
 }
 
     /// Focused API/math smoke tests. Full lifecycle fixtures are covered by integration suites.
     contract LPManagerV3Test is Test {
+        MockAuthority internal fixtureAuthority;
         MockFactory internal fixtureFactory;
 
         function _deployManager(MockAuthority authority, MockRegistry registry, MockFactory factory)
@@ -189,6 +197,7 @@ contract MockActor is IV3LiquidityActor {
 
         function _fixture(bool quote0) internal returns (LPManager, MockERC20, MockERC20, MockActor) {
             MockAuthority a = new MockAuthority();
+            fixtureAuthority = a;
             MockRegistry r = new MockRegistry();
             MockFactory f = new MockFactory();
             fixtureFactory = f;
@@ -379,5 +388,51 @@ contract MockActor is IV3LiquidityActor {
             LPManager manager = new LPManager();
             vm.expectRevert(LPManager.InvalidPool.selector);
             manager.getPositions(address(1));
+        }
+
+        function test_callStaticGetAccumulatedFees_returnsQuoteThenToken_whenQuoteIsToken0() public {
+            (LPManager manager, MockERC20 token,, MockActor actor) = _fixture(true);
+            actor.setUsage(0, 0, false);
+            manager.allocate(ILPManager.AllocateParams(address(token), 100, 200, 1_000, 2_000, 1));
+            actor.setFees(11, 22);
+
+            (uint256 quoteAmount, uint256 tokenAmount) = manager.callStaticGetAccumulatedFees(address(token));
+
+            assertEq(quoteAmount, 11);
+            assertEq(tokenAmount, 22);
+        }
+
+        function test_callStaticGetAccumulatedFees_returnsQuoteThenToken_whenQuoteIsToken1() public {
+            (LPManager manager, MockERC20 token,, MockActor actor) = _fixture(false);
+            actor.setUsage(0, 0, false);
+            manager.allocate(ILPManager.AllocateParams(address(token), 100, 200, 1_000, 2_000, 1));
+            actor.setFees(11, 22);
+
+            (uint256 quoteAmount, uint256 tokenAmount) = manager.callStaticGetAccumulatedFees(address(token));
+
+            assertEq(quoteAmount, 22);
+            assertEq(tokenAmount, 11);
+        }
+
+        function test_callStaticGetAccumulatedFees_revertsBeforeAllocation() public {
+            (LPManager manager, MockERC20 token,,) = _fixture(true);
+
+            vm.expectRevert(LPManager.InvalidPool.selector);
+            manager.callStaticGetAccumulatedFees(address(token));
+        }
+
+        function test_callStaticGetAccumulatedFees_remainsAvailableWhenQuoteIsInactive() public {
+            (LPManager manager, MockERC20 token, MockERC20 quote, MockActor actor) = _fixture(true);
+            actor.setUsage(0, 0, false);
+            manager.allocate(ILPManager.AllocateParams(address(token), 100, 200, 1_000, 2_000, 1));
+            actor.setFees(13, 17);
+
+            IProtocolManager.QuoteConfig memory inactive;
+            fixtureAuthority.setConfig(address(quote), inactive);
+
+            vm.prank(address(0xA11CE));
+            (uint256 quoteAmount, uint256 tokenAmount) = manager.callStaticGetAccumulatedFees(address(token));
+            assertEq(quoteAmount, 13);
+            assertEq(tokenAmount, 17);
         }
     }
