@@ -314,9 +314,13 @@ contract SetUp is Test {
     }
 
     function _testSnipingPenaltyTable() internal view returns (uint256[] memory table) {
-        uint256[] memory defaultTable = _defaultSnipingPenaltyTable();
-        uint256[] memory deployTable = vm.envOr("SNIPING_PENALTY_TABLE", ",", defaultTable);
-        table = vm.envOr("TEST_SNIPING_PENALTY_TABLE", ",", deployTable);
+        if (vm.envExists("TEST_SNIPING_PENALTY_TABLE")) {
+            table = vm.envUint("TEST_SNIPING_PENALTY_TABLE", ",");
+        } else if (vm.envExists("SNIPING_PENALTY_TABLE")) {
+            table = vm.envUint("SNIPING_PENALTY_TABLE", ",");
+        } else {
+            table = _defaultSnipingPenaltyTable();
+        }
         require(table.length > 0, "SetUp: empty sniping penalty table");
     }
 
