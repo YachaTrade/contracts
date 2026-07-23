@@ -154,7 +154,7 @@ contract ProtocolWethQuoteTest is Test {
         _setEnv("CURVE_PROTOCOL_FEE_RATE", "100");
         _setEnv("V3_FEE_TIER", "3000");
         _setEnv("LP_FEE_PROTOCOL_SHARE_BPS", "5000");
-        _setEnv("SNIPING_PENALTY_TABLE", "0");
+        _setEnv("SNIPING_PENALTY_TABLE", "8000,4000,2000,1500,1000,1000,500");
         _setEnv("CREATOR_FEE_VAULT_METADATA_URI", "ipfs://creator-fee-vault");
 
         new Deploy().run();
