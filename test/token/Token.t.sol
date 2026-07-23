@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {SetUp} from "../SetUp.t.sol";
 import {Token} from "../../src/token/Token.sol";
-import {IGiwaRouter} from "../../src/interfaces/IGiwaRouter.sol";
+import {IYachaRouter} from "../../src/interfaces/IYachaRouter.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -27,9 +27,9 @@ contract TokenTest is SetUp {
         uint256 buyAmount = 1 ether;
         quoteToken.mint(holder, buyAmount);
         vm.startPrank(holder);
-        quoteToken.approve(address(giwaRouter), buyAmount);
-        giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        quoteToken.approve(address(yachaRouter), buyAmount);
+        yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: buyAmount, amountOutMin: 0, token: token, to: holder, deadline: block.timestamp + 1
             })
         );

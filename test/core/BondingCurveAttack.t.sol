@@ -7,7 +7,7 @@ import {console} from "forge-std/Test.sol";
 import {SetUp} from "../SetUp.t.sol";
 import {BondingCurve} from "../../src/core/BondingCurve.sol";
 import {IBondingCurve} from "../../src/interfaces/IBondingCurve.sol";
-import {IGiwaRouter} from "../../src/interfaces/IGiwaRouter.sol";
+import {IYachaRouter} from "../../src/interfaces/IYachaRouter.sol";
 import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
 import {ILPManager} from "../../src/interfaces/ILPManager.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -132,12 +132,12 @@ contract BondingCurveAttackTest is SetUp {
         uint256 buyAmount = 700_000 ether;
         quoteToken.mint(flashAttacker, buyAmount);
         vm.prank(flashAttacker);
-        quoteToken.approve(address(giwaRouter), buyAmount);
+        quoteToken.approve(address(yachaRouter), buyAmount);
         uint256 feeReceiverBefore = quoteToken.balanceOf(feeReceiver);
 
         vm.prank(flashAttacker);
-        uint256 tokenOut = giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        uint256 tokenOut = yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: buyAmount, amountOutMin: 1, token: freshToken, to: flashAttacker, deadline: block.timestamp
             })
         );
@@ -178,10 +178,10 @@ contract BondingCurveAttackTest is SetUp {
 
     function _graduateTokenLocal(address _token) internal {
         uint256 buyAmount = 700_000 ether;
-        _mintAndApprove(user1, address(giwaRouter), buyAmount);
+        _mintAndApprove(user1, address(yachaRouter), buyAmount);
         vm.prank(user1);
-        giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: buyAmount, amountOutMin: 1, token: _token, to: user1, deadline: block.timestamp
             })
         );

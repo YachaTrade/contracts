@@ -34,10 +34,9 @@ enum CurveVersion {
 | `initialTokenReserve` | `uint256` | 초기 virtual token reserve |
 | `createdAtBlock` | `uint64` | 생성 블록 번호 (anti-sniping 인덱스 = `block.number - createdAtBlock`) |
 | `graduated` | `bool` | 졸업 여부 |
-| `creatorFeeRate` | `uint16` | creator fee rate (BPS) |
 | `version` | `CurveVersion` | V1 |
-| `dexType` | `ITokenRegistry.DexType` | DEX 유형 (V2/V3/V4) |
-| `pair` | `address` | DEX pair 주소 |
+| `dexType` | `ITokenRegistry.DexType` | 등록 DEX 유형. 현재 launch는 Uniswap V3만 허용 |
+| `pair` | `address` | Canonical V3 pool 주소 |
 | `graduateFee` | `uint256` | 커브에 저장된 quote 단위 졸업 수수료 |
 
 ### VaultAllocation — 토큰 생성 시 vault 배분
@@ -56,10 +55,9 @@ enum CurveVersion {
 | `symbol` | `string` | 토큰 심볼 |
 | `tokenURI` | `string` | 토큰 metadata URI |
 | `quoteToken` | `address` | 견적 토큰 주소 |
-| `creatorFeeRate` | `uint16` | 크리에이터 수수료율 (BPS) |
 | `vaults` | `VaultAllocation[]` | Vault 배분 (최대 5개, bps 합계 = 10000) |
 | `salt` | `bytes32` | CREATE2 salt |
-| `dexType` | `ITokenRegistry.DexType` | DEX 유형 선택 (V2/V3/V4) |
+| `dexType` | `ITokenRegistry.DexType` | DEX 유형 선택. 현재 launch는 Uniswap V3만 허용 |
 | `creator` | `address` | 토큰 creator |
 | `buyQuoteAmount` | `uint256` | 명시적 optional 초기 매수 quote 금액 |
 
@@ -72,8 +70,8 @@ enum CurveVersion {
 | Function | Returns | Description |
 |----------|---------|-------------|
 | `create(CreateTokenParams)` payable | `(address token, uint256 tokenOut)` | 토큰 생성 + 명시적 optional 초기 매수 |
-| `buy(to, token)` | `uint256 tokensOut` | 본딩커브 매수 (잔액 감지) |
-| `sell(to, token)` | `uint256 quoteOut` | 본딩커브 매도 (잔액 감지) |
+| `buy(to, token, quoteIn)` | `uint256 tokenOut` | 정확한 quote input을 pull해 curve buy 실행 |
+| `sell(to, token, tokenIn)` | `uint256 quoteOut` | 정확한 token input을 pull해 curve sell 실행 |
 | `getCurve(token)` | `Curve memory` | 커브 정보 조회 |
 | `getQuoteToken(token)` | `address` | 견적 토큰 주소 조회 |
 | `isHalted()` | `bool` | 정지 상태 확인 |

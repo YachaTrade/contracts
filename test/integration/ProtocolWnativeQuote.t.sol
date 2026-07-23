@@ -18,7 +18,7 @@ import {V3PoolDeployer} from "../../src/core/V3PoolDeployer.sol";
 import {IProtocolManager} from "../../src/interfaces/IProtocolManager.sol";
 import {IV3SwapAdapter} from "../../src/interfaces/IV3SwapAdapter.sol";
 import {IVaultRegistry} from "../../src/interfaces/IVaultRegistry.sol";
-import {GiwaRouter} from "../../src/router/GiwaRouter.sol";
+import {YachaRouter} from "../../src/router/YachaRouter.sol";
 import {CreatorFeeVault} from "../../src/vault/CreatorFeeVault.sol";
 import {VaultRegistry} from "../../src/vault/VaultRegistry.sol";
 
@@ -60,7 +60,7 @@ contract DeployHarness is Deploy {
         LPManager(d.lpManager).setV3LiquidityActor(d.v3LiquidityActor, d.v3Factory);
         d.tokenImpl = address(this);
         d.bondingCurve = _deployBondingCurve(address(this), d.tokenImpl, d.protocolManager);
-        (d.quoterV2, d.giwaRouter) = _deployV3Routing(
+        (d.quoterV2, d.yachaRouter) = _deployV3Routing(
             d.protocolManager, d.bondingCurve, d.tokenRegistry, d.wnative, d.v3SwapAdapter, d.v3Factory
         );
 
@@ -70,7 +70,7 @@ contract DeployHarness is Deploy {
         _setPermissions(d, creatorManager, collector);
 
         BondingCurve bondingCurve = BondingCurve(payable(d.bondingCurve));
-        bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), d.giwaRouter);
+        bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), d.yachaRouter);
     }
 
     function _testConfig() private pure returns (ProtocolDeploymentConfig memory config) {
@@ -175,7 +175,7 @@ contract ProtocolWnativeQuoteTest is Test {
         _assertPermissions(deployed, creatorManager, collector);
 
         BondingCurve bondingCurve = BondingCurve(payable(deployed.bondingCurve));
-        assertTrue(bondingCurve.hasRole(bondingCurve.ROUTER_ROLE(), deployed.giwaRouter));
+        assertTrue(bondingCurve.hasRole(bondingCurve.ROUTER_ROLE(), deployed.yachaRouter));
         assertEq(
             address(CreatorFeeProcessor(deployed.creatorFeeProcessor).protocolManager()),
             deployed.protocolManager,
@@ -225,7 +225,7 @@ contract ProtocolWnativeQuoteTest is Test {
 
     function _assertRouting(Deploy.Deployed memory deployed, address factory) private view {
         assertEq(deployed.wnative, GIWA_WNATIVE);
-        GiwaRouter router = GiwaRouter(payable(deployed.giwaRouter));
+        YachaRouter router = YachaRouter(payable(deployed.yachaRouter));
         assertEq(router.authority(), deployed.protocolManager);
         assertEq(router.bondingCurve(), deployed.bondingCurve);
         assertEq(router.tokenRegistry(), deployed.tokenRegistry);

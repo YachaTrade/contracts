@@ -11,14 +11,14 @@ import {TickMath} from "@uniswap/v3-core/contracts/libraries/TickMath.sol";
 import {SetUp} from "../SetUp.t.sol";
 import {TokenRegistry} from "../../src/core/TokenRegistry.sol";
 import {IBondingCurve} from "../../src/interfaces/IBondingCurve.sol";
-import {IGiwaRouter} from "../../src/interfaces/IGiwaRouter.sol";
+import {IYachaRouter} from "../../src/interfaces/IYachaRouter.sol";
 import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC20Permit} from "../mocks/MockERC20Permit.sol";
 
 contract RejectNativeReceiver {}
 
-contract GiwaRouterNativeV3Test is SetUp {
+contract YachaRouterNativeV3Test is SetUp {
     using SafeERC20 for IERC20;
 
     struct Fixture {
@@ -74,16 +74,16 @@ contract GiwaRouterNativeV3Test is SetUp {
         uint256 quoteInMax = PARTIAL_INPUT;
         uint256 wnativeDonation = 7 ether;
         uint256 nativeDonation = 11 ether;
-        wnative.mint(address(giwaRouter), wnativeDonation);
-        vm.deal(address(giwaRouter), nativeDonation);
+        wnative.mint(address(yachaRouter), wnativeDonation);
+        vm.deal(address(yachaRouter), nativeDonation);
         vm.deal(user1, quoteInMax + 1 ether);
         uint256 userNativeBefore = user1.balance;
         uint256 poolQuoteBefore = wnative.balanceOf(fixture.pool);
         uint256 feeReceiverQuoteBefore = wnative.balanceOf(feeReceiver);
 
         vm.prank(user1);
-        uint256 tokenOut = giwaRouter.buyWithNative{value: quoteInMax}(
-            IGiwaRouter.BuyWithNativeParams({
+        uint256 tokenOut = yachaRouter.buyWithNative{value: quoteInMax}(
+            IYachaRouter.BuyWithNativeParams({
                 amountOutMin: 1, token: address(fixture.launchToken), to: user2, deadline: block.timestamp
             })
         );
@@ -96,8 +96,8 @@ contract GiwaRouterNativeV3Test is SetUp {
         assertLt(poolQuoteIn, poolQuoteInMax);
         assertEq(userNativeBefore - user1.balance, poolQuoteIn + protocolFee);
         assertEq(wnative.balanceOf(feeReceiver) - feeReceiverQuoteBefore, protocolFee);
-        assertEq(wnative.balanceOf(address(giwaRouter)), wnativeDonation);
-        assertEq(address(giwaRouter).balance, nativeDonation);
+        assertEq(wnative.balanceOf(address(yachaRouter)), wnativeDonation);
+        assertEq(address(yachaRouter).balance, nativeDonation);
     }
 
     function test_exactOutBuyWithNativeGraduated_refundsUnusedNative() public {
@@ -106,15 +106,15 @@ contract GiwaRouterNativeV3Test is SetUp {
         uint256 tokenOut = 1 ether;
         uint256 wnativeDonation = 7 ether;
         uint256 nativeDonation = 11 ether;
-        wnative.mint(address(giwaRouter), wnativeDonation);
-        vm.deal(address(giwaRouter), nativeDonation);
+        wnative.mint(address(yachaRouter), wnativeDonation);
+        vm.deal(address(yachaRouter), nativeDonation);
         vm.deal(user1, quoteInMax);
         uint256 userNativeBefore = user1.balance;
         uint256 recipientTokenBefore = fixture.launchToken.balanceOf(user2);
 
         vm.prank(user1);
-        uint256 quoteIn = giwaRouter.exactOutBuyWithNative{value: quoteInMax}(
-            IGiwaRouter.ExactOutBuyWithNativeParams({
+        uint256 quoteIn = yachaRouter.exactOutBuyWithNative{value: quoteInMax}(
+            IYachaRouter.ExactOutBuyWithNativeParams({
                 amountOut: tokenOut, token: address(fixture.launchToken), to: user2, deadline: block.timestamp
             })
         );
@@ -123,8 +123,8 @@ contract GiwaRouterNativeV3Test is SetUp {
         assertLt(quoteIn, quoteInMax);
         assertEq(userNativeBefore - user1.balance, quoteIn);
         assertEq(fixture.launchToken.balanceOf(user2) - recipientTokenBefore, tokenOut);
-        assertEq(wnative.balanceOf(address(giwaRouter)), wnativeDonation);
-        assertEq(address(giwaRouter).balance, nativeDonation);
+        assertEq(wnative.balanceOf(address(yachaRouter)), wnativeDonation);
+        assertEq(address(yachaRouter).balance, nativeDonation);
     }
 
     function test_sellToNativeGraduated_paysFeeInWnativeAndSendsNetNative() public {
@@ -136,8 +136,8 @@ contract GiwaRouterNativeV3Test is SetUp {
         uint256 poolQuoteBefore = wnative.balanceOf(fixture.pool);
 
         vm.prank(user1);
-        uint256 nativeOut = giwaRouter.sellToNative(
-            IGiwaRouter.SellToNativeParams({
+        uint256 nativeOut = yachaRouter.sellToNative(
+            IYachaRouter.SellToNativeParams({
                 amountIn: tokenInMax,
                 amountOutMin: 1,
                 token: address(fixture.launchToken),
@@ -159,13 +159,13 @@ contract GiwaRouterNativeV3Test is SetUp {
         fixture.launchToken.mint(nativeSeller, tokenInMax);
         uint256 deadline = block.timestamp + 1 hours;
         (uint8 v, bytes32 r, bytes32 s) = _signPermit(
-            nativeSellerKey, address(fixture.launchToken), nativeSeller, address(giwaRouter), tokenInMax, deadline
+            nativeSellerKey, address(fixture.launchToken), nativeSeller, address(yachaRouter), tokenInMax, deadline
         );
         uint256 nativeBefore = nativeSeller.balance;
 
         vm.prank(nativeSeller);
-        uint256 nativeOut = giwaRouter.sellToNativeWithPermit(
-            IGiwaRouter.SellToNativeWithPermitParams({
+        uint256 nativeOut = yachaRouter.sellToNativeWithPermit(
+            IYachaRouter.SellToNativeWithPermitParams({
                 amountIn: tokenInMax,
                 amountOutMin: 1,
                 amountAllowance: tokenInMax,
@@ -188,14 +188,14 @@ contract GiwaRouterNativeV3Test is SetUp {
         uint256 nativeOut = 1 ether;
         uint256 wnativeDonation = 7 ether;
         uint256 nativeDonation = 11 ether;
-        wnative.mint(address(giwaRouter), wnativeDonation);
-        vm.deal(address(giwaRouter), nativeDonation);
+        wnative.mint(address(yachaRouter), wnativeDonation);
+        vm.deal(address(yachaRouter), nativeDonation);
         uint256 userTokenBefore = _fundAndApproveLaunch(fixture, user1, amountInMax);
         uint256 recipientNativeBefore = user2.balance;
 
         vm.prank(user1);
-        uint256 tokenIn = giwaRouter.exactOutSellToNative(
-            IGiwaRouter.ExactOutSellToNativeParams({
+        uint256 tokenIn = yachaRouter.exactOutSellToNative(
+            IYachaRouter.ExactOutSellToNativeParams({
                 amountInMax: amountInMax,
                 amountOut: nativeOut,
                 token: address(fixture.launchToken),
@@ -208,26 +208,26 @@ contract GiwaRouterNativeV3Test is SetUp {
         assertLt(tokenIn, amountInMax);
         assertEq(userTokenBefore - fixture.launchToken.balanceOf(user1), tokenIn);
         assertEq(user2.balance - recipientNativeBefore, nativeOut);
-        assertEq(wnative.balanceOf(address(giwaRouter)), wnativeDonation);
-        assertEq(address(giwaRouter).balance, nativeDonation);
+        assertEq(wnative.balanceOf(address(yachaRouter)), wnativeDonation);
+        assertEq(address(yachaRouter).balance, nativeDonation);
     }
 
     function test_nativeV3Route_rejectsNonWnativeQuoteTokenBeforePermitOrAssetMovement() public {
         address foreignToken = _createForeignQuoteFixture();
 
         vm.deal(user1, 2 ether);
-        vm.expectRevert(IGiwaRouter.InvalidNativeQuoteToken.selector);
+        vm.expectRevert(IYachaRouter.InvalidNativeQuoteToken.selector);
         vm.prank(user1);
-        giwaRouter.buyWithNative{value: 1 ether}(
-            IGiwaRouter.BuyWithNativeParams({
+        yachaRouter.buyWithNative{value: 1 ether}(
+            IYachaRouter.BuyWithNativeParams({
                 amountOutMin: 0, token: foreignToken, to: user1, deadline: block.timestamp
             })
         );
 
-        vm.expectRevert(IGiwaRouter.InvalidNativeQuoteToken.selector);
+        vm.expectRevert(IYachaRouter.InvalidNativeQuoteToken.selector);
         vm.prank(user1);
-        giwaRouter.sellToNativeWithPermit(
-            IGiwaRouter.SellToNativeWithPermitParams({
+        yachaRouter.sellToNativeWithPermit(
+            IYachaRouter.SellToNativeWithPermitParams({
                 amountIn: 1 ether,
                 amountOutMin: 0,
                 amountAllowance: 1 ether,
@@ -245,13 +245,13 @@ contract GiwaRouterNativeV3Test is SetUp {
         Fixture memory fixture = regularNative;
         uint256 wnativeDonation = 3 ether;
         uint256 nativeDonation = 5 ether;
-        wnative.mint(address(giwaRouter), wnativeDonation);
-        vm.deal(address(giwaRouter), nativeDonation);
+        wnative.mint(address(yachaRouter), wnativeDonation);
+        vm.deal(address(yachaRouter), nativeDonation);
         _fundAndApproveLaunch(fixture, user1, 10 ether);
 
         vm.prank(user1);
-        giwaRouter.sellToNative(
-            IGiwaRouter.SellToNativeParams({
+        yachaRouter.sellToNative(
+            IYachaRouter.SellToNativeParams({
                 amountIn: 10 ether,
                 amountOutMin: 1,
                 token: address(fixture.launchToken),
@@ -260,8 +260,8 @@ contract GiwaRouterNativeV3Test is SetUp {
             })
         );
 
-        assertEq(wnative.balanceOf(address(giwaRouter)), wnativeDonation);
-        assertEq(address(giwaRouter).balance, nativeDonation);
+        assertEq(wnative.balanceOf(address(yachaRouter)), wnativeDonation);
+        assertEq(address(yachaRouter).balance, nativeDonation);
     }
 
     function test_sellToNativeGraduated_revertsAtomicallyWhenRecipientRejectsNative() public {
@@ -272,10 +272,10 @@ contract GiwaRouterNativeV3Test is SetUp {
         uint256 poolTokenBefore = fixture.launchToken.balanceOf(fixture.pool);
         uint256 feeReceiverQuoteBefore = wnative.balanceOf(feeReceiver);
 
-        vm.expectRevert(IGiwaRouter.NativeTransferFailed.selector);
+        vm.expectRevert(IYachaRouter.NativeTransferFailed.selector);
         vm.prank(user1);
-        giwaRouter.sellToNative(
-            IGiwaRouter.SellToNativeParams({
+        yachaRouter.sellToNative(
+            IYachaRouter.SellToNativeParams({
                 amountIn: tokenIn,
                 amountOutMin: 1,
                 token: address(fixture.launchToken),
@@ -374,7 +374,7 @@ contract GiwaRouterNativeV3Test is SetUp {
         fixture.launchToken.mint(user, amount);
         balanceBefore = fixture.launchToken.balanceOf(user);
         vm.prank(user);
-        fixture.launchToken.approve(address(giwaRouter), amount);
+        fixture.launchToken.approve(address(yachaRouter), amount);
     }
 
     function _signPermit(

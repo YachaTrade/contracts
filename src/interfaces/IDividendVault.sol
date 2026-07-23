@@ -91,7 +91,7 @@ interface IDividendVault is IVault {
     function setAllowedDividendToken(address token, bool allowed) external;
 
     /// @notice Operator converts a pending source quote slice through an explicit hop path.
-    /// @dev Registered launch tokens use the router hop (hop.adapter == router); GiwaRouter dispatches
+    /// @dev Registered launch tokens use the router hop (hop.adapter == router); YachaRouter dispatches
     ///      internally between bonding-curve and canonical V3 execution.
     function executeConversion(ConversionOrder[] calldata orders) external;
 
@@ -104,7 +104,7 @@ interface IDividendVault is IVault {
     /// @notice WNATIVE singleton used for native unwrap on claim. 0 disables unwrap.
     function wnative() external view returns (address);
 
-    /// @notice GiwaRouter used directly for registered launch-token buy hops.
+    /// @notice YachaRouter used directly for registered launch-token buy hops.
     function router() external view returns (address);
 
     /// @notice Uniswap V2 adapter lane used for allowed external V2 path hops.

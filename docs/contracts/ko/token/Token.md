@@ -4,7 +4,7 @@
 **Pattern:** EIP-1167 Clone
 **Inheritance:** `ERC20Upgradeable`, `ERC20PermitUpgradeable`, `IToken`
 
-NadFun V2 단순 ERC20 토큰. BondingCurve가 ERC-1167 클론으로 배포. 이전 TaxToken의 fee-on-transfer 방식을 대체하며, 수수료 수집은 NadFunPair와 BondingCurve 레벨에서 처리한다.
+BondingCurve가 EIP-1167 clone으로 배포하는 단순 ERC-20 launch token이다. Fee-on-transfer 동작은 없고 lifecycle과 protocol fee는 BondingCurve, YachaRouter, LPManager가 처리한다.
 
 ---
 
@@ -21,7 +21,7 @@ NadFun V2 단순 ERC20 토큰. BondingCurve가 ERC-1167 클론으로 배포. 이
 | 변수 | 타입 | 설명 |
 |------|------|------|
 | `bondingCurve` | `address` | 이 토큰을 배포한 BondingCurve |
-| `pair` | `address` | 이 토큰의 NadFunPair 주소 |
+| `pair` | `address` | 이 토큰의 canonical V3 pool 주소 |
 | `isGraduated` | `bool` | 졸업 여부 (본딩 커브 → DEX 마이그레이션 완료) |
 
 ---

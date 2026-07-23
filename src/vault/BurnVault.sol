@@ -6,7 +6,7 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {ITokenRegistry} from "../interfaces/ITokenRegistry.sol";
 import {IDexAdapter} from "../interfaces/IDexAdapter.sol";
 import {IBondingCurve} from "../interfaces/IBondingCurve.sol";
-import {IGiwaRouter} from "../interfaces/IGiwaRouter.sol";
+import {IYachaRouter} from "../interfaces/IYachaRouter.sol";
 import {IToken} from "../interfaces/IToken.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -94,9 +94,9 @@ contract BurnVault is IVault, UUPSUpgradeable, AccessManagedUpgradeable {
         } else {
             uint256 balanceBefore = IERC20(quoteToken).balanceOf(address(this));
             IERC20(quoteToken).forceApprove(router, totalQuote);
-            tokenReceived = IGiwaRouter(router)
+            tokenReceived = IYachaRouter(router)
                 .buy(
-                    IGiwaRouter.BuyParams({
+                    IYachaRouter.BuyParams({
                         amountIn: totalQuote,
                         amountOutMin: 1,
                         token: token,

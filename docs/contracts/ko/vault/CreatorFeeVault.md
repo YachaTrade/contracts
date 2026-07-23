@@ -110,7 +110,7 @@ admin / operator -> CreatorFeeVault.setCreator(token, newCreator)
    -> CreatorFeeVault.setup(token, data) -> _creators[token] = creator
 
 2. 수수료 누적
-   거래 -> FeeCollector -> CreatorFeeProcessor -> CreatorFeeVault.afterDeposit(token, quote, amount)
+   V3 LP fee -> LPManager -> CreatorFeeProcessor -> CreatorFeeVault.afterDeposit(token, quote, amount)
    -> _balances[token] += amount
 
 3. Creator가 인출

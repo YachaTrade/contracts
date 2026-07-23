@@ -1,17 +1,17 @@
-# IGiwaRouter
+# IYachaRouter
 
-**경로:** `src/interfaces/IGiwaRouter.sol`
+**경로:** `src/interfaces/IYachaRouter.sol`
 **유형:** 인터페이스
 
-`IGiwaRouter`는 토큰 생성과 생명주기별 거래를 위한 사용자 진입점이다. 졸업 전에는 `BondingCurve`를 호출하고, 졸업 후에는 정식 Uniswap V3 풀 메타데이터만 허용한다. ERC-20 경로는 등록되고 활성화된 여러 quote 토큰을 지원한다. 네이티브 경로는 Router에 설정된 wrapped-native 토큰만 지원한다.
+`IYachaRouter`는 토큰 생성과 생명주기별 거래를 위한 사용자 진입점이다. 졸업 전에는 `BondingCurve`를 호출하고, 졸업 후에는 정식 Uniswap V3 풀 메타데이터만 허용한다. ERC-20 경로는 등록되고 활성화된 여러 quote 토큰을 지원한다. 네이티브 경로는 Router에 설정된 wrapped-native 토큰만 지원한다.
 
-구현과 수수료 공식은 [GiwaRouter](../router/GiwaRouter.md), 풀 콜백 경계는 [V3SwapAdapter](../adapters/V3SwapAdapter.md)를 참고한다.
+구현과 수수료 공식은 [YachaRouter](../router/YachaRouter.md), 풀 콜백 경계는 [V3SwapAdapter](../adapters/V3SwapAdapter.md)를 참고한다.
 
 ## 파라미터 구조체
 
 | 구조체 | 필드 |
 |---|---|
-| `CreateParams` | `string name`, `string symbol`, `string tokenURI`, `address quoteToken`, `uint16 creatorFeeRate`, `IBondingCurve.VaultAllocation[] vaults`, `bytes32 salt`, `ITokenRegistry.DexType dexType`, `uint256 buyQuoteAmount`, `uint256 deadline` |
+| `CreateParams` | `string name`, `string symbol`, `string tokenURI`, `address quoteToken`, `IBondingCurve.VaultAllocation[] vaults`, `bytes32 salt`, `ITokenRegistry.DexType dexType`, `uint256 buyQuoteAmount`, `uint256 deadline` |
 | `BuyParams` | `uint256 amountIn`, `uint256 amountOutMin`, `address token`, `address to`, `uint256 deadline` |
 | `BuyWithNativeParams` | `uint256 amountOutMin`, `address token`, `address to`, `uint256 deadline` |
 | `BuyWithPermitParams` | `uint256 amountIn`, `uint256 amountOutMin`, `uint256 amountAllowance`, `address token`, `address to`, `uint256 deadline`, `uint8 v`, `bytes32 r`, `bytes32 s` |
@@ -33,7 +33,7 @@
 | `create(CreateParams params)` | nonpayable | `(address token, uint256 tokenOut)` | 선택한 ERC-20 quote 토큰으로 `deployFee + buyQuoteAmount`를 가져와 `BondingCurve.create`를 호출한다. |
 | `createWithNative(CreateParams params)` | payable | `(address token, uint256 tokenOut)` | 네이티브 화폐로 동일 작업을 수행한다. `quoteToken`은 `wrappedNative()`와 같아야 하며 초과 `msg.value`는 환불한다. |
 
-생성 파라미터는 현재 BondingCurve API를 유지한다. 현재 배포 스크립트의 생성/졸업 그래프는 아직 레거시 V2 경로이므로 [배포 상태](../router/GiwaRouter.md#배포-상태)를 반드시 확인한다.
+생성 흐름은 한 transaction에서 Token clone 배포, canonical V3 pool 생성·등록, creator vault allocation 설정, curve state 저장을 수행한다.
 
 ## Exact-input 거래
 
@@ -82,8 +82,8 @@
 | 이벤트 | 의미 |
 |---|---|
 | `Create(token, creator)` | 호출자를 생성자로 기록한 토큰 생성. |
-| `Buy(buyer, token, amountIn, amountOut, graduated)` | 졸업 후 `amountIn`은 Router 프로토콜 수수료 포함 입력이다. |
-| `Sell(seller, token, amountIn, amountOut, graduated)` | 졸업 후 `amountIn`은 사용한 launch 토큰, `amountOut`은 수수료 차감 후 quote 출력이다. |
+| `RouterBuy(buyer, token, amountIn, amountOut, graduated)` | 졸업 후 `amountIn`은 Router protocol fee 포함 입력이다. |
+| `RouterSell(seller, token, amountIn, amountOut, graduated)` | 졸업 후 `amountIn`은 사용한 launch token, `amountOut`은 fee 차감 후 quote output이다. |
 
 ## 에러
 
@@ -92,10 +92,10 @@
 - 수신/승인: `InvalidRecipient`, `InvalidAllowance`, `NativeTransferFailed`, `UnexpectedNative`.
 - 설정/회계: `InvalidDependency`, `InvalidDexFeeRate`, `InvalidBalanceDelta`.
 
-`TokenNotGraduated`는 유지된 인터페이스 에러이며, 현재 V3 검증은 일반적으로 `InvalidV3Pool`을 사용한다.
+`TokenNotGraduated`는 선택한 함수가 졸업된 token을 요구할 때 사용한다.
 
 ## 관련 문서
 
-- [GiwaRouter](../router/GiwaRouter.md)
+- [YachaRouter](../router/YachaRouter.md)
 - [V3SwapAdapter](../adapters/V3SwapAdapter.md)
 - [프로토콜 흐름](../../../PROTOCOL_FLOW.ko.md)

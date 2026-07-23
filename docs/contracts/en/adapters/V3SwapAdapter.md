@@ -82,6 +82,6 @@ The factory and registry are immutables in bytecode, not storage slots.
 
 ## Related
 
-- [IGiwaRouter](../interfaces/IGiwaRouter.md)
-- [GiwaRouter](../router/GiwaRouter.md)
+- [IYachaRouter](../interfaces/IYachaRouter.md)
+- [YachaRouter](../router/YachaRouter.md)
 - [Protocol flow](../../../PROTOCOL_FLOW.md)

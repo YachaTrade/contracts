@@ -16,10 +16,10 @@ import {LPManager} from "../../src/core/LPManager.sol";
 import {ProtocolManager} from "../../src/core/ProtocolManager.sol";
 import {TokenRegistry} from "../../src/core/TokenRegistry.sol";
 import {IBondingCurve} from "../../src/interfaces/IBondingCurve.sol";
-import {IGiwaRouter} from "../../src/interfaces/IGiwaRouter.sol";
+import {IYachaRouter} from "../../src/interfaces/IYachaRouter.sol";
 import {IProtocolManager} from "../../src/interfaces/IProtocolManager.sol";
 import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
-import {GiwaRouter} from "../../src/router/GiwaRouter.sol";
+import {YachaRouter} from "../../src/router/YachaRouter.sol";
 import {Token} from "../../src/token/Token.sol";
 import {CreatorFeeVault} from "../../src/vault/CreatorFeeVault.sol";
 
@@ -40,7 +40,7 @@ contract WnativeV3LpFeeCollectionDeployHarness is Deploy {
         LPManager(d.lpManager).setV3LiquidityActor(d.v3LiquidityActor, d.v3Factory);
         d.tokenImpl = address(new Token());
         d.bondingCurve = _deployBondingCurve(address(this), d.tokenImpl, d.protocolManager);
-        (d.quoterV2, d.giwaRouter) = _deployV3Routing(
+        (d.quoterV2, d.yachaRouter) = _deployV3Routing(
             d.protocolManager, d.bondingCurve, d.tokenRegistry, d.wnative, d.v3SwapAdapter, d.v3Factory
         );
         d.vaultRegistry = _deployVaultRegistry(d.protocolManager);
@@ -49,7 +49,7 @@ contract WnativeV3LpFeeCollectionDeployHarness is Deploy {
         _setPermissions(d, address(0), collector);
 
         BondingCurve bondingCurve = BondingCurve(payable(d.bondingCurve));
-        bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), d.giwaRouter);
+        bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), d.yachaRouter);
     }
 
     function updateFeeReceiver(address protocolManager, address feeReceiver) external {
@@ -93,7 +93,7 @@ contract WnativeV3LpFeeCollectionE2ETest is Test {
     Deploy.Deployed private deployed;
     WnativeV3LpFeeCollectionDeployHarness private harness;
     MockWrappedNative private wnative;
-    GiwaRouter private giwaRouter;
+    YachaRouter private yachaRouter;
     BondingCurve private bondingCurve;
     TokenRegistry private tokenRegistry;
     LPManager private lpManager;
@@ -118,7 +118,7 @@ contract WnativeV3LpFeeCollectionE2ETest is Test {
         harness = new WnativeV3LpFeeCollectionDeployHarness();
         deployed = harness.deployCanonicalFixture(address(new UniswapV3Factory()), feeReceiverAtAccrual, address(this));
         wnative = MockWrappedNative(payable(deployed.wnative));
-        giwaRouter = GiwaRouter(payable(deployed.giwaRouter));
+        yachaRouter = YachaRouter(payable(deployed.yachaRouter));
         bondingCurve = BondingCurve(payable(deployed.bondingCurve));
         tokenRegistry = TokenRegistry(deployed.tokenRegistry);
         lpManager = LPManager(deployed.lpManager);
@@ -197,7 +197,7 @@ contract WnativeV3LpFeeCollectionE2ETest is Test {
         uint256 deployFee = IProtocolManager(deployed.protocolManager).deployFee(deployed.wnative);
         _fundWnative(creator, deployFee);
         vm.prank(creator);
-        wnative.approve(deployed.giwaRouter, deployFee);
+        wnative.approve(deployed.yachaRouter, deployFee);
 
         IBondingCurve.VaultAllocation[] memory vaults = new IBondingCurve.VaultAllocation[](1);
         vaults[0] = IBondingCurve.VaultAllocation({
@@ -205,8 +205,8 @@ contract WnativeV3LpFeeCollectionE2ETest is Test {
         });
 
         vm.prank(creator);
-        (token,) = giwaRouter.create(
-            IGiwaRouter.CreateParams({
+        (token,) = yachaRouter.create(
+            IYachaRouter.CreateParams({
                 name: "Canonical WNATIVE LP Fee",
                 symbol: "CWLP",
                 tokenURI: "",
@@ -234,10 +234,10 @@ contract WnativeV3LpFeeCollectionE2ETest is Test {
         vm.warp(block.timestamp + 100 minutes);
         _fundWnative(graduator, GRADUATION_QUOTE_IN);
         vm.prank(graduator);
-        wnative.approve(deployed.giwaRouter, GRADUATION_QUOTE_IN);
+        wnative.approve(deployed.yachaRouter, GRADUATION_QUOTE_IN);
         vm.prank(graduator);
-        giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: GRADUATION_QUOTE_IN, amountOutMin: 1, token: token, to: graduator, deadline: block.timestamp
             })
         );
@@ -247,10 +247,10 @@ contract WnativeV3LpFeeCollectionE2ETest is Test {
     function _roundTripFullBalance(address token) private {
         _fundWnative(trader, POST_GRADUATION_QUOTE_IN);
         vm.prank(trader);
-        wnative.approve(deployed.giwaRouter, POST_GRADUATION_QUOTE_IN);
+        wnative.approve(deployed.yachaRouter, POST_GRADUATION_QUOTE_IN);
         vm.prank(trader);
-        uint256 tokenOut = giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        uint256 tokenOut = yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: POST_GRADUATION_QUOTE_IN, amountOutMin: 1, token: token, to: trader, deadline: block.timestamp
             })
         );
@@ -258,9 +258,9 @@ contract WnativeV3LpFeeCollectionE2ETest is Test {
 
         uint256 fullBalance = IERC20(token).balanceOf(trader);
         vm.startPrank(trader);
-        IERC20(token).approve(deployed.giwaRouter, fullBalance);
-        uint256 quoteOut = giwaRouter.sell(
-            IGiwaRouter.SellParams({
+        IERC20(token).approve(deployed.yachaRouter, fullBalance);
+        uint256 quoteOut = yachaRouter.sell(
+            IYachaRouter.SellParams({
                 amountIn: fullBalance, amountOutMin: 1, token: token, to: trader, deadline: block.timestamp
             })
         );
@@ -273,7 +273,7 @@ contract WnativeV3LpFeeCollectionE2ETest is Test {
         uint256 accounted = IERC20(token).balanceOf(graduator) + IERC20(token).balanceOf(feeReceiverAtAccrual)
             + IERC20(token).balanceOf(creator) + IERC20(token).balanceOf(pool)
             + IERC20(token).balanceOf(deployed.bondingCurve) + IERC20(token).balanceOf(deployed.lpManager)
-            + IERC20(token).balanceOf(deployed.v3LiquidityActor) + IERC20(token).balanceOf(deployed.giwaRouter)
+            + IERC20(token).balanceOf(deployed.v3LiquidityActor) + IERC20(token).balanceOf(deployed.yachaRouter)
             + IERC20(token).balanceOf(deployed.v3SwapAdapter);
         assertEq(accounted, IERC20(token).totalSupply(), "graduation launch-token supply accounting");
     }

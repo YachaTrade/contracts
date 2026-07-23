@@ -1,196 +1,240 @@
 # GIWA Launchpad 컨트랙트
 
-등록된 졸업 토큰을 canonical Uniswap V3 풀로 라우팅하는 본딩 커브 토큰 런치패드입니다. Monad용으로 구축되었습니다.
-
-> **통합 상태:** `GiwaRouter`와 `V3SwapAdapter`가 현재 사용자 대상 V3 거래 경로를 제공합니다. 다만 유지 중인 `Deploy.s.sol`의 생성/졸업 배선은 아직 레거시 NadFun V2 경로를 등록하며, end-to-end V3 생명주기를 구성하지 않습니다. 새 토큰은 `GiwaRouter`를 통해 본딩 커브에서 거래할 수 있지만, 졸업 후 V2 메타데이터는 배포 배선이 마이그레이션될 때까지 V3 라우터 경로에서 거부됩니다.
+본딩 커브에서 토큰을 출시하고 canonical Uniswap V3 풀로 졸업시키는 런치패드입니다.
+Solidity 0.8.24, Foundry, UUPS 프록시, EIP-1167 토큰 클론으로 구성됩니다.
 
 ## 아키텍처
 
+기본 배포는 V3 전용이며 `CreatorFeeVault`만 등록합니다.
+
+```text
+Creator / Trader
+      │
+      ▼
+ YachaRouter ───────────────► V3SwapAdapter ─────────► canonical V3 pool
+      │                              ▲
+      ▼                              │
+ BondingCurve ─► V3PoolDeployer      │
+      │              │               │
+      │              └─ 풀 생성 및 초기화
+      │
+      └─ 졸업 ──────► LPManager ───► V3LiquidityActor
+                           │                │
+                           │                └─ 영구 V3 포지션
+                           │
+                           └─ LP 수수료 수집
+                                ├─ protocol 몫 ─► feeReceiver
+                                └─ creator 몫 ──► CreatorFeeProcessor
+                                                        │
+                                                        └─ CreatorFeeVault
 ```
+
+주요 소스 구성:
+
+```text
 src/
-├── core/       BondingCurve, ProtocolManager, LPManager, TokenRegistry, V3PoolDeployer, FeeCollector, Treasury (UUPS); CreatorFeeProcessor (singleton)
-├── router/     GiwaRouter (UUPS)
-├── token/      Token (EIP-1167 clone)
-├── dex/        NadFunFactory (singleton), NadFunPair (per-pair)
-├── vault/      VaultRegistry, DividendVault, BurnVault, LPVault, CreatorFeeVault (singleton UUPS proxies)
-├── adapters/   V3SwapAdapter, NadSwapAdapter, UniswapV2ExternalAdapter, UniswapV3ExternalAdapter
+├── core/         BondingCurve, ProtocolManager, LPManager, TokenRegistry,
+│                 V3PoolDeployer, CreatorFeeProcessor
+├── router/       YachaRouter
+├── actors/       V3LiquidityActor
+├── adapters/     V3SwapAdapter
+├── token/        Token
+├── vault/        VaultRegistry, CreatorFeeVault
+├── integration/  TokenInfoLens
 ├── interfaces/
-└── libraries/  BondingCurveLibrary, Math, UQ112x112, Constants
+└── libraries/    BondingCurveLibrary, Constants, Math, TransferHelper
 ```
 
-### 토큰 생명주기
+## 토큰 생명주기
 
-1. **생성** -- 생성자가 `VaultAllocation[]`과 함께 `GiwaRouter.create()`를 호출합니다. 현재 BondingCurve 배포 경로는 Token 클론(일반 ERC20 + Permit)을 배포하고, 레거시 NadFunFactory/NadFunPair 메타데이터와 vault 설정을 구성하며 `deployFee`를 부과합니다.
-2. **거래 (본딩 커브)** -- 졸업 전에는 사용자가 `GiwaRouter`를 통해 매수/매도합니다. 가격과 curve 프로토콜/크리에이터 수수료는 BondingCurve가 계산합니다. ERC-20 quote와 wrapped-native quote를 지원하며, native 호출은 토큰의 quote 토큰이 라우터에 설정된 wrapped-native와 같아야 합니다.
-3. **졸업** -- 커브의 펀딩 목표에 도달하면 `BondingCurve._graduate()`가 실행됩니다: 유동성을 LPManager로 이전하고, LPManager가 직접 `pair.mint()`를 통해 NadFunPair에 유동성을 추가합니다. `graduateFee`가 차감됩니다.
-4. **거래 (DEX)** -- `DexType.UniswapV3`로 등록된 졸업 토큰은 `GiwaRouter`가 `V3SwapAdapter`를 통해 canonical 풀의 exact-input/exact-output 매수·매도로 라우팅합니다. 라우터는 quote 토큰 측에 `dexProtocolFeeRate`를 적용하고, Uniswap V3 풀 LP 수수료는 풀 실행 가격에 포함됩니다. 레거시 V2 메타데이터는 이 경로에서 허용되지 않습니다.
-5. **수수료 정산** -- FeeCollector는 수수료 수집 시 명시된 protocol fee와 초과분을 즉시 feeReceiver로 보내고 creator fee만 페어별로 누적합니다. 임계값에 도달하면 authorized `settle(pair, minAmountOut)`이 CreatorFeeProcessor로 전달합니다.
+1. **생성** — creator가 `YachaRouter.create()`를 호출합니다. `BondingCurve`는 deterministic
+   `Token` 클론을 만들고, `V3PoolDeployer`는 졸업 목표 가격으로 canonical 풀을 생성·초기화합니다.
+   `TokenRegistry`는 풀, quote token, fee tier를 기록합니다.
+2. **커브 거래** — 졸업 전 매수·매도는 `YachaRouter`를 거쳐 `BondingCurve`에서 실행됩니다.
+   quote token별 `curveProtocolFeeRate`가 적용되고 일반 매수에만 anti-sniping 설정이 적용됩니다.
+   creator 거래 수수료는 없습니다.
+3. **졸업** — virtual token reserve가 `minTokenReserve`에 도달하면 `graduateFee`를 차감하고
+   추적된 token/quote 유동성을 `LPManager`로 보냅니다. `V3LiquidityActor`는 contract-v3 수학과
+   동일한 두 개의 영구 V3 포지션을 생성합니다.
+4. **V3 거래** — 졸업 후 exact-input/exact-output 거래는 `V3SwapAdapter`를 통해 등록된
+   canonical 풀에서 실행됩니다. quote 측에는 `dexProtocolFeeRate`가 적용됩니다.
+5. **유동성 운영** — `ProtocolManager` owner 또는 selector 권한을 받은 operator는
+   `LPManager.increaseLiquidity()`로 두 포지션에 자산을 추가할 수 있습니다. 원금 출금 경로는 없습니다.
+6. **LP 수수료 수집** — authorized collector가 `LPManager.collect(tokens)`를 호출합니다.
+   token 측 수수료는 canonical 풀에서 quote로 스왑되고 direct quote 수수료와 합쳐진 뒤,
+   quote token별 `lpFeeProtocolShareBps`에 따라 protocol과 creator processor로 분배됩니다.
 
-## 컨트랙트
+## 주요 컨트랙트
 
-### 핵심 (`src/core/`)
+| 컨트랙트 | 패턴 | 역할 |
+| --- | --- | --- |
+| `ProtocolManager` | UUPS Proxy | fee receiver, quote 설정, V3 fee tier, LP 수수료 분배율, anti-sniping, selector 권한 관리 |
+| `BondingCurve` | UUPS Proxy | 토큰 생성, 커브 거래, reserve 회계, 졸업 오케스트레이션 |
+| `TokenRegistry` | UUPS Proxy | launch token별 canonical pool, quote token, DEX type, fee tier 저장 |
+| `V3PoolDeployer` | UUPS Proxy | canonical V3 풀 생성·검증·초기화 |
+| `LPManager` | UUPS Proxy | 영구 유동성 배치·증가, 수수료 조회·수집·quote 통일·분배 |
+| `V3LiquidityActor` | Immutable | 두 영구 포지션 소유, mint callback 인증, fee 수집 |
+| `V3SwapAdapter` | Immutable | registry 기반 canonical 풀 swap 및 callback 인증 |
+| `CreatorFeeProcessor` | Immutable | LPManager에서 받은 creator quote를 vault BPS대로 분배 |
+| `VaultRegistry` | UUPS Proxy | authority와 ERC-165 검증을 거친 vault 등록 |
+| `CreatorFeeVault` | UUPS Proxy | 토큰별 creator quote 적립 및 claim |
+| `YachaRouter` | UUPS Proxy | 생성, 커브/V3 거래, quote, permit, native wrapping/refund 진입점 |
+| `Token` | EIP-1167 Clone | ERC-20 + ERC-2612 permit |
+| `Lens` | Immutable | 생명주기 상태와 quote 조회를 위한 통합 Lens |
 
-| 컨트랙트 | 업그레이드 방식 | 설명 |
-|----------|---------------|------|
-| `BondingCurve` | UUPS Proxy | 토큰 팩토리 + 본딩 커브 거래 엔진 |
-| `ProtocolManager` | UUPS Proxy | 통합 프로토콜 설정: 수수료, 크리에이터 수수료 설정, quote 토큰 레지스트리 |
-| `LPManager` | UUPS Proxy | 직접 `pair.mint()`를 통한 DEX 유동성 공급 |
-| `TokenRegistry` | UUPS Proxy | 토큰 메타데이터 레지스트리 (pool/pair, quoteToken, DEX type) |
-| `V3PoolDeployer` | UUPS Proxy | canonical Uniswap V3 풀 생성/재사용, 검증, 초기화, observation cardinality 설정 |
-| `GiwaRouter` | UUPS Proxy | 생성, 커브 거래, canonical V3 exact-input/exact-output 거래, 견적, permit, native wrapping/refund 사용자 진입점 |
-| `Treasury` | UUPS Proxy | V3 생명주기 인프라가 사용하는 프로토콜 treasury |
-| `FeeCollector` | UUPS Proxy | 중앙 수수료 관리. `collectFee(pair, protocolFee, creatorFee)`는 수신 balance delta를 검증해 protocol fee와 초과분을 즉시 전달하고 creator fee만 누적합니다. `settle(pair, minAmountOut)`은 본딩 및 레거시 졸업 후 phase 모두에서 동작합니다. |
-| `CreatorFeeProcessor` | Singleton | FeeCollector로부터 quoteToken을 수령하여 BPS 기준으로 조합형 싱글톤 vault들에 분배. |
+## 수수료
 
-### V3 라우팅 (`src/router/`, `src/adapters/`)
+토큰 생성, 커브 거래, 졸업 후 라우터 거래에는 creator trading fee가 없습니다.
+creator 수익은 V3 LP 수수료의 설정된 몫에서 발생합니다.
 
-| 컨트랙트 | 업그레이드 방식 | 설명 |
-|----------|---------------|------|
-| `GiwaRouter` | UUPS Proxy | 등록 풀 메타데이터 조회, 라우터 프로토콜 수수료 계산, 사용자 슬리피지/refund 처리 |
-| `V3SwapAdapter` | Singleton | canonical V3 풀 직접 스왑 및 활성 registry-backed 풀 컨텍스트에 한정된 콜백 지급 |
+| 단계 | 설정 | 수신처 |
+| --- | --- | --- |
+| 토큰 생성 | quote token별 `deployFee` | `feeReceiver` |
+| 커브 거래 | `curveProtocolFeeRate`, 일반 매수 anti-sniping | `feeReceiver` |
+| 졸업 | quote token별 `graduateFee` | `feeReceiver` |
+| 졸업 후 거래 | quote 측 `dexProtocolFeeRate` | `feeReceiver` |
+| V3 풀 실행 | `v3FeeTier` | 영구 V3 포지션에 적립 |
+| LP 수수료 수집 | `lpFeeProtocolShareBps` | protocol 몫은 `feeReceiver`, 나머지는 `CreatorFeeProcessor` |
 
-### 레거시 V2 DEX (`src/dex/`)
-
-| 컨트랙트 | 패턴 | 설명 |
-|----------|------|------|
-| `NadFunFactory` | Singleton | Uniswap V2 포크 팩토리. CREATE2 페어 배포. |
-| `NadFunPair` | Per-pair | Uniswap V2 포크 페어. `swap()`에서 수수료 차감. 수수료를 FeeCollector로 전송. |
-
-### 토큰 (`src/token/`)
-
-| 컨트랙트 | 패턴 | 설명 |
-|----------|------|------|
-| `Token` | EIP-1167 Clone | 일반 ERC20 + Burnable + Permit. fee-on-transfer 없음. |
-
-### 볼트 (`src/vault/`)
-
-| 컨트랙트 | 패턴 | 설명 |
-|----------|------|------|
-| `VaultRegistry` | UUPS Proxy | authority-restricted vault 레지스트리, ERC-165 인터페이스 검증 |
-| `BurnVault` | Singleton UUPS Proxy | 단계별 라우팅을 통한 바이백 소각 |
-| `LPVault` | Singleton UUPS Proxy | 설정 adapter를 통한 절반 스왑 + 유동성 추가 + LP 소각 |
-| `CreatorFeeVault` | Singleton UUPS Proxy | 토큰별 quoteToken을 누적하고, 설정된 creator가 나중에 ERC-20 또는 설정된 WNATIVE quote의 native currency로 claim |
-| `DividendVault` | Singleton UUPS Proxy | operator 변환 + 글로벌 Merkle root 기반 다중 dividend token 분배 |
-
-## 수수료 시스템
-
-### 수수료 구조
-
-| 단계 | 크리에이터 수수료 (생성자 설정) | 프로토콜 수수료 | LP 수수료 | 사용자 총합 |
-|------|-------------------|-------------|----------|-----------|
-| 본딩 커브 | 1%/3%/5% (quote에서) | 1% (quote에서) | - | 2%/4%/6% |
-| 레거시 DEX (NadFunPair) | 1%/3%/5% (quote에서) | 설정 가능 (quote에서) | 0.25% | 합산 |
-| GiwaRouter를 통한 canonical V3 | - | `dexProtocolFeeRate` (quote 측) | 풀 fee tier | 라우터 수수료 + 풀 실행 |
-
-- **크리에이터 수수료율**은 허용 목록으로 제한됩니다: 1%, 3%, 5% (`ProtocolManager`를 통해 관리자가 설정 가능)
-- **본딩 커브**: `BondingCurve.buy()/sell()`에서 quote 토큰으로부터 프로토콜 수수료 + 크리에이터 수수료 차감
-- **DEX**: LP 수수료(0.25%)는 리저브에 잔류, 프로토콜 수수료 + 크리에이터 수수료는 `NadFunPair.swap()`에서 FeeCollector로 전송
-- **canonical V3 라우터 경로**: `GiwaRouter`는 실행 시점에 quote 토큰의 `dexProtocolFeeRate`와 현재 `feeReceiver`를 조회합니다. `V3SwapAdapter` 직접 호출에는 라우터 수수료가 추가되지 않습니다.
-- **크리에이터 수수료는 영구적** -- 만료 없음 (v1의 TaxToken에 있던 creatorFeeExpirationTime과 달리)
-
-### 수수료 정산 (FeeCollector -> CreatorFeeProcessor -> Vaults)
-
-```
-NadFunPair.swap() / BondingCurve.buy()/sell()
-     |
-     └── 수수료 (quoteToken) → FeeCollector.collectFee(pair, protocolFee, creatorFee)
-              |
-              └── 누적액 >= 임계값 도달 시:
-                   FeeCollector.settle(pair, minAmountOut)
-                    └── 누적 크리에이터 수수료 → CreatorFeeProcessor.processCreatorFee()
-                         └── BPS 기준으로 싱글톤 vault들에 분배:
-                              ├── BurnVault: quoteToken → token 스왑 → 0xdead 소각
-                              ├── LPVault: 절반 스왑 + 유동성 추가 + LP 소각
-                              └── CreatorFeeVault: 토큰별 누적 → creator claim (ERC-20 또는 WNATIVE → native)
+```text
+authorized collector
+  └─ LPManager.collect(tokens)
+       └─ 각 launch token
+            ├─ 저장된 pool/factory/registry 검증
+            ├─ V3LiquidityActor.collectFees()
+            ├─ launch-token fee 전량을 quote token으로 swap
+            ├─ total quote = direct quote fee + swap output
+            ├─ protocol quote → ProtocolManager.feeReceiver()
+            └─ creator quote → CreatorFeeProcessor.processCreatorFee()
+                                  └─ CreatorFeeVault.afterDeposit()
 ```
 
-## 주요 설계 결정
+batch 수집은 원자적입니다. 중복 토큰, pool metadata 불일치, partial swap, taxed transfer,
+vault callback 실패, balance delta 불일치는 전체 트랜잭션을 revert합니다. 기존 donation과
+entry balance는 수집 수익에 포함하지 않으며 임시 allowance도 제거합니다.
 
-- **일반 ERC20 Token** (fee-on-transfer TaxToken 대신): 더 단순하고, 크리에이터 수수료 재진입 문제 없으며, 모든 DEX/프로토콜과 호환 가능
-- **커스텀 NadFunPair** (외부 Uniswap V2 대신): 페어 단위 수수료 차감으로 프로토콜이 완전한 제어권 확보, fee-on-transfer 토큰 불필요
-- **FeeCollector** 중앙 수수료 허브: 수수료 설정, 누적, 정산을 위한 단일 포인트. NadFunPair와 BondingCurve 모두 여기로 수수료 전송.
-- **단순화된 CreatorFeeProcessor**: 더 이상 baseToken → quoteToken 스왑 불필요. FeeCollector로부터 quoteToken을 직접 수령. vault들에 분배만 담당.
-- **통합 ProtocolManager** (별도의 FeeManager/AdminModule/QuoteManager 대신): 단일 배포, 크로스 컨트랙트 호출 감소, 전역 설정과 operator 권한 정책을 한 곳에서 관리
-- **라우터 대신 직접 `pair.mint()`**: 유동성 추가 시 2개의 approve 작업 절약 (~40k 가스)
-- **canonical V3 검증**: `V3SwapAdapter`는 설정된 factory와 등록 fee tier로 풀을 유도하고, 단일 활성 콜백 컨텍스트·델타 검증·지급 전 컨텍스트 삭제를 적용합니다.
-- **싱글톤 CreatorFeeProcessor + 싱글톤 Vault** (토큰별 클론 대신): CreatorFeeProcessor는 공통 immutable constructor 상태를 갖고, vault는 한 번 초기화되는 공유 UUPS proxy입니다. 토큰별 설정은 `setup()` / mapping으로 관리합니다.
-- **조합형 Vault 시스템** (모놀리식 CreatorFeeProcessor 대신): vault 로직(소각, LP, creator claim)을 독립적이고 플러그 가능한 컨트랙트로 분리. CreatorFeeProcessor는 분배만 담당.
-- **VaultRegistry (authority-restricted + ERC-165)**: ProtocolManager owner 또는 selector-authorized operator가 vault를 등록/비활성화하며, 등록 시 IVault 인터페이스를 검증합니다.
+## 여러 Quote Token
 
-## 개발
+`ProtocolManager`는 quote token별로 다음 값을 독립적으로 저장합니다.
+
+- decimals
+- virtual quote/token reserve와 minimum token reserve
+- deploy/graduate fee
+- curve/dex protocol fee rate
+- canonical V3 fee tier
+- LP fee protocol share BPS
+- active 상태
+
+`addV3QuoteToken()`과 `updateV3QuoteToken()`이 curve·V3 설정을 원자적으로 처리합니다.
+`LPManager.collect()` batch의 각 launch token은 자기 registry에 기록된 quote asset으로 분배됩니다.
+
+## 권한
+
+- `ProtocolManager.owner()`는 모든 AccessManaged target을 직접 호출할 수 있습니다.
+- 별도 operator는 정확한 target/selector 권한이 필요합니다.
+- `BondingCurve`는 pool 생성, registry 등록, LP 배치, creator vault 설정 권한을 가집니다.
+- `LPManager`는 `CreatorFeeProcessor.processCreatorFee()`를 호출할 수 있습니다.
+- `COLLECTOR`는 `LPManager.collect()`만 호출할 수 있습니다.
+- `YachaRouter`는 `BondingCurve.ROUTER_ROLE`을 가집니다.
+- multisig는 `ProtocolManager` owner와 BondingCurve admin/guardian 역할을 가집니다.
+
+## 개발과 검증
 
 ```shell
-# 빌드
+forge fmt
+forge fmt --check
 forge build
-
-# 테스트
 forge test
 
-# 상세 출력으로 테스트
-forge test -vvv
+forge test --match-path test/integration/WnativeV3GraduationE2E.t.sol -vvv
+forge test --match-path test/integration/WnativeV3LpFeeCollectionE2E.t.sol -vvv
+forge test --match-path test/modules/LPManagerCollect.t.sol -vvv
+forge test --match-path test/invariant/LPPrincipalLock.invariant.t.sol -vvv
 
-# 특정 파일 테스트
-forge test --match-path test/fee/FeeCollector.t.sol
-
-# 특정 함수 테스트
-forge test --match-test test_settle_splitsCorrectly
-
-# 가스 스냅샷
-forge snapshot
-
-# 배포 (현재 레거시 V2 생성/졸업 배선 유지)
-forge script script/deploy/normal/Deploy.s.sol --rpc-url <rpc_url> --broadcast
+RUN_FORK_TESTS=true forge test --match-path test/fork/YachaRouterNativeQuoteFork.t.sol -vvv
 ```
 
-### 프로젝트 설정
+테스트는 core, router, V3 liquidity, LP fee, integration, invariant, fork 영역으로 나뉩니다.
+현재 전체 로컬 검증은 557 passed, 0 failed, 환경 의존 fork 2 skipped입니다.
+LP principal invariant는 65,536 calls / 0 reverts로 통과했습니다.
 
-- Solidity 0.8.24, EVM 대상: london
-- 프레임워크: Foundry
-- 의존성: OpenZeppelin (contracts + upgradeable), Solady
+### Canonical ABI
 
-### 테스트 구조
+`bash script/extract-abis.sh`를 실행하면 현재 build artifact에서 public ABI를 다시 생성합니다.
 
+- `abis/YachaRouter.json`은 현재 canonical router ABI이며 이전 router ABI는 제거했습니다.
+- `abis/Lens.json`은 `yachaRouter()`와 현재 router 기반 read surface를 제공합니다.
+- `abis/LPManager.json`은 업그레이드된 LPManager에서 다시 생성했으며 `timestamp`를 포함한 canonical `Allocate`, `Collect` 이벤트를 제공합니다.
+
+## GIWA Sepolia 배포
+
+- Chain ID: `91342`
+- RPC: `https://sepolia-rpc.giwa.io`
+- Explorer: `https://sepolia-explorer.giwa.io`
+- Canonical WNATIVE: `0x4200000000000000000000000000000000000006`
+
+### 현재 통합 주소
+
+| 컨트랙트 | 주소 |
+| --- | --- |
+| ProtocolManager | [`0x839AAE0711DDf9A3E8381d73Fbc8bD9146cc762e`](https://sepolia-explorer.giwa.io/address/0x839AAE0711DDf9A3E8381d73Fbc8bD9146cc762e) |
+| BondingCurve | [`0x852716437D0e67e8BbaF4c8282C26b7941DD16E9`](https://sepolia-explorer.giwa.io/address/0x852716437D0e67e8BbaF4c8282C26b7941DD16E9) |
+| TokenRegistry | [`0xB9E1a129818fE17300152E067b978eA9098100F0`](https://sepolia-explorer.giwa.io/address/0xB9E1a129818fE17300152E067b978eA9098100F0) |
+| LPManager proxy | [`0xA7dAacA8DF5685bCAA20043071953dC87b0BC24f`](https://sepolia-explorer.giwa.io/address/0xA7dAacA8DF5685bCAA20043071953dC87b0BC24f) |
+| LPManager implementation | [`0x158F477345cd2B26efC087F0Cc42f5ce76732E8F`](https://sepolia-explorer.giwa.io/address/0x158F477345cd2B26efC087F0Cc42f5ce76732E8F) |
+| YachaRouter proxy | [`0x733132B6f0FEbd58D062f61657F1b3dbb2aDEB5A`](https://sepolia-explorer.giwa.io/address/0x733132B6f0FEbd58D062f61657F1b3dbb2aDEB5A) |
+| YachaRouter implementation | [`0xD69eD80ac8FB5064176fa3714BB6bce5A0E806E9`](https://sepolia-explorer.giwa.io/address/0xD69eD80ac8FB5064176fa3714BB6bce5A0E806E9) |
+| Lens | [`0x198BdbC54B7abaFc3f781d958e2b9E935064305C`](https://sepolia-explorer.giwa.io/address/0x198BdbC54B7abaFc3f781d958e2b9E935064305C) |
+| V3 factory | [`0x00a131Cf1fbEE9b02C4632756a813A32BC250849`](https://sepolia-explorer.giwa.io/address/0x00a131Cf1fbEE9b02C4632756a813A32BC250849) |
+| V3LiquidityActor | [`0x9685d85f92dcaC12802B367807352A0afFA5a466`](https://sepolia-explorer.giwa.io/address/0x9685d85f92dcaC12802B367807352A0afFA5a466) |
+| V3SwapAdapter | [`0x7e2E8492C0E3C8fF56920CDa02D7D37c60485852`](https://sepolia-explorer.giwa.io/address/0x7e2E8492C0E3C8fF56920CDa02D7D37c60485852) |
+| CreatorFeeProcessor | [`0xDfD7a91438B35Ea94C8EAB89c0EE4fFf13E55969`](https://sepolia-explorer.giwa.io/address/0xDfD7a91438B35Ea94C8EAB89c0EE4fFf13E55969) |
+
+이전 router proxy `0x6139848625B395C4e2C347ED6C083dE2077Fb07b`는 더 이상
+`BondingCurve.ROUTER_ROLE`을 갖지 않습니다. 다만 permissionless V3 adapter를 사용하는
+졸업 후 경로는 계속 호출 가능하므로, 위 YachaRouter와 Lens 주소를 canonical 통합 주소로 사용해야 합니다.
+
+현재 LPManager 구현체, YachaRouter ERC1967 proxy와 구현체의 Explorer 소스 검증은 모두
+완료됐습니다. Lens는 배포와 온체인 연결 검증은 완료됐지만 Explorer Cloudflare가 검증
+제출을 차단해 소스 검증만 대기 중입니다.
+
+### Router 교체 실행 순서
+
+```shell
+# 1. live 역할을 변경하지 않고 새 구현체와 프록시 배포
+forge script script/deploy/normal/DeployYachaRouter.s.sol:DeployYachaRouter \
+  --rpc-url "$RPC_URL" --broadcast --slow
+
+# 2. 새 역할 부여. 이 시점에는 기존 역할도 유지
+forge script script/deploy/normal/MigrateYachaRouterRole.s.sol:GrantYachaRouterRole \
+  --rpc-url "$RPC_URL" --broadcast --slow
+
+# 3. 새 YACHA_ROUTER를 가리키는 Lens 배포 및 검증
+forge script script/deploy/normal/DeployLens.s.sol:DeployLens \
+  --rpc-url "$RPC_URL" --broadcast --slow
+
+# 4. 새 Lens/클라이언트 전환 확인 후 기존 curve 역할 회수
+forge script script/deploy/normal/MigrateYachaRouterRole.s.sol:RevokePreviousRouterRole \
+  --rpc-url "$RPC_URL" --broadcast --slow
 ```
-test/
-├── SetUp.t.sol         # 공유 베이스: 전체 프로토콜 스택 배포 + 헬퍼
-├── core/               # BondingCurve, Fee, Graduation, Router, ProtocolManager
-│   ├── BondingCurveAttack.t.sol   # 공격 벡터 (직접 매수, 플래시 론, 재진입, 졸업 후)
-│   ├── BondingCurveV2.t.sol       # v2 전용: Token + NadFunFactory + FeeCollector로의 크리에이터 수수료
-│   └── QuoteReserveAttack.t.sol   # 크로스 커브 리저브 탈취
-├── dex/                # NadFunFactory, NadFunPair, NadFunPairFee
-├── fee/                # FeeCollector
-├── integration/        # 전체 생명주기 E2E
-├── router/             # GiwaRouter canonical V3 및 native quote 라우팅
-├── adapters/           # V3SwapAdapter와 유지 중인 V2/외부 adapter
-├── fork/               # 배포된 wrapped-native/Quoter 통합 (환경 변수로 게이트)
-├── modules/            # LPManager
-│   └── ModuleAttack.t.sol         # 공격 벡터 (이중 LP, 극단적 수수료, 크리에이터 수수료율 허용 목록)
-├── token/              # CreatorFeeProcessor
-├── vault/              # VaultRegistry, BurnVault, LPVault, CreatorFeeVault
-│   └── VaultAttack.t.sol          # 공격 벡터 (비활성화 vault, revert vault)
-├── mocks/              # MockERC20, MockWrappedNative
-└── utils/              # (비어 있음 -- NadFunFactory가 UniswapV2Deployer를 대체)
-```
 
-### 테스트 카테고리
+grant와 revoke 단계는 각 단계의 완료 상태에서 재실행해도 추가 변경이 없는 방식으로 검증됩니다.
+프라이빗 키와 `.env*` 파일은 절대 커밋하지 않습니다.
 
-| 카테고리 | 파일 | 목적 |
-|----------|------|------|
-| Unit | `test/core/*.t.sol`, `test/token/*.t.sol`, `test/vault/*.t.sol`, `test/dex/*.t.sol`, `test/fee/*.t.sol` | 개별 컨트랙트 기능 검증 |
-| Integration | `test/integration/*.t.sol` | 멀티 컨트랙트 생명주기 |
-| Attack | `*Attack.t.sol` | 공격 벡터 방어 검증 |
-| Module | `test/modules/*.t.sol` | LPManager, 모듈 시스템 |
+## 보안 속성
 
-### 보안
+- canonical pool/factory/token order/fee tier/reverse registry 검증
+- 단일 활성 컨텍스트에 결합된 mint/swap callback 인증
+- 원금 출금 경로가 없는 영구 LP 포지션
+- curve, LP fee, swap, processor, vault의 정확한 balance-delta 회계
+- 기존 donation과 호출 범위 자산의 격리
+- swap/transfer/vault 실패 시 전체 fee batch 원자적 revert
+- BondingCurve role 및 `ProtocolManager.canCall()` 기반 selector 권한
+- WNATIVE 경로 외 native 수신 거부와 호출 범위 refund
 
-테스트 파일 전반에 걸쳐 공격 벡터가 검증되었습니다. 주요 방어 메커니즘:
-
-- **`_totalQuoteReserved`**: quote 토큰별 회계 처리로 크로스 커브 리저브 탈취 방지
-- **`nonReentrant`**: 본딩 커브 거래 및 졸업 흐름 보호
-- **안티 스나이핑 패널티**: ProtocolManager의 블록별 lookup table (기본: 생성 후 블록 0..6에 80%/40%/20%/15%/10%/10%/5%, 이후 0), 플래시 론 공격을 비수익적으로 만듦
-- **NadFunPair 수수료 강제**: `swap()`에서 수수료가 원자적으로 차감, 직접 전송을 통한 우회 불가
-- **V3 콜백 인증**: 활성 swap의 canonical 등록 풀만 콜백할 수 있으며 replay, 누락, 중복, 비정상 델타는 revert
-- **FeeCollector 제한 정산**: 임계값과 `minAmountOut` 조건을 충족한 authorized settler만 정산 가능
-- **ERC-165 검증**: VaultRegistry가 등록 시 IVault 인터페이스 검증
-
-전체 방어 매트릭스와 알려진 제한 사항은 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#security)를 참조하세요. API 문서: [GiwaRouter](docs/contracts/ko/router/GiwaRouter.md), [IGiwaRouter](docs/contracts/ko/interfaces/IGiwaRouter.md), [V3SwapAdapter](docs/contracts/ko/adapters/V3SwapAdapter.md).
+상세 API:
+[YachaRouter](docs/contracts/ko/router/YachaRouter.md),
+[IYachaRouter](docs/contracts/ko/interfaces/IYachaRouter.md),
+[LPManager](docs/contracts/ko/core/LPManager.md),
+[ProtocolManager](docs/contracts/ko/core/ProtocolManager.md),
+[V3SwapAdapter](docs/contracts/ko/adapters/V3SwapAdapter.md).

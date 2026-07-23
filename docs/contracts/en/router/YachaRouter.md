@@ -1,12 +1,12 @@
-# GiwaRouter
+# YachaRouter
 
-**Path:** `src/router/GiwaRouter.sol`
+**Path:** `src/router/YachaRouter.sol`
 **Pattern:** UUPS proxy
-**Inheritance:** `IGiwaRouter`, `UUPSUpgradeable`, `AccessManagedUpgradeable`, `ReentrancyGuard`
+**Inheritance:** `IYachaRouter`, `UUPSUpgradeable`, `AccessManagedUpgradeable`, `ReentrancyGuard`
 
-`GiwaRouter` is the user-facing creation and lifecycle trading entrypoint. Before graduation it delegates price and execution to `BondingCurve`. After graduation it accepts only active, canonical Uniswap V3 metadata and executes through `V3SwapAdapter`.
+`YachaRouter` is the user-facing creation and lifecycle trading entrypoint. Before graduation it delegates price and execution to `BondingCurve`. After graduation it accepts only active, canonical Uniswap V3 metadata and executes through `V3SwapAdapter`.
 
-See [IGiwaRouter](../interfaces/IGiwaRouter.md) for every parameter and function signature. See [V3SwapAdapter](../adapters/V3SwapAdapter.md) for callback authentication and pool accounting.
+See [IYachaRouter](../interfaces/IYachaRouter.md) for every parameter and function signature. See [V3SwapAdapter](../adapters/V3SwapAdapter.md) for callback authentication and pool accounting.
 
 ## Initialization and dependencies
 
@@ -37,7 +37,7 @@ All six addresses must contain code. The adapter's registry must equal `tokenReg
 ## Lifecycle routing
 
 ```text
-GiwaRouter
+YachaRouter
 ├─ curve.graduated == false
 │  └─ BondingCurve quote and execution
 └─ curve.graduated == true
@@ -46,7 +46,7 @@ GiwaRouter
    └─ V3SwapAdapter exactInput / exactOutput
 ```
 
-Graduated metadata must have `DexType.UniswapV3`, `pair == pool`, a nonzero fee tier, the correct reverse registry entry, and the canonical factory pool. Legacy V2 metadata is rejected with `InvalidV3Pool`.
+Graduated metadata must have `DexType.UniswapV3`, `pair == pool`, a nonzero fee tier, the correct reverse registry entry, and the canonical factory pool. Noncanonical metadata is rejected with `InvalidV3Pool`.
 
 ERC-20 routes work with any active registered quote token. Native routes call `_requireNativeQuoteToken` before permit or asset movement and require the token's registered quote to equal `wrappedNative()`.
 
@@ -54,7 +54,7 @@ ERC-20 routes work with any active registered quote token. Native routes call `_
 
 The Router reads `ProtocolManager.dexProtocolFeeRate(quoteToken)` and `feeReceiver()` at execution time. The rate is denominated in BPS and must be less than `10_000`. The fee is always paid in the registered quote token and rounded up with `FullMath.mulDivRoundingUp`.
 
-This Router-level V3 protocol fee is not applied to the BondingCurve branch. BondingCurve retains its separate curve fee, anti-sniping, and current creator-fee accounting. A direct `V3SwapAdapter` call also bypasses the Router fee.
+This Router-level V3 protocol fee is not applied to the BondingCurve branch. BondingCurve applies its separate curve protocol fee and anti-sniping penalty. A direct `V3SwapAdapter` call also bypasses the Router fee.
 
 ### Exact-input buy
 
@@ -142,19 +142,19 @@ V3 exact-input quotes apply the same buy-input or sell-output fee direction as e
 | 3 | `_v3SwapAdapter` |
 | 4 | `_quoterV2` |
 
-OpenZeppelin upgradeable base state uses namespaced storage. The current deployed runtime is 23,959 bytes, leaving 617 bytes below the EIP-170 limit of 24,576 bytes. Any implementation change must rerun the size regression and inspect storage compatibility.
+OpenZeppelin upgradeable base state uses namespaced storage. The current deployed runtime is 23,916 bytes, leaving 660 bytes below the EIP-170 limit of 24,576 bytes. Any implementation change must rerun the size regression and inspect storage compatibility.
 
 ## Deployment status
 
-The fresh deployment script deploys V3SwapAdapter, canonical QuoterV2, and a six-argument GiwaRouter proxy. It removes Router02 and grants only GiwaRouter the BondingCurve router role.
+`Deploy.s.sol` builds the complete canonical-V3 lifecycle: per-quote V3 configuration, canonical pool creation, `registerV3`, two-position permanent liquidity, V3 routing, and LP-fee collection. It deploys V3SwapAdapter, canonical QuoterV2, and the six-argument YachaRouter proxy, then grants that router the BondingCurve router role.
 
-It does **not** yet create an end-to-end canonical-V3 launch lifecycle. `Deploy.s.sol` still wires `BondingCurve` to `NadFunFactory`, registers tokens through the legacy `register` path, and uses the current LPManager, whose graduation allocation supports only `DexType.UniswapV2`. It also does not deploy/configure the repository's separate `V3PoolDeployer` lifecycle. Tokens produced by that retained graph have legacy V2 metadata and GiwaRouter intentionally rejects their graduated path.
+The current GIWA Sepolia rollout used `DeployYachaRouter.s.sol` to create a fresh YachaRouter proxy, granted its role with `MigrateYachaRouterRole.s.sol`, redeployed Lens, and then revoked the previous router's creation/curve-trading role. The previous router can still expose its permissionless post-graduation V3 entry points, so integrations must use the current YachaRouter and Lens addresses in `README.md`.
 
-Treat the script as Router-facing V3 dependency wiring plus a retained legacy creation/graduation graph. A production V3 launch needs separate completion and validation of pool creation, `registerV3`, V3 liquidity allocation, and per-quote `setV3QuoteConfig` configuration. No legacy NadFunRouter proxy can be upgraded to GiwaRouter; `UpgradeGiwaRouter.s.sol` is only for an already-deployed GiwaRouter proxy.
+`UpgradeYachaRouter.s.sol` is reserved for future upgrades of an already deployed YachaRouter proxy. Fresh replacements must use the staged deploy, grant, integration migration, and revoke flow.
 
 ## Related
 
-- [IGiwaRouter](../interfaces/IGiwaRouter.md)
+- [IYachaRouter](../interfaces/IYachaRouter.md)
 - [V3SwapAdapter](../adapters/V3SwapAdapter.md)
 - [Architecture](../../../ARCHITECTURE.md)
 - [Protocol flow](../../../PROTOCOL_FLOW.md)

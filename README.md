@@ -10,7 +10,7 @@ The default deployment is V3-only and registers `CreatorFeeVault` as the only va
 Creator / Trader
       │
       ▼
- GiwaRouter ───────────────► V3SwapAdapter ─────────► canonical V3 pool
+ YachaRouter ───────────────► V3SwapAdapter ─────────► canonical V3 pool
       │                              ▲
       ▼                              │
  BondingCurve ─► V3PoolDeployer      │
@@ -34,7 +34,7 @@ Deployment-relevant source surface:
 src/
 ├── core/         BondingCurve, ProtocolManager, LPManager, TokenRegistry,
 │                 V3PoolDeployer, CreatorFeeProcessor
-├── router/       GiwaRouter
+├── router/       YachaRouter
 ├── actors/       V3LiquidityActor
 ├── adapters/     V3SwapAdapter
 ├── token/        Token
@@ -46,10 +46,10 @@ src/
 
 ### Token Lifecycle
 
-1. **Create** — A creator calls `GiwaRouter.create()`. `BondingCurve` deploys a deterministic `Token` clone, `V3PoolDeployer` creates and initializes the canonical pool at the configured graduation-target price, and `TokenRegistry` records the pool, quote token, and fee tier. The fixed `deployFee` goes directly to `ProtocolManager.feeReceiver()`.
-2. **Trade on the curve** — Before graduation, `GiwaRouter` routes buys and sells through `BondingCurve`. The curve charges the quote token's `curveProtocolFeeRate`; configured anti-sniping penalties apply only to ordinary buys, not the creation-time initial buy or sells. There is no creator trading fee. Native calls are available only when the token's quote token matches the router's wrapped-native token.
+1. **Create** — A creator calls `YachaRouter.create()`. `BondingCurve` deploys a deterministic `Token` clone, `V3PoolDeployer` creates and initializes the canonical pool at the configured graduation-target price, and `TokenRegistry` records the pool, quote token, and fee tier. The fixed `deployFee` goes directly to `ProtocolManager.feeReceiver()`.
+2. **Trade on the curve** — Before graduation, `YachaRouter` routes buys and sells through `BondingCurve`. The curve charges the quote token's `curveProtocolFeeRate`; configured anti-sniping penalties apply only to ordinary buys, not the creation-time initial buy or sells. There is no creator trading fee. Native calls are available only when the token's quote token matches the router's wrapped-native token.
 3. **Graduate** — When the virtual token reserve reaches `minTokenReserve`, `BondingCurve` deducts `graduateFee`, transfers the tracked token and quote liquidity to `LPManager`, and calls `allocate()`. `V3LiquidityActor` mints two permanent V3 positions using the contract-v3 range math. Unused graduation assets go to `feeReceiver`.
-4. **Trade on V3** — After graduation, `GiwaRouter` routes exact-input and exact-output swaps through `V3SwapAdapter` and the canonical registered pool. The router charges `dexProtocolFeeRate` on the quote side and sends it directly to the current `feeReceiver`; the pool fee tier is applied by Uniswap V3.
+4. **Trade on V3** — After graduation, `YachaRouter` routes exact-input and exact-output swaps through `V3SwapAdapter` and the canonical registered pool. The router charges `dexProtocolFeeRate` on the quote side and sends it directly to the current `feeReceiver`; the pool fee tier is applied by Uniswap V3.
 5. **Operate permanent liquidity** — The `ProtocolManager` owner or a selector-authorized operator may add assets to both existing positions through `LPManager.increaseLiquidity()` without exposing a withdrawal path.
 6. **Collect LP fees** — An authorized collector calls `LPManager.collect(tokens)`. Each pool's token-side fee is swapped through the same canonical V3 pool into its quote token, combined with the directly collected quote fee, and split using that quote token's `lpFeeProtocolShareBps`.
 
@@ -65,7 +65,7 @@ src/
 | `V3PoolDeployer` | UUPS Proxy | Creates or validates the canonical factory pool and initializes it at the configured graduation-target price. |
 | `LPManager` | UUPS Proxy | Allocates and increases permanent liquidity, records pool metadata, collects V3 fees, swaps token fees to quote, and distributes the quote proceeds. |
 | `CreatorFeeProcessor` | Immutable Singleton | Pulls the creator share from a caller authorized by `ProtocolManager.canCall()` and distributes it across the token's configured vault slots by BPS. |
-| `GiwaRouter` | UUPS Proxy | User entry point for creation, curve trades, V3 trades, quotes, permits, native wrapping, and refunds. |
+| `YachaRouter` | UUPS Proxy | User entry point for creation, curve trades, V3 trades, quotes, permits, native wrapping, and refunds. |
 
 ### V3 Execution
 
@@ -145,7 +145,7 @@ Use `addV3QuoteToken()` or `updateV3QuoteToken()` for atomic curve and V3 config
 - `LPManager` may call `CreatorFeeProcessor.processCreatorFee()`.
 - `COLLECTOR` may call `LPManager.collect()`; it defaults to the multisig when not configured separately.
 - An optional `CREATOR_MANAGER` may update a token's creator in `CreatorFeeVault`.
-- `GiwaRouter` receives `BondingCurve.ROUTER_ROLE`; the multisig owns `ProtocolManager` and the BondingCurve admin and guardian roles after deployment.
+- `YachaRouter` receives `BondingCurve.ROUTER_ROLE`; the multisig owns `ProtocolManager` and the BondingCurve admin and guardian roles after deployment.
 
 The multisig may also call restricted operations directly, including `LPManager.increaseLiquidity()` and `CreatorFeeProcessor.processCreatorFee()`.
 
@@ -176,7 +176,7 @@ forge test --match-path test/modules/LPManagerCollect.t.sol -vvv
 forge test --match-path test/invariant/LPPrincipalLock.invariant.t.sol -vvv
 
 # Environment-gated fork coverage
-RUN_FORK_TESTS=true forge test --match-path test/fork/GiwaRouterNativeQuoteFork.t.sol -vvv
+RUN_FORK_TESTS=true forge test --match-path test/fork/YachaRouterNativeQuoteFork.t.sol -vvv
 ```
 
 ### Test Layout
@@ -184,12 +184,20 @@ RUN_FORK_TESTS=true forge test --match-path test/fork/GiwaRouterNativeQuoteFork.
 | Area | Paths | Coverage |
 |------|-------|----------|
 | Core | `test/core/` | Curve math, creation, fees, graduation, permissions, registry, and pool deployment |
-| Router | `test/router/`, `test/core/GiwaRouter*.t.sol` | Curve/V3 routing, native quote handling, permits, refunds, and slippage |
+| Router | `test/router/`, `test/core/YachaRouter*.t.sol` | Curve/V3 routing, native quote handling, permits, refunds, and slippage |
 | V3 liquidity | `test/modules/LPManagerV3.t.sol`, `test/modules/V3LiquidityActor.t.sol` | Contract-v3 tick math, two-position allocation, callback validation, and principal custody |
 | LP fees | `test/modules/LPManagerCollect.t.sol` | Token-to-quote conversion, per-quote split, batch atomicity, donation isolation, and access control |
 | Integration | `test/integration/` | Real V3 graduation, full-balance post-graduation sells, LP-fee collection, and deployment wiring |
 | Invariant | `test/invariant/` | Permanent LP principal and liquidity-accounting invariants |
 | Fork | `test/fork/` | Deployed wrapped-native and quote integration when enabled |
+
+### Canonical ABI artifacts
+
+Run `bash script/extract-abis.sh` to regenerate the checked-in public ABIs from the current build artifacts.
+
+- `abis/YachaRouter.json` is the canonical router ABI; the previous router ABI was removed.
+- `abis/Lens.json` exposes `yachaRouter()` and the current router-backed read surface.
+- `abis/LPManager.json` is regenerated from the upgraded LPManager and exposes the canonical `Allocate` and `Collect` events, including their `timestamp` field.
 
 ## Deployment
 
@@ -200,7 +208,9 @@ The current V3 deployment is live on GIWA Sepolia (`chainId = 91342`).
 - RPC: `https://sepolia-rpc.giwa.io`
 - Explorer: `https://sepolia-explorer.giwa.io`
 - Deployment records: `broadcast/DeployV3Factory.s.sol/91342`,
-  `broadcast/Deploy.s.sol/91342`, and `broadcast/DeployLens.s.sol/91342`
+  `broadcast/Deploy.s.sol/91342`, `broadcast/UpgradeLPManager.s.sol/91342`,
+  `broadcast/DeployYachaRouter.s.sol/91342`, `broadcast/MigrateYachaRouterRole.s.sol/91342`,
+  and `broadcast/DeployLens.s.sol/91342`
 - Last onchain code check: 2026-07-23
 
 Use the proxy addresses below for SDK, user, and administrative interactions.
@@ -217,10 +227,10 @@ Implementation addresses are listed separately for upgrade and deployment auditi
 | LPManager | UUPS proxy | [`0xA7dAacA8DF5685bCAA20043071953dC87b0BC24f`](https://sepolia-explorer.giwa.io/address/0xA7dAacA8DF5685bCAA20043071953dC87b0BC24f) | [`0xc055…d3e6`](https://sepolia-explorer.giwa.io/tx/0xc055180f0ee09fd48b088e66efbe01be1d3e18b0be161ec9b73572c1084ed3e6) |
 | V3PoolDeployer | UUPS proxy | [`0xB4cBF62905D297bc7a6b61D4985F5345Cdc7232a`](https://sepolia-explorer.giwa.io/address/0xB4cBF62905D297bc7a6b61D4985F5345Cdc7232a) | [`0xb436…f04c`](https://sepolia-explorer.giwa.io/tx/0xb436aac0bcf86bc0573f7a92b9a17f9ab6336b6dd8d0f3c302c6acb540e6f04c) |
 | BondingCurve | UUPS proxy | [`0x852716437D0e67e8BbaF4c8282C26b7941DD16E9`](https://sepolia-explorer.giwa.io/address/0x852716437D0e67e8BbaF4c8282C26b7941DD16E9) | [`0x2d75…2392`](https://sepolia-explorer.giwa.io/tx/0x2d755d985a881ed9f32d4446bda9d5818aef51cf02b924a05e661b59e6872392) |
-| GiwaRouter | UUPS proxy | [`0x6139848625B395C4e2C347ED6C083dE2077Fb07b`](https://sepolia-explorer.giwa.io/address/0x6139848625B395C4e2C347ED6C083dE2077Fb07b) | [`0xb9d3…9bbb`](https://sepolia-explorer.giwa.io/tx/0xb9d3678783131bcdc515b465a08f0bacb9da2af8d6ae3e5667169f9298229bbb) |
+| YachaRouter | UUPS proxy | [`0x733132B6f0FEbd58D062f61657F1b3dbb2aDEB5A`](https://sepolia-explorer.giwa.io/address/0x733132B6f0FEbd58D062f61657F1b3dbb2aDEB5A) | [`0x0dc0…1bd1`](https://sepolia-explorer.giwa.io/tx/0x0dc009e2ba7fec0c25ed6c673f108f093517584ac86f549a019dfa7b68681bd1) |
 | VaultRegistry | UUPS proxy | [`0x552239751E29260AfC8402bDc1099bcfD5e591f2`](https://sepolia-explorer.giwa.io/address/0x552239751E29260AfC8402bDc1099bcfD5e591f2) | [`0x2aec…03a9`](https://sepolia-explorer.giwa.io/tx/0x2aec0acab32337d121dcb5cafbaef57a1944aaa5307bd49cdb9660be6e2b03a9) |
 | CreatorFeeVault | UUPS proxy | [`0xA101f5653e5cD45bBB7158606391dc2a893090d7`](https://sepolia-explorer.giwa.io/address/0xA101f5653e5cD45bBB7158606391dc2a893090d7) | [`0xb01e…c70f`](https://sepolia-explorer.giwa.io/tx/0xb01e509ff7ed8fd5566db1660e44838a5b10d59585462183b46e28328d32c70f) |
-| Lens | Immutable integration | [`0x9f86fB3Cd9aBd4E0E2d9B7B42E16B01D478e2DD6`](https://sepolia-explorer.giwa.io/address/0x9f86fB3Cd9aBd4E0E2d9B7B42E16B01D478e2DD6) | [`0x8b71…7125`](https://sepolia-explorer.giwa.io/tx/0x8b71ef1003fec135ea7cd28ce915b96fb3fe10c189a09f3923e789f4e9d17125) |
+| Lens | Immutable integration | [`0x198BdbC54B7abaFc3f781d958e2b9E935064305C`](https://sepolia-explorer.giwa.io/address/0x198BdbC54B7abaFc3f781d958e2b9E935064305C) | [`0xa261…65dd`](https://sepolia-explorer.giwa.io/tx/0xa261979c211b54d634fbe4b22ffd39ba515f03a7e9be73239c671d8de42865dd) |
 
 #### Implementation and auxiliary addresses
 
@@ -230,19 +240,37 @@ Implementation addresses are listed separately for upgrade and deployment auditi
 | TokenRegistry | Implementation | [`0x13cd48F5B53efd2DE08e5534734Eda50f1Bd8332`](https://sepolia-explorer.giwa.io/address/0x13cd48F5B53efd2DE08e5534734Eda50f1Bd8332) | [`0xe457…8f7d`](https://sepolia-explorer.giwa.io/tx/0xe4573c21ae589287abc9bca90160907cfdc6efab5e0e38cb509d559e27fc8f7d) |
 | CreatorFeeProcessor | Standalone | [`0xDfD7a91438B35Ea94C8EAB89c0EE4fFf13E55969`](https://sepolia-explorer.giwa.io/address/0xDfD7a91438B35Ea94C8EAB89c0EE4fFf13E55969) | [`0xe2b6…9490`](https://sepolia-explorer.giwa.io/tx/0xe2b6ed244b1536724c502369ef5162f3673b5b3b198e75ebf32f7afbd73a9490) |
 | V3SwapAdapter | Standalone | [`0x7e2E8492C0E3C8fF56920CDa02D7D37c60485852`](https://sepolia-explorer.giwa.io/address/0x7e2E8492C0E3C8fF56920CDa02D7D37c60485852) | [`0xee96…af49`](https://sepolia-explorer.giwa.io/tx/0xee96099f247f1bd68936aa71b04d208817c7cb592f53476477aec7a693f6af49) |
-| LPManager | Implementation | [`0x5de5a8e8bFbE23578808d29E37BDdF38306DEC12`](https://sepolia-explorer.giwa.io/address/0x5de5a8e8bFbE23578808d29E37BDdF38306DEC12) | [`0x316f…7176`](https://sepolia-explorer.giwa.io/tx/0x316f926ec50192eb002560070666df7897091662867f9b98b2517be9a8ed7176) |
+| LPManager | Implementation | [`0x158F477345cd2B26efC087F0Cc42f5ce76732E8F`](https://sepolia-explorer.giwa.io/address/0x158F477345cd2B26efC087F0Cc42f5ce76732E8F) | [`0xf911…0027`](https://sepolia-explorer.giwa.io/tx/0xf911a16212d9e48767e5c56459049810b253f9d776cbcbe6631dc68c625c0027) |
 | V3PoolDeployer | Implementation | [`0x034709910cf31ffb318316FA7EdBAc6a18EC77DA`](https://sepolia-explorer.giwa.io/address/0x034709910cf31ffb318316FA7EdBAc6a18EC77DA) | [`0x7aea…62de`](https://sepolia-explorer.giwa.io/tx/0x7aeac0dbc13bf2d765699e58188d52c7418bf0cd09a57ffa7390ba05953062de) |
 | V3LiquidityActor | Standalone | [`0x9685d85f92dcaC12802B367807352A0afFA5a466`](https://sepolia-explorer.giwa.io/address/0x9685d85f92dcaC12802B367807352A0afFA5a466) | [`0xa6c3…e300`](https://sepolia-explorer.giwa.io/tx/0xa6c36befab4d1a13d239bfa11dadc439389b64aab4266704f4859bc7670ce300) |
 | Token | EIP-1167 clone implementation | [`0xf5f8C3707f278E15Ad7a9Dc0255C42757AeC0b46`](https://sepolia-explorer.giwa.io/address/0xf5f8C3707f278E15Ad7a9Dc0255C42757AeC0b46) | [`0x3f1f…40a9`](https://sepolia-explorer.giwa.io/tx/0x3f1f5032a868cc65de1d44d2df3041b2076a511c12d1ed066c653e01c00d40a9) |
 | BondingCurve | Implementation | [`0xED770A987C645f76DC0f3eBf31b12bc8c2CE8384`](https://sepolia-explorer.giwa.io/address/0xED770A987C645f76DC0f3eBf31b12bc8c2CE8384) | [`0x88cb…c840`](https://sepolia-explorer.giwa.io/tx/0x88cbe28cc503ba04593d90b0a87517049d5fd491c7dceecea6dc96baeeb3c840) |
 | QuoterV2 | Standalone | [`0x38783f78C81E55F73bA7e09f9462CBb994ae9ead`](https://sepolia-explorer.giwa.io/address/0x38783f78C81E55F73bA7e09f9462CBb994ae9ead) | [`0xd4ea…e0ac`](https://sepolia-explorer.giwa.io/tx/0xd4ea321862d0c833f121834c4965a4bcdd2ddc1c3acaf87b8c74a09f4da3e0ac) |
-| GiwaRouter | Implementation | [`0x693a0837FE5Dc1F71DeFdF17c15c9eb655b3b09D`](https://sepolia-explorer.giwa.io/address/0x693a0837FE5Dc1F71DeFdF17c15c9eb655b3b09D) | [`0xd2c8…7a8c`](https://sepolia-explorer.giwa.io/tx/0xd2c8e4d413b67f33368a2e125d212793ecbf70a787ca5a21fd9121790daa7a8c) |
+| YachaRouter | Implementation | [`0xD69eD80ac8FB5064176fa3714BB6bce5A0E806E9`](https://sepolia-explorer.giwa.io/address/0xD69eD80ac8FB5064176fa3714BB6bce5A0E806E9) | [`0x5df6…044d`](https://sepolia-explorer.giwa.io/tx/0x5df6e145c46e296ef1bc0ecb26dcbd678c91d6393014f79acf1c3e4710d0044d) |
 | VaultRegistry | Implementation | [`0x40c126f92DAD5C26D3b36aA7F2A949265FA534cB`](https://sepolia-explorer.giwa.io/address/0x40c126f92DAD5C26D3b36aA7F2A949265FA534cB) | [`0xf36f…1e70`](https://sepolia-explorer.giwa.io/tx/0xf36f1996dfe46525db40aa44462e97a5d79a4963b9c73cf1d00ac12673251e70) |
 | CreatorFeeVault | Implementation | [`0x21A3455b170FD35b7089216791D72bDD2dbf9E53`](https://sepolia-explorer.giwa.io/address/0x21A3455b170FD35b7089216791D72bDD2dbf9E53) | [`0xf602…a986`](https://sepolia-explorer.giwa.io/tx/0xf602c2fdb5afe66d573a54cb1ccf6e28aa6a965831661e5bfd8771358355a986) |
 
 These tables cover the contracts created by the current GIWA Sepolia V3 deployment
-plus the canonical WNATIVE predeploy reused by the protocol. Legacy mainnet Safe batches
+plus the canonical WNATIVE predeploy reused by the protocol. Earlier mainnet Safe batches
 under `deploy/` are separate operational artifacts and are not part of this deployment.
+
+The previous router proxy
+[`0x6139848625B395C4e2C347ED6C083dE2077Fb07b`](https://sepolia-explorer.giwa.io/address/0x6139848625B395C4e2C347ED6C083dE2077Fb07b)
+no longer has `BondingCurve.ROUTER_ROLE`. Its permissionless post-graduation V3 paths remain
+callable, but the YachaRouter and Lens addresses above are the canonical integration surface.
+
+#### Latest upgrade and router-cutover transactions
+
+| Operation | Transaction |
+| --- | --- |
+| LPManager proxy upgrade | [`0x673d…1e86`](https://sepolia-explorer.giwa.io/tx/0x673d7838b961910e562dbc24c6e0e87cf1f0ad2da6eb8ad4ea3e8f11f6371e86) |
+| Grant new YachaRouter curve role | [`0x262a…eb43`](https://sepolia-explorer.giwa.io/tx/0x262aa7edaeef0650a2ffbf36637060766ca8ba46bad9cf08ca9a891fd730eb43) |
+| Revoke previous router curve role | [`0xbc2f…134e`](https://sepolia-explorer.giwa.io/tx/0xbc2fce67c0e44cc7c8aa9b60010c0b0d9a0988ac7d1b8ef99a3c6560615f134e) |
+
+Explorer source verification is confirmed for the current LPManager implementation and for both
+the YachaRouter ERC1967 proxy and its implementation. Lens source verification is pending because
+the explorer's Cloudflare layer rejected the verification submission; this does not affect the
+confirmed Lens deployment or wiring.
 
 The V3 factory is deployed separately, then passed to the protocol deployment.
 
@@ -255,14 +283,32 @@ forge script script/deploy/normal/DeployV3Factory.s.sol \
 forge script script/deploy/normal/Deploy.s.sol \
   --rpc-url "$RPC_URL" --broadcast
 
-# 3. Deploy the immutable lifecycle Lens against the GiwaRouter proxy
+# 3. Deploy the immutable lifecycle Lens against the YachaRouter proxy
 forge script script/deploy/normal/DeployLens.s.sol:DeployLens \
   --rpc-url "$RPC_URL" --broadcast
 ```
 
+For a router-only replacement on an existing deployment, use the resumable order:
+
+```shell
+# Deploy an initialized proxy without changing live roles.
+forge script script/deploy/normal/DeployYachaRouter.s.sol:DeployYachaRouter \
+  --rpc-url "$RPC_URL" --broadcast --slow
+
+# Grant the new router while retaining the previous router.
+forge script script/deploy/normal/MigrateYachaRouterRole.s.sol:GrantYachaRouterRole \
+  --rpc-url "$RPC_URL" --broadcast --slow
+
+# Deploy and verify Lens against YACHA_ROUTER, then retire the previous curve router.
+forge script script/deploy/normal/DeployLens.s.sol:DeployLens \
+  --rpc-url "$RPC_URL" --broadcast --slow
+forge script script/deploy/normal/MigrateYachaRouterRole.s.sol:RevokePreviousRouterRole \
+  --rpc-url "$RPC_URL" --broadcast --slow
+```
+
 The main deployment reuses the chain's canonical wrapped-native token, deploys the V3-only launch stack, registers only `CreatorFeeVault`, applies selector permissions, and transfers final administration to `MULTISIG`. Operational values are supplied through the local environment; never commit private keys or environment files.
 
-The Lens deployment requires `CHAIN_ID`, `PRIVATE_KEY`, `DEPLOYER`, `GIWA_ROUTER`,
+The Lens deployment requires `CHAIN_ID`, `PRIVATE_KEY`, `DEPLOYER`, `YACHA_ROUTER`,
 `BONDING_CURVE`, `TOKEN_REGISTRY`, and `PROTOCOL_MANAGER`. The script validates the
 chain, signer, Router proxy implementation, independently supplied dependencies, and
 the deployed Lens wiring before reporting the new address.
@@ -278,4 +324,4 @@ the deployed Lens wiring before reporting the new address.
 - **Selector-scoped authority** — Administrative and operational calls are restricted through BondingCurve roles or `ProtocolManager.canCall()`.
 - **Native-token guards** — Native value is accepted only on the configured wrapped-native paths and excess call-scoped value is refunded without sweeping existing balances.
 
-API references: [GiwaRouter](docs/contracts/en/router/GiwaRouter.md), [IGiwaRouter](docs/contracts/en/interfaces/IGiwaRouter.md), [LPManager](docs/contracts/en/core/LPManager.md), [ProtocolManager](docs/contracts/en/core/ProtocolManager.md), and [V3SwapAdapter](docs/contracts/en/adapters/V3SwapAdapter.md).
+API references: [YachaRouter](docs/contracts/en/router/YachaRouter.md), [IYachaRouter](docs/contracts/en/interfaces/IYachaRouter.md), [LPManager](docs/contracts/en/core/LPManager.md), [ProtocolManager](docs/contracts/en/core/ProtocolManager.md), and [V3SwapAdapter](docs/contracts/en/adapters/V3SwapAdapter.md).

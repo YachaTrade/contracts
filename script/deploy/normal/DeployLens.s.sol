@@ -5,12 +5,12 @@ import {Script, console} from "forge-std/Script.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {IAccessManaged} from "@openzeppelin/contracts/access/manager/IAccessManaged.sol";
 
-import {IGiwaRouter} from "../../../src/interfaces/IGiwaRouter.sol";
+import {IYachaRouter} from "../../../src/interfaces/IYachaRouter.sol";
 import {Lens} from "../../../src/lens/Lens.sol";
 
 /// @title DeployLens
-/// @notice Deploys the immutable lifecycle-aware Lens against an existing canonical GiwaRouter proxy.
-/// @dev Required env: CHAIN_ID, PRIVATE_KEY, DEPLOYER, GIWA_ROUTER, BONDING_CURVE,
+/// @notice Deploys the immutable lifecycle-aware Lens against an existing canonical YachaRouter proxy.
+/// @dev Required env: CHAIN_ID, PRIVATE_KEY, DEPLOYER, YACHA_ROUTER, BONDING_CURVE,
 ///      TOKEN_REGISTRY, and PROTOCOL_MANAGER.
 contract DeployLens is Script {
     bytes32 internal constant IMPL_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
@@ -19,7 +19,7 @@ contract DeployLens is Script {
     function run() external returns (address lensAddress) {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         address deployerEnv = vm.envAddress("DEPLOYER");
-        address giwaRouter = vm.envAddress("GIWA_ROUTER");
+        address yachaRouter = vm.envAddress("YACHA_ROUTER");
         address bondingCurve = vm.envAddress("BONDING_CURVE");
         address tokenRegistry = vm.envAddress("TOKEN_REGISTRY");
         address protocolManager = vm.envAddress("PROTOCOL_MANAGER");
@@ -27,7 +27,7 @@ contract DeployLens is Script {
         _validateInputs(
             deployerPrivateKey,
             deployerEnv,
-            giwaRouter,
+            yachaRouter,
             bondingCurve,
             tokenRegistry,
             protocolManager,
@@ -35,17 +35,17 @@ contract DeployLens is Script {
         );
 
         vm.startBroadcast(deployerPrivateKey);
-        Lens lens = _deployLens(giwaRouter);
+        Lens lens = _deployLens(yachaRouter);
         vm.stopBroadcast();
 
         lensAddress = address(lens);
-        _verifyLens(lens, giwaRouter, bondingCurve, tokenRegistry, protocolManager);
+        _verifyLens(lens, yachaRouter, bondingCurve, tokenRegistry, protocolManager);
 
         console.log("========================================");
         console.log("GIWA Lens deployment complete!");
         console.log("========================================");
         console.log(string.concat("LENS=\"", vm.toString(lensAddress), "\""));
-        console.log("GIWA_ROUTER:", giwaRouter);
+        console.log("YACHA_ROUTER:", yachaRouter);
         console.log("BONDING_CURVE:", lens.curve());
         console.log("TOKEN_REGISTRY:", lens.tokenRegistry());
         console.log("PROTOCOL_MANAGER:", protocolManager);
@@ -55,7 +55,7 @@ contract DeployLens is Script {
     function _validateInputs(
         uint256 deployerPrivateKey,
         address deployer,
-        address giwaRouter,
+        address yachaRouter,
         address bondingCurve,
         address tokenRegistry,
         address protocolManager,
@@ -63,54 +63,55 @@ contract DeployLens is Script {
     ) internal view {
         require(block.chainid == chainId, "DeployLens: CHAIN_ID mismatch");
         require(vm.addr(deployerPrivateKey) == deployer, "DeployLens: PRIVATE_KEY does not match DEPLOYER env");
-        require(giwaRouter.code.length > 0, "DeployLens: GIWA_ROUTER missing code");
+        require(yachaRouter.code.length > 0, "DeployLens: YACHA_ROUTER missing code");
         require(bondingCurve.code.length > 0, "DeployLens: BONDING_CURVE missing code");
         require(tokenRegistry.code.length > 0, "DeployLens: TOKEN_REGISTRY missing code");
         require(protocolManager.code.length > 0, "DeployLens: PROTOCOL_MANAGER missing code");
-        require(_readImplementation(giwaRouter).code.length > 0, "DeployLens: GIWA_ROUTER is not an ERC1967 proxy");
-        _requireRouterDependencies(giwaRouter, bondingCurve, tokenRegistry, protocolManager);
+        require(_readImplementation(yachaRouter).code.length > 0, "DeployLens: YACHA_ROUTER is not an ERC1967 proxy");
+        _requireRouterDependencies(yachaRouter, bondingCurve, tokenRegistry, protocolManager);
     }
 
-    function _deployLens(address giwaRouter) internal returns (Lens lens) {
-        lens = new Lens(giwaRouter);
+    function _deployLens(address yachaRouter) internal returns (Lens lens) {
+        lens = new Lens(yachaRouter);
     }
 
     function _verifyLens(
         Lens lens,
-        address giwaRouter,
+        address yachaRouter,
         address bondingCurve,
         address tokenRegistry,
         address protocolManager
     ) internal view {
         require(address(lens).code.length > 0, "DeployLens: Lens missing code");
-        require(address(lens.giwaRouter()) == giwaRouter, "DeployLens: router mismatch");
-        require(lens.curveRouter() == giwaRouter, "DeployLens: curve router mismatch");
-        require(lens.dexRouter() == giwaRouter, "DeployLens: dex router mismatch");
+        require(address(lens.yachaRouter()) == yachaRouter, "DeployLens: router mismatch");
+        require(lens.curveRouter() == yachaRouter, "DeployLens: curve router mismatch");
+        require(lens.dexRouter() == yachaRouter, "DeployLens: dex router mismatch");
         require(lens.curve() == bondingCurve, "DeployLens: Lens BONDING_CURVE mismatch");
         require(lens.tokenRegistry() == tokenRegistry, "DeployLens: Lens TOKEN_REGISTRY mismatch");
-        _requireRouterDependencies(giwaRouter, bondingCurve, tokenRegistry, protocolManager);
+        _requireRouterDependencies(yachaRouter, bondingCurve, tokenRegistry, protocolManager);
     }
 
     function _requireRouterDependencies(
-        address giwaRouter,
+        address yachaRouter,
         address bondingCurve,
         address tokenRegistry,
         address protocolManager
     ) internal view {
         require(
-            _readAddressSelector(giwaRouter, IGiwaRouter.bondingCurve.selector) == bondingCurve,
+            _readAddressSelector(yachaRouter, IYachaRouter.bondingCurve.selector) == bondingCurve,
             "DeployLens: BONDING_CURVE mismatch"
         );
         require(
-            _readAddressSelector(giwaRouter, IGiwaRouter.tokenRegistry.selector) == tokenRegistry,
+            _readAddressSelector(yachaRouter, IYachaRouter.tokenRegistry.selector) == tokenRegistry,
             "DeployLens: TOKEN_REGISTRY mismatch"
         );
         require(
-            _readAddressSelector(giwaRouter, IAccessManaged.authority.selector) == protocolManager,
+            _readAddressSelector(yachaRouter, IAccessManaged.authority.selector) == protocolManager,
             "DeployLens: PROTOCOL_MANAGER mismatch"
         );
         require(
-            IAccessControl(bondingCurve).hasRole(ROUTER_ROLE, giwaRouter), "DeployLens: GIWA_ROUTER missing curve role"
+            IAccessControl(bondingCurve).hasRole(ROUTER_ROLE, yachaRouter),
+            "DeployLens: YACHA_ROUTER missing curve role"
         );
     }
 

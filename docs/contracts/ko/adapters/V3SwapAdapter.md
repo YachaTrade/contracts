@@ -73,6 +73,6 @@ factory와 registry는 bytecode immutable이며 스토리지 슬롯이 아니다
 
 ## 관련 문서
 
-- [IGiwaRouter](../interfaces/IGiwaRouter.md)
-- [GiwaRouter](../router/GiwaRouter.md)
+- [IYachaRouter](../interfaces/IYachaRouter.md)
+- [YachaRouter](../router/YachaRouter.md)
 - [프로토콜 흐름](../../../PROTOCOL_FLOW.ko.md)

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-/// @notice Test suite for GiwaRouterCreate.
+/// @notice Test suite for YachaRouterCreate.
 
 import {SetUp} from "../SetUp.t.sol";
 import {IBondingCurve} from "../../src/interfaces/IBondingCurve.sol";
-import {GiwaRouter} from "../../src/router/GiwaRouter.sol";
-import {IGiwaRouter} from "../../src/interfaces/IGiwaRouter.sol";
+import {YachaRouter} from "../../src/router/YachaRouter.sol";
+import {IYachaRouter} from "../../src/interfaces/IYachaRouter.sol";
 import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockWrappedNative} from "../mocks/MockWrappedNative.sol";
@@ -14,7 +14,7 @@ import {MockFeeOnTransferERC20} from "../mocks/MockFeeOnTransferERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-contract GiwaRouterCreateTest is SetUp {
+contract YachaRouterCreateTest is SetUp {
     MockERC20 lvmon;
     address vault;
 
@@ -50,14 +50,14 @@ contract GiwaRouterCreateTest is SetUp {
         );
         protocolManager.setV3QuoteConfig(address(lvmon), DEFAULT_V3_FEE_TIER, DEFAULT_LP_FEE_PROTOCOL_SHARE_BPS);
 
-        // Deploy GiwaRouter (UUPS proxy)
-        GiwaRouter routerImpl = new GiwaRouter();
-        giwaRouter = GiwaRouter(
+        // Deploy YachaRouter (UUPS proxy)
+        YachaRouter routerImpl = new YachaRouter();
+        yachaRouter = YachaRouter(
             payable(address(
                     new ERC1967Proxy(
                         address(routerImpl),
                         abi.encodeCall(
-                            GiwaRouter.initialize,
+                            YachaRouter.initialize,
                             (
                                 address(protocolManager),
                                 address(bondingCurve),
@@ -71,31 +71,31 @@ contract GiwaRouterCreateTest is SetUp {
                 ))
         );
 
-        bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), address(giwaRouter));
+        bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), address(yachaRouter));
         vm.stopPrank();
 
         vm.deal(address(wnative), 1000 ether);
     }
 
     function test_create_withInitialBuy() public {
-        IGiwaRouter.CreateParams memory params = _createParams(1 ether);
+        IYachaRouter.CreateParams memory params = _createParams(1 ether);
 
         uint256 totalQuote = protocolManager.deployFee(address(wnative)) + 1 ether;
         wnative.mint(user1, totalQuote);
         vm.prank(user1);
-        wnative.approve(address(giwaRouter), totalQuote);
+        wnative.approve(address(yachaRouter), totalQuote);
 
         vm.prank(user1);
-        (address token, uint256 tokenOut) = giwaRouter.create(params);
+        (address token, uint256 tokenOut) = yachaRouter.create(params);
 
         assertTrue(token != address(0), "Token should be created");
         assertGt(tokenOut, 0, "Should receive tokens");
         assertEq(IERC20(token).balanceOf(user1), tokenOut, "Balance should match");
-        assertEq(wnative.allowance(address(giwaRouter), address(bondingCurve)), 0, "Curve allowance reset");
+        assertEq(wnative.allowance(address(yachaRouter), address(bondingCurve)), 0, "Curve allowance reset");
     }
 
     function test_createWithNative() public {
-        IGiwaRouter.CreateParams memory params = _createParams(1 ether);
+        IYachaRouter.CreateParams memory params = _createParams(1 ether);
         params.salt = keccak256("nativeCreate");
 
         uint256 deployFee = protocolManager.deployFee(address(wnative));
@@ -103,14 +103,14 @@ contract GiwaRouterCreateTest is SetUp {
         vm.deal(user1, totalRequired);
 
         vm.prank(user1);
-        (address token, uint256 tokenOut) = giwaRouter.createWithNative{value: totalRequired}(params);
+        (address token, uint256 tokenOut) = yachaRouter.createWithNative{value: totalRequired}(params);
 
         assertTrue(token != address(0), "Token should be created");
         assertGt(tokenOut, 0, "Should receive tokens");
     }
 
     function test_create_lvmonQuote_withErc20_succeeds() public {
-        IGiwaRouter.CreateParams memory params = _createParams(1 ether);
+        IYachaRouter.CreateParams memory params = _createParams(1 ether);
         params.quoteToken = address(lvmon);
         params.salt = keccak256("erc20CreateLvmon");
 
@@ -119,19 +119,19 @@ contract GiwaRouterCreateTest is SetUp {
         lvmon.mint(user1, quoteRequired);
 
         vm.startPrank(user1);
-        lvmon.approve(address(giwaRouter), quoteRequired);
-        (address token, uint256 tokenOut) = giwaRouter.create(params);
+        lvmon.approve(address(yachaRouter), quoteRequired);
+        (address token, uint256 tokenOut) = yachaRouter.create(params);
         vm.stopPrank();
 
         assertTrue(token != address(0), "Token should be created");
         assertGt(tokenOut, 0, "Should receive tokens");
         assertEq(bondingCurve.getCurve(token).quoteToken, address(lvmon), "Curve quote should be LVMON");
         assertEq(tokenRegistry.getQuoteToken(token), address(lvmon), "Registry quote should be LVMON");
-        assertEq(lvmon.balanceOf(address(giwaRouter)), 0, "Router should hold no LVMON");
+        assertEq(lvmon.balanceOf(address(yachaRouter)), 0, "Router should hold no LVMON");
     }
 
     function test_createWithNative_lvmonQuote_reverts() public {
-        IGiwaRouter.CreateParams memory params = _createParams(1 ether);
+        IYachaRouter.CreateParams memory params = _createParams(1 ether);
         params.quoteToken = address(lvmon);
         params.salt = keccak256("nativeCreateLvmon");
 
@@ -139,37 +139,37 @@ contract GiwaRouterCreateTest is SetUp {
         vm.deal(user1, quoteRequired);
 
         vm.prank(user1);
-        vm.expectRevert(IGiwaRouter.InvalidNativeQuoteToken.selector);
-        giwaRouter.createWithNative{value: quoteRequired}(params);
+        vm.expectRevert(IYachaRouter.InvalidNativeQuoteToken.selector);
+        yachaRouter.createWithNative{value: quoteRequired}(params);
     }
 
     function test_create_creatorIsUser_notRouter() public {
-        IGiwaRouter.CreateParams memory params = _createParams(1 ether);
+        IYachaRouter.CreateParams memory params = _createParams(1 ether);
         params.salt = keccak256("creatorCheck");
 
         uint256 totalQuote = protocolManager.deployFee(address(wnative)) + 1 ether;
         wnative.mint(user1, totalQuote);
         vm.prank(user1);
-        wnative.approve(address(giwaRouter), totalQuote);
+        wnative.approve(address(yachaRouter), totalQuote);
 
         vm.prank(user1);
-        (address token,) = giwaRouter.create(params);
+        (address token,) = yachaRouter.create(params);
 
         IBondingCurve.Curve memory curve = bondingCurve.getCurve(token);
-        assertEq(curve.creator, user1, "Creator should be user1, not giwaRouter");
+        assertEq(curve.creator, user1, "Creator should be user1, not yachaRouter");
     }
 
     function test_create_only() public {
-        IGiwaRouter.CreateParams memory params = _createParams(0);
+        IYachaRouter.CreateParams memory params = _createParams(0);
         params.salt = keccak256("createOnly");
 
         uint256 deployFee = protocolManager.deployFee(address(wnative));
         wnative.mint(user1, deployFee);
         vm.prank(user1);
-        wnative.approve(address(giwaRouter), deployFee);
+        wnative.approve(address(yachaRouter), deployFee);
 
         vm.prank(user1);
-        (address token, uint256 tokenOut) = giwaRouter.create(params);
+        (address token, uint256 tokenOut) = yachaRouter.create(params);
 
         assertTrue(token != address(0), "Token should be created");
         assertEq(tokenOut, 0, "Should receive no tokens");
@@ -180,20 +180,20 @@ contract GiwaRouterCreateTest is SetUp {
         uint256 curveDonation = 3 ether;
         uint256 routerDonation = 5 ether;
 
-        IGiwaRouter.CreateParams memory prefundedParams = _createParams(buyQuoteAmount);
+        IYachaRouter.CreateParams memory prefundedParams = _createParams(buyQuoteAmount);
         prefundedParams.salt = keccak256("prefunded-create");
 
         wnative.mint(user2, curveDonation + routerDonation);
         vm.prank(user2);
         wnative.transfer(address(bondingCurve), curveDonation);
         vm.prank(user2);
-        wnative.transfer(address(giwaRouter), routerDonation);
+        wnative.transfer(address(yachaRouter), routerDonation);
 
         uint256 feeReceiverBeforePrefunded = wnative.balanceOf(feeReceiver);
         (address prefundedToken, uint256 prefundedTokenOut) = _createViaRouter(user1, prefundedParams);
         uint256 feeReceiverDeltaPrefunded = wnative.balanceOf(feeReceiver) - feeReceiverBeforePrefunded;
 
-        IGiwaRouter.CreateParams memory cleanParams = _createParams(buyQuoteAmount);
+        IYachaRouter.CreateParams memory cleanParams = _createParams(buyQuoteAmount);
         cleanParams.salt = keccak256("clean-create");
 
         uint256 feeReceiverBeforeClean = wnative.balanceOf(feeReceiver);
@@ -207,7 +207,7 @@ contract GiwaRouterCreateTest is SetUp {
             curveDonation,
             "curve donation remains"
         );
-        assertEq(wnative.balanceOf(address(giwaRouter)), routerDonation, "router donation remains");
+        assertEq(wnative.balanceOf(address(yachaRouter)), routerDonation, "router donation remains");
     }
 
     function test_create_taxedQuoteInputRevertsAndRollsBack() public {
@@ -226,19 +226,19 @@ contract GiwaRouterCreateTest is SetUp {
         protocolManager.setV3QuoteConfig(address(taxedQuote), DEFAULT_V3_FEE_TIER, DEFAULT_LP_FEE_PROTOCOL_SHARE_BPS);
         vm.stopPrank();
 
-        IGiwaRouter.CreateParams memory params = _createParams(1 ether);
+        IYachaRouter.CreateParams memory params = _createParams(1 ether);
         params.quoteToken = address(taxedQuote);
         params.salt = keccak256("taxed-create");
         uint256 quoteRequired = defaultDeployFee + params.buyQuoteAmount;
         taxedQuote.mint(user1, quoteRequired);
         vm.startPrank(user1);
-        taxedQuote.approve(address(giwaRouter), quoteRequired);
-        vm.expectPartialRevert(IGiwaRouter.InvalidBalanceDelta.selector);
-        giwaRouter.create(params);
+        taxedQuote.approve(address(yachaRouter), quoteRequired);
+        vm.expectPartialRevert(IYachaRouter.InvalidBalanceDelta.selector);
+        yachaRouter.create(params);
         vm.stopPrank();
 
         assertEq(taxedQuote.balanceOf(user1), quoteRequired, "failed exact pull rolls back payer balance");
-        assertEq(taxedQuote.balanceOf(address(giwaRouter)), 0, "failed exact pull leaves no router residue");
+        assertEq(taxedQuote.balanceOf(address(yachaRouter)), 0, "failed exact pull leaves no router residue");
     }
 
     function _trackedQuote(address token) internal view returns (uint256) {
@@ -246,31 +246,31 @@ contract GiwaRouterCreateTest is SetUp {
         return curve.virtualQuoteReserve - curve.initialQuoteReserve;
     }
 
-    function _createViaRouter(address caller, IGiwaRouter.CreateParams memory params)
+    function _createViaRouter(address caller, IYachaRouter.CreateParams memory params)
         internal
         returns (address token, uint256 tokenOut)
     {
         uint256 totalQuote = protocolManager.deployFee(address(wnative)) + params.buyQuoteAmount;
         wnative.mint(caller, totalQuote);
         vm.prank(caller);
-        wnative.approve(address(giwaRouter), totalQuote);
+        wnative.approve(address(yachaRouter), totalQuote);
 
         vm.prank(caller);
-        (token, tokenOut) = giwaRouter.create(params);
+        (token, tokenOut) = yachaRouter.create(params);
     }
 
-    function _createParams(uint256 buyQuoteAmount) internal view returns (IGiwaRouter.CreateParams memory params) {
+    function _createParams(uint256 buyQuoteAmount) internal view returns (IYachaRouter.CreateParams memory params) {
         IBondingCurve.VaultAllocation[] memory vaults = new IBondingCurve.VaultAllocation[](1);
         vaults[0] =
             IBondingCurve.VaultAllocation({vault: address(creatorFeeVault), bps: 10000, setupData: abi.encode(vault)});
 
-        params = IGiwaRouter.CreateParams({
+        params = IYachaRouter.CreateParams({
             name: "NadFunCreate",
             symbol: "NFC",
             tokenURI: "",
             quoteToken: address(wnative),
             vaults: vaults,
-            salt: keccak256("giwaRouterCreate"),
+            salt: keccak256("yachaRouterCreate"),
             dexType: ITokenRegistry.DexType.UniswapV3,
             buyQuoteAmount: buyQuoteAmount,
             deadline: block.timestamp + 1

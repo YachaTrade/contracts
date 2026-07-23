@@ -13,8 +13,8 @@ import {ITokenRegistry} from "../src/interfaces/ITokenRegistry.sol";
 import {LPManager} from "../src/core/LPManager.sol";
 import {V3PoolDeployer} from "../src/core/V3PoolDeployer.sol";
 import {V3LiquidityActor} from "../src/actors/V3LiquidityActor.sol";
-import {GiwaRouter} from "../src/router/GiwaRouter.sol";
-import {IGiwaRouter} from "../src/interfaces/IGiwaRouter.sol";
+import {YachaRouter} from "../src/router/YachaRouter.sol";
+import {IYachaRouter} from "../src/interfaces/IYachaRouter.sol";
 import {IBondingCurve} from "../src/interfaces/IBondingCurve.sol";
 
 // DEX
@@ -61,7 +61,7 @@ contract SetUp is Test {
     V3LiquidityActor public v3LiquidityActor;
 
     // -- Router ---------------------------------------------------
-    GiwaRouter public giwaRouter;
+    YachaRouter public yachaRouter;
 
     // -- Token ----------------------------------------------------
     Token public tokenImpl;
@@ -193,15 +193,15 @@ contract SetUp is Test {
                 ))
         );
 
-        // 9. GiwaRouter (UUPS proxy)
+        // 9. YachaRouter (UUPS proxy)
         quoterV2 = new QuoterV2(address(v3Factory), address(wnative));
-        GiwaRouter giwaRouterImpl = new GiwaRouter();
-        giwaRouter = GiwaRouter(
+        YachaRouter yachaRouterImpl = new YachaRouter();
+        yachaRouter = YachaRouter(
             payable(address(
                     new ERC1967Proxy(
-                        address(giwaRouterImpl),
+                        address(yachaRouterImpl),
                         abi.encodeCall(
-                            GiwaRouter.initialize,
+                            YachaRouter.initialize,
                             (
                                 address(protocolManager),
                                 address(bondingCurve),
@@ -274,8 +274,8 @@ contract SetUp is Test {
         // Tests act as the V3 fee collector keeper.
         protocolManager.setOperatorPermission(address(this), address(lpManager), LPManager.collect.selector, true);
 
-        // 15. Grant ROUTER_ROLE to GiwaRouter.
-        bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), address(giwaRouter));
+        // 15. Grant ROUTER_ROLE to YachaRouter.
+        bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), address(yachaRouter));
 
         vm.stopPrank();
 
@@ -389,19 +389,19 @@ contract SetUp is Test {
         });
     }
 
-    // -- Helper: Token Creation (via GiwaRouter) -------------------
+    // -- Helper: Token Creation (via YachaRouter) -------------------
 
-    /// @notice Creates a token with default params via GiwaRouter
+    /// @notice Creates a token with default params via YachaRouter
     function _createToken() internal returns (address token) {
         token = _createViaRouter(_defaultParams(), creator);
     }
 
-    /// @notice Creates a token with custom params via GiwaRouter
+    /// @notice Creates a token with custom params via YachaRouter
     function _createTokenWith(string memory name, string memory symbol, bytes32 salt) internal returns (address token) {
         token = _createViaRouter(_createTokenParams(name, symbol, salt), creator);
     }
 
-    /// @notice Creates a token via GiwaRouter.create() -- deployFee approve + call
+    /// @notice Creates a token via YachaRouter.create() -- deployFee approve + call
     function _createViaRouter(IBondingCurve.CreateTokenParams memory bcParams, address caller)
         internal
         returns (address token)
@@ -410,11 +410,11 @@ contract SetUp is Test {
         if (deployFee > 0) {
             quoteToken.mint(caller, deployFee);
             vm.prank(caller);
-            quoteToken.approve(address(giwaRouter), deployFee);
+            quoteToken.approve(address(yachaRouter), deployFee);
         }
         vm.prank(caller);
-        (token,) = giwaRouter.create(
-            IGiwaRouter.CreateParams({
+        (token,) = yachaRouter.create(
+            IYachaRouter.CreateParams({
                 name: bcParams.name,
                 symbol: bcParams.symbol,
                 tokenURI: "",
@@ -449,10 +449,10 @@ contract SetUp is Test {
     /// @notice Buys tokens on the bonding curve through the Router.
     /// @return tokenOut Amount of tokens received by buyer
     function _buyOnCurve(address buyer, address token, uint256 quote) internal returns (uint256 tokenOut) {
-        _mintAndApprove(buyer, address(giwaRouter), quote);
+        _mintAndApprove(buyer, address(yachaRouter), quote);
         vm.prank(buyer);
-        tokenOut = giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        tokenOut = yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: quote, amountOutMin: 1, token: token, to: buyer, deadline: block.timestamp
             })
         );
@@ -462,9 +462,9 @@ contract SetUp is Test {
     /// @return quoteOut Amount of quoteToken received by seller
     function _sellOnCurve(address seller, address token, uint256 tokenAmount) internal returns (uint256 quoteOut) {
         vm.startPrank(seller);
-        IERC20(token).approve(address(giwaRouter), tokenAmount);
-        quoteOut = giwaRouter.sell(
-            IGiwaRouter.SellParams({
+        IERC20(token).approve(address(yachaRouter), tokenAmount);
+        quoteOut = yachaRouter.sell(
+            IYachaRouter.SellParams({
                 amountIn: tokenAmount, amountOutMin: 1, token: token, to: seller, deadline: block.timestamp
             })
         );
@@ -478,10 +478,10 @@ contract SetUp is Test {
     ///      after the curve protocol fee to cross minTokenReserve and fund graduation liquidity.
     function _graduateToken(address token) internal {
         uint256 graduationAmount = 800_000 ether;
-        _mintAndApprove(user1, address(giwaRouter), graduationAmount);
+        _mintAndApprove(user1, address(yachaRouter), graduationAmount);
         vm.prank(user1);
-        giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: graduationAmount, amountOutMin: 1, token: token, to: user1, deadline: block.timestamp
             })
         );

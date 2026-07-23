@@ -5,7 +5,7 @@
 **Pattern:** UUPS Proxy (Singleton)
 **Inheritance:** `IDividendVault`, `UUPSUpgradeable`, `AccessManagedUpgradeable`, `ReentrancyGuard`
 
-Multi-token dividend distribution vault. Receives creator fee (quoteToken) from CreatorFeeProcessor and **records** the split into 1–10 creator-configured dividend tokens by BPS ratio — the quoteToken slot is credited immediately, every other slice accumulates in `pendingSwap`. An **operator bot converts** pending slices later through explicit hop paths (`executeConversion`) — the single conversion entry point. The **router hop** (`hop.adapter == router`) calls GiwaRouter for bonding-phase or registered canonical-V3 tokens; explicit legacy NadFunPair pools use the `nadSwapAdapter` lane and external markets use the Uniswap adapter lanes. Distribution is unchanged: off-chain snapshot → global Merkle root → holder self-claim. Singleton UUPS proxy deployed once, shared across all tokens.
+Multi-token dividend distribution vault. Receives creator fee (quoteToken) from CreatorFeeProcessor and **records** the split into 1–10 creator-configured dividend tokens by BPS ratio — the quoteToken slot is credited immediately, every other slice accumulates in `pendingSwap`. An **operator bot converts** pending slices later through explicit hop paths (`executeConversion`) — the single conversion entry point. The **router hop** (`hop.adapter == router`) calls YachaRouter for bonding-phase or registered canonical-V3 tokens; external markets use the allowlisted Uniswap adapter lanes. Distribution is unchanged: off-chain snapshot → global Merkle root → holder self-claim. Singleton UUPS proxy deployed once, shared across all tokens.
 
 The contract holds **no routing knowledge**: path construction lives entirely off-chain in the bot. On-chain, the vault only defends — adapter allowlist, path endpoint validation, mid-hop full-consumption guard, real `amountOutMin`, pending-slot bounds, and atomicity.
 
@@ -32,14 +32,13 @@ State variables are grouped in the source under section headers — Protocol wir
 | `tokenRegistryV2` | `ITokenRegistry` | TokenRegistry (V2) for source-quote lookup and dividend-token admission (`setup`) |
 | `creatorFeeProcessor` | `address` | Authorization for `afterDeposit` calls |
 | `bondingCurve` | `address` | Authorization for `setup` calls |
-| `router` | `address` | GiwaRouter — `executeConversion`'s router hop calls `buy` for bonding-phase or registered canonical-V3 tokens. Wired at `initialize`, not a `setAdapters` lane |
+| `router` | `address` | YachaRouter — `executeConversion`'s router hop calls `buy` for bonding-phase or registered canonical-V3 tokens. Wired at `initialize`, not a `setAdapters` lane |
 | `bondingCurveV1` | `IBondingCurveV1` | V1 BondingCurve (`src/integration/interfaces/IBondingCurveV1.sol`) — admission gate source of truth: `createdAt != 0` = V1 membership (survives graduation), `isGraduated` = one-way graduation flag |
-| `nadSwapAdapter` | `IDexAdapter` | Vault-held allowlist lane for general NadFunPair pool hops — vanilla pools (e.g. USDC/WNATIVE) and cross-quote bridge legs the router can't express, since the router only buys nad.fun tokens by address (0 = lane disabled) |
 | `uniswapV2Adapter` | `IDexAdapter` | Vault-held allowlist lane for external Uniswap V2 pair hops (0 = lane disabled) |
 | `uniswapV3Adapter` | `IDexAdapter` | Vault-held allowlist lane for Capricorn CL / Uniswap V3 pool hops (0 = lane disabled) |
 | `wnative` | `address` | WNATIVE singleton used ONLY to unwrap native currency on claim (0 = unwrap disabled) |
 
-> **Two hop kinds, both fund-safe.** `executeConversion` dispatches each hop one of two ways: a **router hop** (`hop.adapter == router`) calls `GiwaRouter.buy` directly — the router is the init-time trusted address, so the equality check is the router-lane allowlist; or an **adapter hop** through one of the three held lanes (`nadSwapAdapter`/`uniswapV2Adapter`/`uniswapV3Adapter`, wired via `setAdapters`), membership-checked before pushing tokens (`UnknownAdapter`). A rogue or mistyped adapter in a bot-supplied path cannot receive funds, and an unset lane cannot match. GiwaRouter is **not** wrapped in `IDexAdapter`: it is a higher-level router with a pull pattern and lifecycle dispatch, so the vault calls it directly. `nadSwapAdapter` handles explicit legacy NadFunPair pools that GiwaRouter's graduated V3 path rejects.
+> **Two hop kinds, both fund-safe.** `executeConversion` dispatches each hop as either a **router hop** (`hop.adapter == router`) that calls `YachaRouter.buy`, or an **adapter hop** through the two held lanes (`uniswapV2Adapter`/`uniswapV3Adapter`, wired via `setAdapters`). Adapter membership is checked before pushing tokens (`UnknownAdapter`). A rogue, mistyped, or unset adapter cannot receive funds. YachaRouter is a higher-level pull-based router, so the vault calls it directly instead of wrapping it in `IDexAdapter`.
 
 ### Dividend config
 
@@ -70,7 +69,7 @@ State variables are grouped in the source under section headers — Protocol wir
 > **V1 admission gate:** `setAllowedDividendToken(token, true)` reverts `NotContract` for codeless
 > addresses and `V1TokenNotGraduated` for V1 tokens the V1 BondingCurve reports as created but not
 > graduated. A pre-graduation V1 token has NO conversion lane (no Capricorn CL pool yet, and
-> GiwaRouter does not route V1 lifecycle metadata), so admitting one would strand its `pendingSwap` quote until a
+> YachaRouter does not route V1 lifecycle metadata), so admitting one would strand its `pendingSwap` quote until a
 > graduation that may never come. The code check closes the predicted-CREATE2-clone bypass: V1 deploys
 > token code and records `createdAt` atomically in `create()`, so a not-yet-created V1 address can
 > never slip through as an "external ERC20". Graduation is one-way, so the gate runs once at
@@ -105,8 +104,8 @@ State variables are grouped in the source under section headers — Protocol wir
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `adapter` | `IDexAdapter` | Hop dispatch key. If it equals `router` → router hop (`GiwaRouter.buy`); else must be `nadSwapAdapter`/`uniswapV2Adapter`/`uniswapV3Adapter` (`UnknownAdapter` otherwise) |
-| `pair` | `address` | NadFunPair / V2 pair / V3 pool address for an adapter hop. **Ignored for a router hop** (the router keys markets by token — no pool address). Bot-supplied; funds are protected by the dispatch key + `amountOutMin`, not by pair validation |
+| `adapter` | `IDexAdapter` | Hop dispatch key. If it equals `router` → router hop (`YachaRouter.buy`); otherwise it must be `uniswapV2Adapter` or `uniswapV3Adapter` (`UnknownAdapter` otherwise) |
+| `pair` | `address` | External V2 pair or V3 pool address for an adapter hop. **Ignored for a router hop**. Bot-supplied; funds are protected by the dispatch key and `amountOutMin`, not by pair validation |
 | `tokenOut` | `address` | Output token of this hop; the last hop's `tokenOut` must equal the target dividend token (`InvalidPath`) |
 
 ---
@@ -122,7 +121,7 @@ State variables are grouped in the source under section headers — Protocol wir
 | `setMerkleRoot(newRoot)` | restricted (operator) | Publish a new global Merkle root (starts a new claim period) |
 | `claim(sourceTokens[], dividendTokens[], amounts[], merkleProofs[])` | anyone (self-claim) | Claim dividend allocations; leaf amount is the full cumulative accrued, pays only `amount - claimedCumulative` |
 | `setWnative(newWnative)` | restricted (admin) | Set WNATIVE address for native unwrap on claim (`0` disables unwrap) |
-| `setAdapters(nadSwapAdapter, uniswapV2Adapter, uniswapV3Adapter)` | restricted (admin) | Replace the three adapter lanes (individual `0` = that lane disabled). The router hop needs no lane wiring — it's the init-time `router` |
+| `setAdapters(uniswapV2Adapter, uniswapV3Adapter)` | restricted (admin) | Replace the two external adapter lanes (individual `0` = that lane disabled). The router hop uses the init-time `router` |
 | `setAllowedDividendToken(token, allowed)` | restricted (admin) | Open or close `setup` admission for an external (non-V2-registered) dividend token. Admission (`true`) requires deployed code (`NotContract`) and blocks pre-graduation V1 tokens (`V1TokenNotGraduated`); removal is check-free |
 | `getConfig(sourceToken)` | external view | Returns `DividendConfig` for a source token |
 | `supportsInterface(interfaceId)` | external pure | ERC-165: supports `IVault` and `IERC165` |
@@ -200,7 +199,7 @@ operator bot -> executeConversion(ConversionOrder[] orders)   [restricted, nonRe
   |     |     forceApprove(currentToken → router, 0)
   |     |     (router pulls currentAmount from this vault, refunds the unconsumed remainder back here)
   |     |   ADAPTER HOP (else): membership BEFORE pushing tokens (flat ifs; zero/unset lane never matches):
-  |     |     hop.adapter ∉ {nadSwapAdapter, uniswapV2Adapter, uniswapV3Adapter}
+  |     |     hop.adapter ∉ {uniswapV2Adapter, uniswapV3Adapter}
   |     |                                           → revert UnknownAdapter   (address(0) lands here; router is nonzero)
   |     |     safeTransfer(currentToken, hop.adapter, currentAmount)    (push pattern)
   |     |     adapter.swap(hop.pair, currentToken, tokenOut, currentAmount, this, "")
@@ -230,10 +229,10 @@ operator bot -> executeConversion(ConversionOrder[] orders)   [restricted, nonRe
 ## Key Logic: the router hop (bonding or registered canonical V3)
 
 A **router hop** is valid for a bonding-phase token or a graduated token registered as canonical
-Uniswap V3: the bot sets `hop.adapter == router` and the loop calls `GiwaRouter.buy` directly.
-A graduated legacy-V2 token must instead use the `nadSwapAdapter` lane; GiwaRouter deliberately
-rejects its metadata. Because graduation can change the valid lane between order construction and
-execution, the bot must re-resolve the current route and retry on a mismatch.
+Uniswap V3: the bot sets `hop.adapter == router` and the loop calls `YachaRouter.buy` directly.
+External markets use one of the two configured adapter lanes. Because graduation can change the
+valid route between order construction and execution, the bot must re-resolve the current route
+and retry on a mismatch.
 
 ```
 hop with hop.adapter == router:
@@ -309,17 +308,16 @@ are all bot path-construction problems; the contract never changes.
 | Dividend token | Conversion call | Bot path |
 |---|---|---|
 | Source quoteToken itself | none — `afterDeposit` credits `dividendBalance` directly | — |
-| V2 token (bonding **or** graduated — the router dispatches) | `executeConversion` | single router hop: `hop.adapter = router`, `tokenOut = the token` (`pair` ignored) |
-| V1 graduated token (Capricorn CL) | `executeConversion` | `uniswapV3Adapter` hops; multi-hop if the source quote differs from the pool quote (e.g. LvMON→WNATIVE→token). Admin admits at setup via `setAllowedDividendToken` |
-| General NadFunPair pool (vanilla pool / cross-quote bridge leg) | `executeConversion` | `nadSwapAdapter` hop: `hop.adapter = nadSwapAdapter`, `pair = the NadFunPair` |
-| Other external ERC20 / cross-quote markets (e.g. XAUT/USDT) | `executeConversion` | any multi-hop combination of router hops + the three adapter lanes. Admin admits at setup via `setAllowedDividendToken` |
-| Cross-quote V2 bonding token | multi-hop ending in the router lane (e.g. `quoteA →(uni) quoteB →(router) token`) — settles only on full consume: a graduation-cap refund on a non-first hop reverts `PathResidue`; the bot retries with a smaller `quoteIn` | — |
+| Current launch token (bonding **or** graduated — the router dispatches) | `executeConversion` | single router hop: `hop.adapter = router`, `tokenOut = the token` (`pair` ignored) |
+| Older graduated concentrated-liquidity token | `executeConversion` | `uniswapV3Adapter` hops; multi-hop if the source quote differs from the pool quote. Admin admits at setup via `setAllowedDividendToken` |
+| Other external ERC20 / cross-quote markets (e.g. XAUT/USDT) | `executeConversion` | any multi-hop combination of router hops and the two adapter lanes. Admin admits at setup via `setAllowedDividendToken` |
+| Cross-quote bonding token | multi-hop ending in the router lane (e.g. `quoteA →(uni) quoteB →(router) token`) — settles only on full consume: a graduation-cap refund on a non-first hop reverts `PathResidue`; the bot retries with a smaller `quoteIn` | — |
 | Pre-graduation V1 token | **not admissible** — `setAllowedDividendToken` reverts `V1TokenNotGraduated` (no conversion lane exists; admission would strand `pendingSwap`); admit after graduation | — |
 
 **On-chain defenses (what the contract still enforces):**
 
-- **Hop dispatch allowlist** — router hop keyed on the init-time `router`; adapter hops on three
-  vault-held lanes (`nadSwapAdapter` / `uniswapV2Adapter` / `uniswapV3Adapter`, wired via `setAdapters`); per-hop flat-if
+- **Hop dispatch allowlist** — router hop keyed on the init-time `router`; adapter hops on two
+  vault-held lanes (`uniswapV2Adapter` / `uniswapV3Adapter`, wired via `setAdapters`); per-hop flat-if
   membership check BEFORE pushing tokens (`UnknownAdapter`).
 - **Path endpoint validation** — non-empty path whose last hop outputs the target dividend token (`InvalidPath`).
 - **Mid-hop full consumption** — a partial fill on any intermediate hop reverts the whole conversion
@@ -370,7 +368,7 @@ already periodic root publishing.
 | `SetMerkleRoot` | `bytes32 indexed merkleRoot` |
 | `Claim` | `address indexed holder, address[] sourceTokens, address[] dividendTokens, uint256[] amounts` (skipped items report `0`) |
 | `SetWnative` | `address wnative` |
-| `SetAdapters` | `address nadSwapAdapter, address uniswapV2Adapter, address uniswapV3Adapter` |
+| `SetAdapters` | `address uniswapV2Adapter, address uniswapV3Adapter` |
 | `SetAllowedDividendToken` | `address indexed token, bool allowed` |
 
 ---
@@ -395,7 +393,7 @@ already periodic root publishing.
 | `InvalidMerkleProof()` | Merkle proof verification failed (entire call reverts) |
 | `InvalidArrayLength()` | Claim arrays are empty or lengths differ |
 | `UnexpectedNative()` | Native currency received from address other than wnative |
-| `UnknownAdapter()` | A hop's adapter is not one of the three vault-held allowlist lanes — checked BEFORE pushing tokens |
+| `UnknownAdapter()` | A hop's adapter is not one of the two vault-held allowlist lanes — checked BEFORE pushing tokens |
 | `InvalidPath()` | Conversion path is empty, or the last hop's `tokenOut` is not the target dividend token |
 | `PathResidue()` | An intermediate hop partially filled and refunded a mid-path token — intermediate tokens sit outside `pendingSwap` accounting, so the whole conversion reverts for a clean retry |
 | `InsufficientOutput()` | Final received amount is below the bot-supplied order-level `amountOutMin` |

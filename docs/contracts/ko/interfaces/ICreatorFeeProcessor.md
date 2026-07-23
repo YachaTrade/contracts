@@ -3,7 +3,7 @@
 **Path:** `src/interfaces/ICreatorFeeProcessor.sol`
 **Type:** Interface
 
-업그레이드 불가능한 CreatorFeeProcessor 싱글톤의 공개 인터페이스. FeeCollector에서 이미 quote token으로 계산된 크리에이터 수수료를 pull한 뒤 토큰별 vault 설정에 따라 분배한다.
+업그레이드 불가능한 CreatorFeeProcessor 싱글톤의 공개 인터페이스. ProtocolManager가 허용한 호출자에게서 이미 quote token으로 통일된 creator share를 pull한 뒤 token별 vault 설정에 따라 분배한다.
 
 ---
 
@@ -27,7 +27,7 @@ struct VaultSlot {
 | Function | Returns | Description |
 |----------|---------|-------------|
 | `setup(token, vaults)` | — | 토큰별 vault 배분을 등록. BondingCurve만 호출할 수 있고 토큰당 한 번만 가능 |
-| `processCreatorFee(token, quoteToken, amount)` | — | FeeCollector에서 `quoteToken`의 `amount`를 pull하고 BPS로 나눠 전송한 뒤 각 vault의 `afterDeposit` 호출 |
+| `processCreatorFee(token, quoteToken, amount)` | — | 권한 있는 호출자에게서 `quoteToken`의 `amount`를 pull하고 BPS로 나눠 전송한 뒤 각 vault의 `afterDeposit` 호출 |
 | `vaultCount(token)` | `uint256` | 해당 토큰의 vault 슬롯 수 |
 | `getVaults(token)` | `VaultSlot[]` | 해당 토큰에 설정된 모든 vault 슬롯 |
 
@@ -51,7 +51,7 @@ struct VaultSlot {
 |-------|-------------|
 | `InvalidBpsTotal()` | vault BPS 합계 != 10000 |
 | `ZeroAddress()` | 필수 주소가 zero |
-| `NotAuthorized()` | `setup` 호출자가 BondingCurve가 아니거나 `processCreatorFee` 호출자가 FeeCollector가 아님 |
+| `NotAuthorized()` | ProtocolManager가 정확한 target selector에 대해 호출자를 허용하지 않음 |
 | `TooManyVaults()` | vault가 5개 초과 |
 | `NoVaults()` | vault가 0개 |
 | `ZeroBps()` | vault의 BPS가 0 |

@@ -7,10 +7,10 @@ import {IUniswapV3Pool} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Po
 
 import {SetUp} from "../SetUp.t.sol";
 import {LPManager} from "../../src/core/LPManager.sol";
-import {IGiwaRouter} from "../../src/interfaces/IGiwaRouter.sol";
+import {IYachaRouter} from "../../src/interfaces/IYachaRouter.sol";
 import {IV3LiquidityActor} from "../../src/interfaces/IV3LiquidityActor.sol";
 import {IV3SwapAdapter} from "../../src/interfaces/IV3SwapAdapter.sol";
-import {GiwaRouter} from "../../src/router/GiwaRouter.sol";
+import {YachaRouter} from "../../src/router/YachaRouter.sol";
 import {CreatorFeeVault} from "../../src/vault/CreatorFeeVault.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 
@@ -18,7 +18,7 @@ contract LPPrincipalLockHandler {
     uint256 private constant MIN_QUOTE_IN = 1e12;
     uint256 private constant QUOTE_RANGE = 0.1 ether;
 
-    GiwaRouter private immutable _router;
+    YachaRouter private immutable _router;
     LPManager private immutable _lpManager;
     MockERC20 private immutable _quoteToken;
     IERC20 private immutable _launchToken;
@@ -54,7 +54,7 @@ contract LPPrincipalLockHandler {
     error UnexpectedPositionKey(bytes32 suppliedKey, bytes32 recomputedKey);
 
     constructor(
-        GiwaRouter router_,
+        YachaRouter router_,
         LPManager lpManager_,
         MockERC20 quoteToken_,
         address launchToken_,
@@ -82,7 +82,7 @@ contract LPPrincipalLockHandler {
         _quoteToken.mint(address(this), quoteIn);
         _quoteToken.approve(address(_router), quoteIn);
         uint256 tokenOut = _router.buy(
-            IGiwaRouter.BuyParams({
+            IYachaRouter.BuyParams({
                 amountIn: quoteIn,
                 amountOutMin: 1,
                 token: address(_launchToken),
@@ -95,7 +95,7 @@ contract LPPrincipalLockHandler {
         require(fullBalance == tokenOut, "unexpected launch-token balance");
         _launchToken.approve(address(_router), fullBalance);
         _router.sell(
-            IGiwaRouter.SellParams({
+            IYachaRouter.SellParams({
                 amountIn: fullBalance,
                 amountOutMin: 1,
                 token: address(_launchToken),
@@ -257,7 +257,7 @@ contract LPPrincipalLockInvariant is StdInvariant, SetUp {
         principalSnapshot = _positionHash();
 
         handler = new LPPrincipalLockHandler(
-            giwaRouter,
+            yachaRouter,
             lpManager,
             quoteToken,
             launchToken,
@@ -280,7 +280,8 @@ contract LPPrincipalLockInvariant is StdInvariant, SetUp {
             + IERC20(launchToken).balanceOf(pool) + IERC20(launchToken).balanceOf(address(bondingCurve))
             + IERC20(launchToken).balanceOf(address(lpManager))
             + IERC20(launchToken).balanceOf(address(v3LiquidityActor))
-            + IERC20(launchToken).balanceOf(address(giwaRouter)) + IERC20(launchToken).balanceOf(address(v3SwapAdapter))
+            + IERC20(launchToken).balanceOf(address(yachaRouter))
+            + IERC20(launchToken).balanceOf(address(v3SwapAdapter))
             + IERC20(launchToken).balanceOf(address(creatorFeeProcessor))
             + IERC20(launchToken).balanceOf(address(creatorFeeVault));
         assertEq(accounted, IERC20(launchToken).totalSupply(), "launch-token supply escaped known lifecycle actors");
