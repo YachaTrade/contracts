@@ -27,7 +27,8 @@ IVault declares no common events. Each implementation defines its own operationa
 | Implementation | VaultType | Description |
 |----------------|-----------|-------------|
 | `BurnVault` | Burn | Buyback and burn: swap quoteToken to token via TokenRegistry adapter, send to 0xdead |
-| `LPVault` | LP | Swap half quoteToken to token, add liquidity, burn LP |
 | `CreatorFeeVault` | Creator | Accumulate quoteToken for the configured per-token creator to claim |
 | `GiftVault` | Gift | Platform-id (GitHub/X) based claim-model gift vault. 3 states: Accumulating → Active (via `restricted setReceiver`) or → Burned (if bind window elapses with no receiver). Active receiver pulls funds via `claim(token)`, repeatable. Rotation sweeps pending balance to the previous receiver |
 | `DividendVault` | Dividend | Split deposits by configured ratios, convert pending quote slices through authorized routes, and distribute finalized balances through cumulative Merkle claims |
+
+The default deployment registers only `CreatorFeeVault`; the other implementations are optional source modules.

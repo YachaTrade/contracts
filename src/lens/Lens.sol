@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {ILens} from "./ILens.sol";
 import {IBondingCurve} from "../interfaces/IBondingCurve.sol";
-import {IGiwaRouter} from "../interfaces/IGiwaRouter.sol";
+import {IYachaRouter} from "../interfaces/IYachaRouter.sol";
 import {IProtocolManager} from "../interfaces/IProtocolManager.sol";
 import {BondingCurveLibrary} from "../libraries/BondingCurveLibrary.sol";
 import {IAccessManaged} from "@openzeppelin/contracts/access/manager/IAccessManaged.sol";
@@ -14,34 +14,34 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 contract Lens is ILens {
     uint256 private constant BPS = 10_000;
 
-    IGiwaRouter public immutable giwaRouter;
+    IYachaRouter public immutable yachaRouter;
 
-    constructor(address giwaRouter_) {
-        if (giwaRouter_.code.length == 0) revert InvalidDependency();
-        giwaRouter = IGiwaRouter(giwaRouter_);
+    constructor(address yachaRouter_) {
+        if (yachaRouter_.code.length == 0) revert InvalidDependency();
+        yachaRouter = IYachaRouter(yachaRouter_);
 
-        address bondingCurve_ = giwaRouter.bondingCurve();
-        address tokenRegistry_ = giwaRouter.tokenRegistry();
-        address protocolManager_ = IAccessManaged(giwaRouter_).authority();
+        address bondingCurve_ = yachaRouter.bondingCurve();
+        address tokenRegistry_ = yachaRouter.tokenRegistry();
+        address protocolManager_ = IAccessManaged(yachaRouter_).authority();
         if (bondingCurve_.code.length == 0 || tokenRegistry_.code.length == 0 || protocolManager_.code.length == 0) {
             revert InvalidDependency();
         }
     }
 
     function curve() public view returns (address) {
-        return giwaRouter.bondingCurve();
+        return yachaRouter.bondingCurve();
     }
 
     function curveRouter() external view returns (address) {
-        return address(giwaRouter);
+        return address(yachaRouter);
     }
 
     function dexRouter() external view returns (address) {
-        return address(giwaRouter);
+        return address(yachaRouter);
     }
 
     function tokenRegistry() external view returns (address) {
-        return giwaRouter.tokenRegistry();
+        return yachaRouter.tokenRegistry();
     }
 
     function isGraduated(address token) external view returns (bool graduated) {
@@ -57,8 +57,8 @@ contract Lens is ILens {
         returns (address router, uint256 amountIn)
     {
         _getCurve(token);
-        router = address(giwaRouter);
-        amountIn = giwaRouter.getAmountIn(token, amountOut, isBuy);
+        router = address(yachaRouter);
+        amountIn = yachaRouter.getAmountIn(token, amountOut, isBuy);
     }
 
     function getAmountOut(address token, uint256 amountIn, bool isBuy)
@@ -66,8 +66,8 @@ contract Lens is ILens {
         returns (address router, uint256 amountOut)
     {
         _getCurve(token);
-        router = address(giwaRouter);
-        amountOut = giwaRouter.getAmountOut(token, amountIn, isBuy);
+        router = address(yachaRouter);
+        amountOut = yachaRouter.getAmountOut(token, amountIn, isBuy);
     }
 
     function availableBuyTokens(address token)
@@ -101,7 +101,7 @@ contract Lens is ILens {
     }
 
     function getInitialBuyAmountOut(address quoteToken, uint256 quoteIn) external view returns (uint256 tokenOut) {
-        address manager = IAccessManaged(address(giwaRouter)).authority();
+        address manager = IAccessManaged(address(yachaRouter)).authority();
         IProtocolManager.QuoteConfig memory config = IProtocolManager(manager).getConfig(quoteToken);
         if (!config.active) revert QuoteTokenNotAllowed();
         if (

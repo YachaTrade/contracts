@@ -5,7 +5,7 @@
 **Pattern:** UUPS Proxy (Singleton)
 **Inheritance:** `IDividendVault`, `UUPSUpgradeable`, `AccessManagedUpgradeable`, `ReentrancyGuard`
 
-다수 배당 토큰 분배 볼트. CreatorFeeProcessor로부터 creator fee(quoteToken)를 수신하고, creator가 설정한 1~10개의 배당 토큰으로 BPS 비율에 따라 분할을 **기록**한다 — quoteToken 슬롯은 즉시 적립되고, 나머지 슬라이스는 `pendingSwap`에 누적된다. 누적 슬라이스는 이후 **operator bot이 변환**한다. **router hop**(`hop.adapter == router`)은 본딩 phase 또는 등록된 canonical-V3 토큰에 GiwaRouter를 호출한다. 명시적 레거시 NadFunPair 풀은 `nadSwapAdapter` 레인으로, 외부 시장은 Uniswap adapter 레인으로 변환된다. 분배는 기존과 동일하며 singleton UUPS proxy 하나가 모든 토큰에 공유된다.
+다수 배당 토큰 분배 볼트. CreatorFeeProcessor로부터 creator fee(quoteToken)를 수신하고, creator가 설정한 1~10개의 배당 토큰으로 BPS 비율에 따라 분할을 **기록**한다 — quoteToken 슬롯은 즉시 적립되고, 나머지 슬라이스는 `pendingSwap`에 누적된다. 누적 슬라이스는 이후 **operator bot이 변환**한다. **router hop**(`hop.adapter == router`)은 본딩 phase 또는 등록된 canonical-V3 토큰에 YachaRouter를 호출하며 외부 시장은 allowlist된 Uniswap adapter 레인을 사용한다. 분배는 기존과 동일하며 singleton UUPS proxy 하나가 모든 토큰에 공유된다.
 
 컨트랙트는 **라우팅 지식을 보유하지 않는다**: 경로 구성은 전적으로 오프체인 bot의 몫이다. 온체인은 방어만 담당한다 — 어댑터 allowlist, path 끝점 검증, 중간 hop 전량 소비 가드, 실값 `amountOutMin`, pending 슬롯 상한, 원자성.
 
@@ -32,14 +32,13 @@
 | `tokenRegistryV2` | `ITokenRegistry` | public | source quote 조회와 배당 토큰 입장 검증(`setup`)에 사용하는 V2 registry |
 | `creatorFeeProcessor` | `address` | public | `afterDeposit` 호출 권한 |
 | `bondingCurve` | `address` | public | `setup` 호출 권한 |
-| `router` | `address` | public | GiwaRouter — `executeConversion`의 router hop이 본딩 phase 또는 등록된 canonical-V3 토큰에 `buy`를 호출. `initialize`로 배선되며 `setAdapters` 레인이 아님 |
+| `router` | `address` | public | YachaRouter — `executeConversion`의 router hop이 본딩 phase 또는 등록된 canonical-V3 토큰에 `buy`를 호출. `initialize`로 배선되며 `setAdapters` 레인이 아님 |
 | `bondingCurveV1` | `IBondingCurveV1` | public | V1 BondingCurve (`src/integration/interfaces/IBondingCurveV1.sol`) — 입장 게이트의 진실 소스: `createdAt != 0` = V1 멤버십 (졸업 후에도 유지), `isGraduated` = 단방향 졸업 플래그 |
-| `nadSwapAdapter` | `IDexAdapter` | public | 볼트 보유 allowlist 레인 — 일반 NadFunPair 풀 hop용 (USDC/WNATIVE 같은 vanilla 풀, cross-quote 중간 다리 — 라우터는 토큰 주소로만 사므로 임의 풀을 못 함) (0 = 레인 비활성) |
 | `uniswapV2Adapter` | `IDexAdapter` | public | 볼트 보유 allowlist 레인 — 외부 Uniswap V2 pair hop용 (0 = 레인 비활성) |
 | `uniswapV3Adapter` | `IDexAdapter` | public | 볼트 보유 allowlist 레인 — Capricorn CL / Uniswap V3 pool hop용 (0 = 레인 비활성) |
 | `wnative` | `address` | public | claim 시 native 언래핑에만 쓰이는 WNATIVE 싱글톤 (0 = 언래핑 비활성) |
 
-> **hop은 두 종류, 둘 다 자금 안전:** `executeConversion`은 **router hop**(`hop.adapter == router`)에서 `GiwaRouter.buy`를 직접 호출하고, **adapter hop**에서는 세 보유 레인(`nadSwapAdapter`/`uniswapV2Adapter`/`uniswapV3Adapter`)을 토큰 push 전에 검사한다(`UnknownAdapter`). 잘못된 adapter나 미설정 lane은 자금을 받을 수 없다. GiwaRouter는 pull pattern과 lifecycle dispatch를 가진 상위 router이므로 `IDexAdapter`로 감싸지 않는다. `nadSwapAdapter`는 GiwaRouter의 졸업 후 V3 경로가 거부하는 명시적 레거시 NadFunPair 풀을 담당한다.
+> **hop은 두 종류, 둘 다 자금 안전:** `executeConversion`은 **router hop**(`hop.adapter == router`)에서 `YachaRouter.buy`를 직접 호출하고, **adapter hop**에서는 두 보유 레인(`uniswapV2Adapter`/`uniswapV3Adapter`)을 token push 전에 검사한다(`UnknownAdapter`). 잘못된 adapter나 미설정 lane은 자금을 받을 수 없다. YachaRouter는 pull pattern과 lifecycle dispatch를 가진 상위 router이므로 `IDexAdapter`로 감싸지 않고 직접 호출한다.
 
 ### Dividend config
 
@@ -69,7 +68,7 @@
 
 > **V1 입장 게이트:** `setAllowedDividendToken(token, true)`는 codeless 주소를 `NotContract`로,
 > V1 BondingCurve가 "생성됐지만 미졸업"으로 보고하는 V1 토큰을 `V1TokenNotGraduated`로 거부한다.
-> 졸업 전 V1 토큰은 변환 lane이 없어(Capricorn CL pool 부재, GiwaRouter도 V1 lifecycle metadata를 라우팅하지 않음) 입장을
+> 졸업 전 V1 토큰은 변환 lane이 없어(Capricorn CL pool 부재, YachaRouter도 V1 lifecycle metadata를 라우팅하지 않음) 입장을
 > 허용하면 `pendingSwap` quote가 졸업 — 영원히 안 올 수도 있는 — 때까지 잠긴다. code 체크는
 > CREATE2 예측 주소 우회를 봉쇄한다: V1은 `create()`에서 토큰 코드 배포와 `createdAt` 기록이
 > 원자적이므로, 아직 생성되지 않은 V1 주소가 "외부 ERC20"으로 통과할 수 없다. 졸업은 단방향이라
@@ -104,8 +103,8 @@
 
 | 필드 | 타입 | 설명 |
 |------|------|------|
-| `adapter` | `IDexAdapter` | hop 디스패치 키. `router`와 같으면 router hop(`GiwaRouter.buy`), 아니면 `nadSwapAdapter`/`uniswapV2Adapter`/`uniswapV3Adapter` 중 하나여야 함 (아니면 `UnknownAdapter`) |
-| `pair` | `address` | adapter hop의 NadFunPair / V2 pair / V3 pool 주소. **router hop에선 무시**(라우터는 토큰으로 시장을 해석 — 풀 주소 없음). bot 공급 — 자금 보호는 pair 검증이 아니라 디스패치 키 + `amountOutMin`이 담당 |
+| `adapter` | `IDexAdapter` | hop 디스패치 키. `router`와 같으면 router hop(`YachaRouter.buy`), 아니면 `uniswapV2Adapter` 또는 `uniswapV3Adapter`여야 함 (아니면 `UnknownAdapter`) |
+| `pair` | `address` | Adapter hop의 외부 V2 pair 또는 V3 pool 주소. **Router hop에서는 무시**한다. Bot 공급 값이며 자금 보호는 dispatch key와 `amountOutMin`이 담당한다 |
 | `tokenOut` | `address` | 이 hop의 출력 토큰; 마지막 hop의 `tokenOut`은 대상 배당 토큰과 일치해야 함 (`InvalidPath`) |
 
 ---
@@ -121,7 +120,7 @@
 | `setMerkleRoot(newRoot)` | restricted (operator) | 새 글로벌 Merkle root 게시 (새 claim period 시작) |
 | `claim(sourceTokens[], dividendTokens[], amounts[], merkleProofs[])` | anyone (본인 claim) | 배당 수령; leaf amount는 전체 누적 accrued, `amount - claimedCumulative`만 지급 |
 | `setWnative(newWnative)` | restricted (admin) | claim 시 native 언래핑용 WNATIVE 설정 (`0` = 언래핑 비활성) |
-| `setAdapters(nadSwapAdapter, uniswapV2Adapter, uniswapV3Adapter)` | restricted (admin) | 세 어댑터 레인 교체 (개별 `0` = 해당 레인 비활성). router hop은 레인 배선 불필요 — init의 `router` 사용 |
+| `setAdapters(uniswapV2Adapter, uniswapV3Adapter)` | restricted (admin) | 두 외부 adapter lane 교체 (개별 `0` = 해당 lane 비활성). Router hop은 init의 `router` 사용 |
 | `setAllowedDividendToken(token, allowed)` | restricted (admin) | 외부(V2 미등록) 배당 토큰의 `setup` 입장 개방/폐쇄. 개방(`true`)은 코드 존재(`NotContract`)와 V1 미졸업 차단(`V1TokenNotGraduated`)을 통과해야 함; 폐쇄는 무검사 |
 | `getConfig(sourceToken)` | external view | sourceToken의 `DividendConfig` 반환 |
 | `supportsInterface(interfaceId)` | external pure | ERC-165: `IVault`, `IERC165` 지원 여부 |
@@ -193,7 +192,7 @@ operator bot -> executeConversion(ConversionOrder[] orders)   [restricted, nonRe
   |     |     forceApprove(currentToken → router, 0)
   |     |     (router가 vault에서 currentAmount pull → 미소비분을 vault로 직접 refund)
   |     |   ADAPTER HOP (else): 토큰 push 전에 멤버십 검사 (평탄 if; zero/미설정 레인은 매칭 안 됨):
-  |     |     hop.adapter ∉ {nadSwapAdapter, uniswapV2Adapter, uniswapV3Adapter}
+  |     |     hop.adapter ∉ {uniswapV2Adapter, uniswapV3Adapter}
   |     |                                           → revert UnknownAdapter   (address(0)도 여기; router는 nonzero)
   |     |     safeTransfer(currentToken, hop.adapter, currentAmount)    (push 패턴)
   |     |     adapter.swap(hop.pair, currentToken, tokenOut, currentAmount, this, "")
@@ -222,10 +221,10 @@ operator bot -> executeConversion(ConversionOrder[] orders)   [restricted, nonRe
 
 ## 핵심 로직: router hop (본딩 또는 등록 canonical V3)
 
-**router hop**은 본딩 phase 토큰 또는 canonical Uniswap V3로 등록된 졸업 토큰에 유효하다.
-bot이 `hop.adapter == router`로 인코딩하면 루프가 `GiwaRouter.buy`를 직접 호출한다.
-졸업한 레거시 V2 토큰은 `nadSwapAdapter` lane을 사용해야 하며 GiwaRouter는 해당 metadata를 거부한다.
-주문 생성과 실행 사이에 졸업 상태가 바뀌면 bot은 현재 route를 다시 resolve해 재시도해야 한다.
+**Router hop**은 본딩 phase token 또는 canonical Uniswap V3로 등록된 졸업 token에 유효하다.
+Bot이 `hop.adapter == router`로 인코딩하면 loop가 `YachaRouter.buy`를 직접 호출한다.
+외부 market은 두 configured adapter lane 중 하나를 사용한다. 주문 생성과 실행 사이에 졸업
+상태가 바뀌면 bot은 현재 route를 다시 resolve해 재시도해야 한다.
 
 ```
 hop.adapter == router 인 hop:
@@ -298,17 +297,16 @@ path 구성 문제이고 컨트랙트는 변경되지 않는다.
 | 배당 토큰 | 변환 호출 | bot path |
 |---|---|---|
 | source quoteToken 자체 | 없음 — `afterDeposit`이 `dividendBalance`에 직접 적립 | — |
-| V2 토큰 (본딩 **또는** 졸업 — 분기는 라우터 소관) | `executeConversion` | 단일 router hop: `hop.adapter = router`, `tokenOut = 해당 토큰` (`pair` 무시) |
-| 일반 NadFunPair 풀 (vanilla 풀 / cross-quote 중간 다리) | `executeConversion` | nadSwapAdapter hop: `hop.adapter = nadSwapAdapter`, `pair = 해당 NadFunPair` |
-| V1 졸업토큰 (Capricorn CL) | `executeConversion` | `uniswapV3Adapter` hop; source quote와 pool quote가 다르면 multi-hop (예: LvMON→WNATIVE→토큰). setup 입장은 admin이 `setAllowedDividendToken`으로 개방 |
-| 그 외 외부 ERC20 / cross-quote 시장 (예: XAUT/USDT) | `executeConversion` | router hop + 세 어댑터 레인을 조합한 임의 multi-hop. setup 입장은 admin이 `setAllowedDividendToken`으로 개방 |
-| cross-quote V2 본딩토큰 | router hop으로 끝나는 multi-hop (예: `quoteA →(uni) quoteB →(router) 토큰`) — 전량 소비일 때만 정산: 첫 hop이 아닌 위치의 졸업 임계점 환불은 `PathResidue` revert, bot이 더 작은 `quoteIn`으로 재시도 | — |
+| 현재 launch token (본딩 **또는** 졸업 — 분기는 라우터 소관) | `executeConversion` | 단일 router hop: `hop.adapter = router`, `tokenOut = 해당 토큰` (`pair` 무시) |
+| 이전 세대의 졸업된 concentrated-liquidity token | `executeConversion` | `uniswapV3Adapter` hop; source quote와 pool quote가 다르면 multi-hop. Setup 입장은 admin이 `setAllowedDividendToken`으로 개방 |
+| 그 외 외부 ERC20 / cross-quote 시장 (예: XAUT/USDT) | `executeConversion` | router hop과 두 adapter lane을 조합한 임의 multi-hop. Setup 입장은 admin이 `setAllowedDividendToken`으로 개방 |
+| Cross-quote 본딩 token | router hop으로 끝나는 multi-hop (예: `quoteA →(uni) quoteB →(router) token`) — 전량 소비일 때만 정산: 첫 hop이 아닌 위치의 졸업 임계점 환불은 `PathResidue` revert, bot이 더 작은 `quoteIn`으로 재시도 | — |
 | 졸업 전 V1 토큰 | **입장 불가** — `setAllowedDividendToken`이 `V1TokenNotGraduated` revert (변환 lane이 없어 입장 시 `pendingSwap` 잠김); 졸업 후 입장 | — |
 
 **온체인 방어 (컨트랙트가 여전히 강제하는 것):**
 
-- **hop 디스패치 allowlist** — router hop은 init의 `router`로, adapter hop은 세 보유 레인
-  (`nadSwapAdapter` / `uniswapV2Adapter` / `uniswapV3Adapter`, `setAdapters`로 배선)으로; adapter hop은 토큰 push
+- **Hop dispatch allowlist** — router hop은 init의 `router`로, adapter hop은 두 보유 lane
+  (`uniswapV2Adapter` / `uniswapV3Adapter`, `setAdapters`로 배선)으로; adapter hop은 token push
   **전에** 평탄 if로 멤버십 검사 (`UnknownAdapter`).
 - **path 끝점 검증** — path는 비어 있지 않고 마지막 hop이 대상 배당 토큰을 출력해야 함 (`InvalidPath`).
 - **중간 hop 전량 소비** — 중간 hop의 부분 체결은 변환 전체를 revert (`PathResidue`); 첫 hop만
@@ -357,7 +355,7 @@ EOA로 키 분리** — `restricted`가 selector별 operator 권한이라 자연
 | `SetMerkleRoot` | `bytes32 indexed merkleRoot` |
 | `Claim` | `address indexed holder, address[] sourceTokens, address[] dividendTokens, uint256[] amounts` (skip된 항목은 `0`으로 보고) |
 | `SetWnative` | `address wnative` |
-| `SetAdapters` | `address nadSwapAdapter, address uniswapV2Adapter, address uniswapV3Adapter` |
+| `SetAdapters` | `address uniswapV2Adapter, address uniswapV3Adapter` |
 | `SetAllowedDividendToken` | `address indexed token, bool allowed` |
 
 ---

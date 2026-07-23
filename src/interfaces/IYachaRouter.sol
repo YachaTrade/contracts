@@ -4,10 +4,10 @@ pragma solidity ^0.8.24;
 import {IBondingCurve} from "./IBondingCurve.sol";
 import {ITokenRegistry} from "./ITokenRegistry.sol";
 
-/// @title IGiwaRouter
+/// @title IYachaRouter
 /// @notice Unified router that handles both bonding curve (pre-graduation) and DEX (post-graduation) trading directly.
 
-interface IGiwaRouter {
+interface IYachaRouter {
     error ExpiredDeadline();
     error InvalidAmountIn();
     error InvalidAmountOut();

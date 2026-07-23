@@ -18,7 +18,7 @@ import {IProtocolManager} from "../../../src/interfaces/IProtocolManager.sol";
 import {IV3SwapAdapter} from "../../../src/interfaces/IV3SwapAdapter.sol";
 import {IV3LiquidityActor} from "../../../src/interfaces/IV3LiquidityActor.sol";
 import {LPManager} from "../../../src/core/LPManager.sol";
-import {GiwaRouter} from "../../../src/router/GiwaRouter.sol";
+import {YachaRouter} from "../../../src/router/YachaRouter.sol";
 import {IVaultRegistry} from "../../../src/interfaces/IVaultRegistry.sol";
 import {ProtocolManager} from "../../../src/core/ProtocolManager.sol";
 import {BondingCurve} from "../../../src/core/BondingCurve.sol";
@@ -62,7 +62,7 @@ contract Deploy is Script {
         address lpManager;
         address protocolManager;
         address bondingCurve;
-        address giwaRouter;
+        address yachaRouter;
         address vaultRegistry;
         address creatorFeeVault;
         address v3Factory;
@@ -124,8 +124,8 @@ contract Deploy is Script {
         d.tokenImpl = address(new Token());
         d.bondingCurve = _deployBondingCurve(deployer, d.tokenImpl, d.protocolManager);
 
-        // ── 7. Canonical V3 quote dependency + GiwaRouter ────────────
-        (d.quoterV2, d.giwaRouter) = _deployV3Routing(
+        // ── 7. Canonical V3 quote dependency + YachaRouter ────────────
+        (d.quoterV2, d.yachaRouter) = _deployV3Routing(
             d.protocolManager, d.bondingCurve, d.tokenRegistry, d.wnative, d.v3SwapAdapter, d.v3Factory
         );
 
@@ -141,9 +141,9 @@ contract Deploy is Script {
         // ── 11. Operator permissions ─────────────────────────────────
         _setPermissions(d, creatorManager, collector);
 
-        // ── 12. Grant ROUTER_ROLE to GiwaRouter ──────────────────────
+        // ── 12. Grant ROUTER_ROLE to YachaRouter ──────────────────────
         BondingCurve(payable(d.bondingCurve))
-            .grantRole(BondingCurve(payable(d.bondingCurve)).ROUTER_ROLE(), d.giwaRouter);
+            .grantRole(BondingCurve(payable(d.bondingCurve)).ROUTER_ROLE(), d.yachaRouter);
 
         // ── 13. Rotate admin to multisig ─────────────────────────────
         _transferAdminToMultisig(d, multisig, deployer);
@@ -328,15 +328,15 @@ contract Deploy is Script {
         address wnative_,
         address v3SwapAdapter_,
         address v3Factory_
-    ) internal returns (address quoterV2, address giwaRouter) {
+    ) internal returns (address quoterV2, address yachaRouter) {
         require(wnative_ == _canonicalWnative(), "Deploy: non-canonical WNATIVE");
         require(IV3SwapAdapter(v3SwapAdapter_).factory() == v3Factory_, "Deploy: swap adapter factory mismatch");
         require(
             IV3SwapAdapter(v3SwapAdapter_).tokenRegistry() == tokenRegistry_, "Deploy: swap adapter registry mismatch"
         );
         quoterV2 = _deployQuoterV2(v3Factory_, wnative_);
-        giwaRouter =
-            _deployGiwaRouter(protocolManager_, bondingCurve_, tokenRegistry_, wnative_, v3SwapAdapter_, quoterV2);
+        yachaRouter =
+            _deployYachaRouter(protocolManager_, bondingCurve_, tokenRegistry_, wnative_, v3SwapAdapter_, quoterV2);
     }
 
     // ── Internal: VaultRegistry ─────────────────────────────────────
@@ -412,9 +412,9 @@ contract Deploy is Script {
         }
     }
 
-    // ── Internal: GiwaRouter ────────────────────────────────────────
+    // ── Internal: YachaRouter ────────────────────────────────────────
 
-    function _deployGiwaRouter(
+    function _deployYachaRouter(
         address protocolManager_,
         address bondingCurve_,
         address tokenRegistry_,
@@ -423,9 +423,9 @@ contract Deploy is Script {
         address quoterV2_
     ) internal returns (address) {
         return _deployProxy(
-            address(new GiwaRouter()),
+            address(new YachaRouter()),
             abi.encodeCall(
-                GiwaRouter.initialize,
+                YachaRouter.initialize,
                 (protocolManager_, bondingCurve_, tokenRegistry_, wnative_, v3SwapAdapter_, quoterV2_)
             )
         );
@@ -528,13 +528,13 @@ contract Deploy is Script {
         require(quoter.factory() == d.v3Factory, "Verify: QuoterV2 factory mismatch");
         require(quoter.WETH9() == d.wnative, "Verify: QuoterV2 WNATIVE mismatch");
 
-        GiwaRouter router = GiwaRouter(payable(d.giwaRouter));
-        require(router.authority() == d.protocolManager, "Verify: GiwaRouter authority mismatch");
-        require(router.bondingCurve() == d.bondingCurve, "Verify: GiwaRouter curve mismatch");
-        require(router.tokenRegistry() == d.tokenRegistry, "Verify: GiwaRouter registry mismatch");
-        require(router.wrappedNative() == d.wnative, "Verify: GiwaRouter WNATIVE mismatch");
-        require(router.v3SwapAdapter() == d.v3SwapAdapter, "Verify: GiwaRouter adapter mismatch");
-        require(router.quoterV2() == d.quoterV2, "Verify: GiwaRouter quoter mismatch");
+        YachaRouter router = YachaRouter(payable(d.yachaRouter));
+        require(router.authority() == d.protocolManager, "Verify: YachaRouter authority mismatch");
+        require(router.bondingCurve() == d.bondingCurve, "Verify: YachaRouter curve mismatch");
+        require(router.tokenRegistry() == d.tokenRegistry, "Verify: YachaRouter registry mismatch");
+        require(router.wrappedNative() == d.wnative, "Verify: YachaRouter WNATIVE mismatch");
+        require(router.v3SwapAdapter() == d.v3SwapAdapter, "Verify: YachaRouter adapter mismatch");
+        require(router.quoterV2() == d.quoterV2, "Verify: YachaRouter quoter mismatch");
     }
 
     function _verifyPermissions(Deployed memory d) internal view {
@@ -553,7 +553,7 @@ contract Deploy is Script {
             pm.canCall(d.lpManager, d.creatorFeeProcessor, CreatorFeeProcessor.processCreatorFee.selector);
         require(canProcessCreatorFee, "Verify: LPManager cannot process creator fees");
 
-        require(bc.hasRole(bc.ROUTER_ROLE(), d.giwaRouter), "Verify: GiwaRouter missing ROUTER_ROLE");
+        require(bc.hasRole(bc.ROUTER_ROLE(), d.yachaRouter), "Verify: YachaRouter missing ROUTER_ROLE");
         require(bc.creatorFeeProcessor() == d.creatorFeeProcessor, "Verify: creatorFeeProcessor mismatch");
 
         address creatorManager = vm.envOr("CREATOR_MANAGER", address(0));
@@ -609,7 +609,7 @@ contract Deploy is Script {
         _logEnvAddress("QUOTER_V2", d.quoterV2);
         _logEnvAddress("VAULT_REGISTRY", d.vaultRegistry);
         _logEnvAddress("CREATOR_FEE_VAULT", d.creatorFeeVault);
-        _logEnvAddress("GIWA_ROUTER", d.giwaRouter);
+        _logEnvAddress("YACHA_ROUTER", d.yachaRouter);
         console.log("========================================");
     }
 

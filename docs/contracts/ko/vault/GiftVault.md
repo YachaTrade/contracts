@@ -73,7 +73,7 @@
 | `bondingCurve` | `address` | initialize | `setup` 권한 + 본딩 phase 바이백에 쓰임 |
 | `tokenRegistry` | `ITokenRegistry` | initialize | pair / adapter 조회, quoteToken 조회 |
 | `expiryDuration` | `uint256` | initialize / `setExpiryDuration` | `createdAt` 이후 bind 가능한 기간 |
-| `router` | `address` | initialize | 본딩 phase 바이백에 쓰는 `GiwaRouter` |
+| `router` | `address` | initialize | 본딩 phase 바이백에 쓰는 `YachaRouter` |
 | `wnative` | `address` | initialize | 래핑 네이티브 싱글톤. `claim` 시점의 등록 quote == `wnative`이면 unwrap해서 native currency으로 전송. `address(0)`이면 unwrap 비활성 (모든 quote에 대해 ERC20 transfer) |
 | `_gifts` | `mapping(address => GiftInfo)` | setup / afterDeposit / setReceiver / claim | 토큰별 gift 레코드. state + receiver + balance의 단일 source |
 
@@ -195,14 +195,14 @@ _buybackAndBurn(token, quoteToken, amount)
   |     tokenReceived = adapter.swap(pair, quoteToken, token, amount, this, "")
   |-- else (본딩 phase):
   |     forceApprove(router, amount)
-  |     tokenReceived = GiwaRouter.buy({ amountIn: amount, amountOutMin: 1 })
+  |     tokenReceived = YachaRouter.buy({ amountIn: amount, amountOutMin: 1 })
   |     # clamped buy 시 남은 quote는 _pendingQuote[token]에 쌓여 다음 호출에 합산
   |-- if tokenReceived > 0:
   |     safeTransfer(token → 0xdead, tokenReceived)
   |     emit Burn(token, pair, spent, tokenReceived)
 ```
 
-`BurnVault`와 동일한 dual-path 패턴. 본딩 phase는 `GiwaRouter.buy`로 clamped buy 부분체결을 처리하고, 졸업 이후는 등록된 DEX adapter swap. pending buyback은 self-call `try/catch`로 실행되어 실패 시 pending quote를 재시도용으로 보존하고 상위 gift/settlement 작업을 revert하지 않는다.
+`BurnVault`와 동일한 dual-path 패턴. 본딩 phase는 `YachaRouter.buy`로 clamped buy 부분체결을 처리하고, 졸업 이후는 등록된 DEX adapter swap. pending buyback은 self-call `try/catch`로 실행되어 실패 시 pending quote를 재시도용으로 보존하고 상위 gift/settlement 작업을 revert하지 않는다.
 
 ---
 
@@ -214,7 +214,7 @@ _buybackAndBurn(token, quoteToken, amount)
    -> GiftVault.setup(token, data) -> _gifts[token] = { platform: Platform.X, id: "alice", createdAt: now }
 
 2. 수수료 누적 (Accumulating 또는 Active)
-   거래 -> FeeCollector -> CreatorFeeProcessor -> GiftVault.afterDeposit(token, quote, amount)
+   V3 LP fee -> LPManager -> CreatorFeeProcessor -> GiftVault.afterDeposit(token, quote, amount)
    -> gift.balance += amount
 
 3a. Happy path — relayer가 id 소유자 확인 후 receiver 바인딩, receiver가 claim

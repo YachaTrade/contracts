@@ -6,7 +6,7 @@ pragma solidity ^0.8.24;
 import {console} from "forge-std/Test.sol";
 import {SetUp} from "../SetUp.t.sol";
 import {IBondingCurve} from "../../src/interfaces/IBondingCurve.sol";
-import {IGiwaRouter} from "../../src/interfaces/IGiwaRouter.sol";
+import {IYachaRouter} from "../../src/interfaces/IYachaRouter.sol";
 import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -50,8 +50,8 @@ contract QuoteReserveAttackTest is SetUp {
 
         vm.prank(attacker);
         vm.expectRevert();
-        giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: 1 ether, amountOutMin: 1, token: tokenB, to: attacker, deadline: block.timestamp
             })
         );
@@ -95,8 +95,8 @@ contract QuoteReserveAttackTest is SetUp {
         uint256 bcBalance = quoteToken.balanceOf(address(bondingCurve));
         vm.prank(attacker);
         vm.expectRevert();
-        giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: 1 ether, amountOutMin: 1, token: tokenB, to: attacker, deadline: block.timestamp
             })
         );
@@ -117,8 +117,8 @@ contract QuoteReserveAttackTest is SetUp {
 
         vm.prank(thief);
         vm.expectRevert();
-        giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: 1 ether, amountOutMin: 1, token: tokenC, to: thief, deadline: block.timestamp
             })
         );

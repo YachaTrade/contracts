@@ -110,7 +110,7 @@ Pointer-only update. Any accumulated `_balances[token]` is inherited by the new 
    -> CreatorFeeVault.setup(token, data) -> _creators[token] = creator
 
 2. Fees accrue
-   Trades -> FeeCollector -> CreatorFeeProcessor -> CreatorFeeVault.afterDeposit(token, quote, amount)
+   V3 LP fees -> LPManager -> CreatorFeeProcessor -> CreatorFeeVault.afterDeposit(token, quote, amount)
    -> _balances[token] += amount
 
 3. Creator pulls funds

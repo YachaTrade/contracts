@@ -108,7 +108,7 @@ CONTRACTS=(
   "BondingCurve|BondingCurve.sol/BondingCurve.json"
   "CreatorFeeProcessor|CreatorFeeProcessor.sol/CreatorFeeProcessor.json"
   "CreatorFeeVault|CreatorFeeVault.sol/CreatorFeeVault.json"
-  "GiwaRouter|GiwaRouter.sol/GiwaRouter.json"
+  "YachaRouter|YachaRouter.sol/YachaRouter.json"
   "Lens|Lens.sol/Lens.json"
   "LPManager|LPManager.sol/LPManager.json"
   "ProtocolManager|ProtocolManager.sol/ProtocolManager.json"

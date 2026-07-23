@@ -5,7 +5,7 @@
 - GIWA Launchpad is a bonding-curve token launchpad that graduates into canonical Uniswap V3 pools.
 - Stack: Solidity `0.8.24`, Foundry, UUPS proxies, and EIP-1167 clones.
 
-- UUPS proxies: `BondingCurve`, `ProtocolManager`, `LPManager`, `TokenRegistry`, `V3PoolDeployer`, `VaultRegistry`, `FeeCollector`, `CreatorFeeVault`, `Treasury`, and `GiwaRouter`. `CreatorFeeProcessor` is a plain non-upgradeable contract.
+- Default-deployment UUPS proxies: `BondingCurve`, `ProtocolManager`, `LPManager`, `TokenRegistry`, `V3PoolDeployer`, `VaultRegistry`, `CreatorFeeVault`, and `YachaRouter`. `CreatorFeeProcessor`, `V3LiquidityActor`, and `V3SwapAdapter` are plain non-upgradeable contracts.
 - `Token` is an EIP-1167 clone; `TokenInfoLens` is an immutable integration.
 
 ## Structure
@@ -23,9 +23,9 @@ forge fmt
 forge fmt --check
 forge build
 forge test
-forge test --match-path test/core/GiwaRouter.t.sol -vvv
+forge test --match-path test/core/YachaRouter.t.sol -vvv
 forge test --match-path test/invariant/LPPrincipalLock.invariant.t.sol -vvv
-RUN_FORK_TESTS=true forge test --match-path test/fork/GiwaRouterNativeQuoteFork.t.sol -vvv
+RUN_FORK_TESTS=true forge test --match-path test/fork/YachaRouterNativeQuoteFork.t.sol -vvv
 ```
 
 ## Repository References

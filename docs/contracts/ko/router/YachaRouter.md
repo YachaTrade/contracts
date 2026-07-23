@@ -1,12 +1,12 @@
-# GiwaRouter
+# YachaRouter
 
-**경로:** `src/router/GiwaRouter.sol`
+**경로:** `src/router/YachaRouter.sol`
 **패턴:** UUPS 프록시
-**상속:** `IGiwaRouter`, `UUPSUpgradeable`, `AccessManagedUpgradeable`, `ReentrancyGuard`
+**상속:** `IYachaRouter`, `UUPSUpgradeable`, `AccessManagedUpgradeable`, `ReentrancyGuard`
 
-`GiwaRouter`는 토큰 생성과 생명주기별 거래를 위한 사용자 진입점이다. 졸업 전에는 가격 계산과 실행을 `BondingCurve`에 위임한다. 졸업 후에는 정식 Uniswap V3 메타데이터만 허용하고 `V3SwapAdapter`를 통해 실행한다.
+`YachaRouter`는 토큰 생성과 생명주기별 거래를 위한 사용자 진입점이다. 졸업 전에는 가격 계산과 실행을 `BondingCurve`에 위임한다. 졸업 후에는 정식 Uniswap V3 메타데이터만 허용하고 `V3SwapAdapter`를 통해 실행한다.
 
-전체 파라미터와 함수 시그니처는 [IGiwaRouter](../interfaces/IGiwaRouter.md), 풀 콜백 인증은 [V3SwapAdapter](../adapters/V3SwapAdapter.md)를 참고한다.
+전체 파라미터와 함수 시그니처는 [IYachaRouter](../interfaces/IYachaRouter.md), 풀 콜백 인증은 [V3SwapAdapter](../adapters/V3SwapAdapter.md)를 참고한다.
 
 ## 초기화와 의존성
 
@@ -37,7 +37,7 @@ initialize(
 ## 생명주기 라우팅
 
 ```text
-GiwaRouter
+YachaRouter
 ├─ curve.graduated == false
 │  └─ BondingCurve 견적 및 실행
 └─ curve.graduated == true
@@ -46,7 +46,7 @@ GiwaRouter
    └─ V3SwapAdapter exactInput / exactOutput
 ```
 
-졸업 후 메타데이터는 `DexType.UniswapV3`, `pair == pool`, 0이 아닌 fee tier, 올바른 역방향 registry 항목, 정식 factory pool을 모두 만족해야 한다. 레거시 V2 메타데이터는 `InvalidV3Pool`로 거부한다.
+졸업 후 metadata는 `DexType.UniswapV3`, `pair == pool`, 0이 아닌 fee tier, 올바른 역방향 registry 항목, canonical factory pool을 모두 만족해야 한다. Noncanonical metadata는 `InvalidV3Pool`로 거부한다.
 
 ERC-20 경로는 활성 상태로 등록된 모든 quote 토큰을 지원한다. 네이티브 경로는 permit 또는 자산 이동 전에 `_requireNativeQuoteToken`을 실행하며 등록 quote가 `wrappedNative()`와 같아야 한다.
 
@@ -54,7 +54,7 @@ ERC-20 경로는 활성 상태로 등록된 모든 quote 토큰을 지원한다.
 
 Router는 실행 시점에 `ProtocolManager.dexProtocolFeeRate(quoteToken)`과 `feeReceiver()`를 읽는다. 수수료율은 BPS이며 `10_000`보다 작아야 한다. 수수료는 항상 등록 quote 토큰으로 지불하며 `FullMath.mulDivRoundingUp`으로 올림한다.
 
-이 Router V3 프로토콜 수수료는 BondingCurve 분기에 적용되지 않는다. BondingCurve는 별도의 curve 수수료, anti-sniping, 현재 creator-fee 회계를 유지한다. `V3SwapAdapter` 직접 호출에도 Router 수수료가 없다.
+이 Router V3 protocol fee는 BondingCurve 분기에 적용되지 않는다. BondingCurve는 별도의 curve protocol fee와 anti-sniping penalty를 적용한다. `V3SwapAdapter` 직접 호출에도 Router fee가 없다.
 
 ### Exact-input 매수
 
@@ -142,19 +142,19 @@ V3 exact-input 견적은 실제 실행과 동일하게 매수 입력 또는 매�
 | 3 | `_v3SwapAdapter` |
 | 4 | `_quoterV2` |
 
-OpenZeppelin upgradeable 기반 상태는 namespaced storage를 사용한다. 현재 런타임은 23,959바이트로 EIP-170 한도 24,576바이트보다 617바이트 작다. 구현 변경 시 크기 회귀 테스트와 storage 호환성 검사를 다시 실행해야 한다.
+OpenZeppelin upgradeable 기반 상태는 namespaced storage를 사용한다. 현재 런타임은 23,916바이트로 EIP-170 한도 24,576바이트보다 660바이트 작다. 구현 변경 시 크기 회귀 테스트와 storage 호환성 검사를 다시 실행해야 한다.
 
 ## 배포 상태
 
-현재 fresh 배포 스크립트는 V3SwapAdapter, 정식 QuoterV2, 6개 인자 GiwaRouter 프록시를 배포한다. Router02를 제거하고 BondingCurve Router 역할을 GiwaRouter에만 부여한다.
+`Deploy.s.sol`은 quote별 V3 설정, canonical pool 생성, `registerV3`, 2개 포지션의 영구 유동성, V3 라우팅, LP fee 수집까지 전체 canonical-V3 생명주기를 구성한다. V3SwapAdapter, 정식 QuoterV2, 6개 인자 YachaRouter 프록시를 배포한 뒤 해당 라우터에 BondingCurve router role을 부여한다.
 
-그러나 아직 종단간 정식 V3 launch 생명주기를 만들지는 않는다. `Deploy.s.sol`은 여전히 `BondingCurve`를 `NadFunFactory`에 연결하고, 레거시 `register` 경로로 토큰을 등록하며, 현재 LPManager의 졸업 유동성 공급은 `DexType.UniswapV2`만 지원한다. 별도 `V3PoolDeployer` 생명주기도 배포/설정하지 않는다. 이 그래프가 만든 토큰은 레거시 V2 메타데이터를 가지며 GiwaRouter는 그 졸업 후 경로를 의도적으로 거부한다.
+현재 GIWA Sepolia 배포에서는 `DeployYachaRouter.s.sol`로 새 YachaRouter 프록시를 배포하고, `MigrateYachaRouterRole.s.sol`로 새 role 부여, Lens 재배포, 이전 router role 회수 순서로 전환했다. 이전 라우터의 permissionless 졸업 후 V3 진입점은 계속 호출될 수 있으므로 integration은 `README.md`의 현재 YachaRouter와 Lens 주소를 사용해야 한다.
 
-따라서 이 스크립트는 Router 측 V3 의존성 배선과 유지된 레거시 생성/졸업 그래프의 조합으로 봐야 한다. 프로덕션 V3 launch에는 pool 생성, `registerV3`, V3 유동성 공급, quote별 `setV3QuoteConfig` 설정의 별도 완성과 검증이 필요하다. 레거시 NadFunRouter 프록시는 GiwaRouter로 업그레이드할 수 없으며 `UpgradeGiwaRouter.s.sol`은 기존 GiwaRouter 프록시 전용이다.
+`UpgradeYachaRouter.s.sol`은 앞으로 이미 배포된 YachaRouter 프록시를 업그레이드할 때만 사용한다. 새 프록시로 교체할 때는 staged deploy, grant, integration migration, revoke 순서를 따른다.
 
 ## 관련 문서
 
-- [IGiwaRouter](../interfaces/IGiwaRouter.md)
+- [IYachaRouter](../interfaces/IYachaRouter.md)
 - [V3SwapAdapter](../adapters/V3SwapAdapter.md)
 - [아키텍처](../../../ARCHITECTURE.md)
 - [프로토콜 흐름](../../../PROTOCOL_FLOW.ko.md)

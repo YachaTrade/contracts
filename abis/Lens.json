@@ -3,7 +3,7 @@
     "type": "constructor",
     "inputs": [
       {
-        "name": "giwaRouter_",
+        "name": "yachaRouter_",
         "type": "address",
         "internalType": "address"
       }
@@ -186,19 +186,6 @@
   },
   {
     "type": "function",
-    "name": "giwaRouter",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "contract IGiwaRouter"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "isGraduated",
     "inputs": [
       {
@@ -244,6 +231,19 @@
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "yachaRouter",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IYachaRouter"
       }
     ],
     "stateMutability": "view"

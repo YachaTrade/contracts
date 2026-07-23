@@ -12,9 +12,9 @@ import {IQuoterV2} from "@uniswap/v3-periphery/contracts/interfaces/IQuoterV2.so
 
 import {SetUp} from "../SetUp.t.sol";
 import {TokenRegistry} from "../../src/core/TokenRegistry.sol";
-import {GiwaRouter} from "../../src/router/GiwaRouter.sol";
+import {YachaRouter} from "../../src/router/YachaRouter.sol";
 import {IBondingCurve} from "../../src/interfaces/IBondingCurve.sol";
-import {IGiwaRouter} from "../../src/interfaces/IGiwaRouter.sol";
+import {IYachaRouter} from "../../src/interfaces/IYachaRouter.sol";
 import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
 import {IV3SwapAdapter} from "../../src/interfaces/IV3SwapAdapter.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
@@ -94,7 +94,7 @@ contract StateChangingQuoter {
     }
 }
 
-contract GiwaRouterV3SwapTest is SetUp {
+contract YachaRouterV3SwapTest is SetUp {
     using SafeERC20 for IERC20;
 
     struct Fixture {
@@ -146,8 +146,8 @@ contract GiwaRouterV3SwapTest is SetUp {
         vm.recordLogs();
 
         vm.prank(user1);
-        uint256 tokenOut = giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        uint256 tokenOut = yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: quoteInMaxWithProtocolFee,
                 amountOutMin: 1,
                 token: address(fixture.launchToken),
@@ -161,7 +161,7 @@ contract GiwaRouterV3SwapTest is SetUp {
         assertEq(fixture.quoteToken.balanceOf(feeReceiver) - feeReceiverQuoteBefore, protocolFee);
         assertEq(userQuoteBefore - fixture.quoteToken.balanceOf(user1), quoteIn + protocolFee);
         assertEq(fixture.launchToken.balanceOf(user2) - recipientTokenBefore, tokenOut);
-        assertEq(fixture.quoteToken.allowance(address(giwaRouter), address(v3SwapAdapter)), 0);
+        assertEq(fixture.quoteToken.allowance(address(yachaRouter), address(v3SwapAdapter)), 0);
         _assertTradeEvent(
             vm.getRecordedLogs(), BUY_EVENT, user1, address(fixture.launchToken), quoteIn + protocolFee, tokenOut
         );
@@ -175,8 +175,8 @@ contract GiwaRouterV3SwapTest is SetUp {
         uint256 poolQuoteBefore = fixture.quoteToken.balanceOf(fixture.pool);
 
         vm.prank(user1);
-        uint256 tokenOut = giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        uint256 tokenOut = yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: quoteInMaxWithProtocolFee,
                 amountOutMin: 1,
                 token: address(fixture.launchToken),
@@ -194,7 +194,7 @@ contract GiwaRouterV3SwapTest is SetUp {
         assertLt(quoteIn, poolQuoteInMax);
         assertEq(fixture.quoteToken.balanceOf(feeReceiver) - feeReceiverQuoteBefore, protocolFee);
         assertEq(userQuoteBefore - fixture.quoteToken.balanceOf(user1), quoteIn + protocolFee);
-        assertEq(fixture.quoteToken.balanceOf(address(giwaRouter)), 0);
+        assertEq(fixture.quoteToken.balanceOf(address(yachaRouter)), 0);
     }
 
     function test_sellGraduated_chargesProtocolFeeOnOutputAndRoutesTokenToQuote() public {
@@ -208,8 +208,8 @@ contract GiwaRouterV3SwapTest is SetUp {
         vm.recordLogs();
 
         vm.prank(user1);
-        uint256 quoteOut = giwaRouter.sell(
-            IGiwaRouter.SellParams({
+        uint256 quoteOut = yachaRouter.sell(
+            IYachaRouter.SellParams({
                 amountIn: tokenInMax,
                 amountOutMin: 1,
                 token: address(fixture.launchToken),
@@ -225,7 +225,7 @@ contract GiwaRouterV3SwapTest is SetUp {
         assertEq(fixture.quoteToken.balanceOf(feeReceiver) - feeReceiverQuoteBefore, protocolFee);
         assertEq(fixture.quoteToken.balanceOf(user2) - recipientQuoteBefore, quoteOutBeforeProtocolFee - protocolFee);
         assertEq(quoteOut, quoteOutBeforeProtocolFee - protocolFee);
-        assertEq(fixture.launchToken.allowance(address(giwaRouter), address(v3SwapAdapter)), 0);
+        assertEq(fixture.launchToken.allowance(address(yachaRouter), address(v3SwapAdapter)), 0);
         _assertTradeEvent(vm.getRecordedLogs(), SELL_EVENT, user1, address(fixture.launchToken), tokenInUsed, quoteOut);
     }
 
@@ -239,8 +239,8 @@ contract GiwaRouterV3SwapTest is SetUp {
         uint256 poolQuoteBefore = fixture.quoteToken.balanceOf(fixture.pool);
 
         vm.prank(user1);
-        uint256 quoteOut = giwaRouter.sell(
-            IGiwaRouter.SellParams({
+        uint256 quoteOut = yachaRouter.sell(
+            IYachaRouter.SellParams({
                 amountIn: tokenInMax,
                 amountOutMin: 1,
                 token: address(fixture.launchToken),
@@ -258,7 +258,7 @@ contract GiwaRouterV3SwapTest is SetUp {
         assertEq(fixture.quoteToken.balanceOf(user2) - recipientQuoteBefore, quoteOutBeforeProtocolFee - protocolFee);
         assertEq(fixture.quoteToken.balanceOf(feeReceiver) - feeReceiverQuoteBefore, protocolFee);
         assertEq(quoteOut, quoteOutBeforeProtocolFee - protocolFee);
-        assertEq(fixture.launchToken.balanceOf(address(giwaRouter)), 0);
+        assertEq(fixture.launchToken.balanceOf(address(yachaRouter)), 0);
     }
 
     function test_exactOutBuyGraduated_returnsGrossQuoteUsedAndRefundsMaximum() public {
@@ -272,8 +272,8 @@ contract GiwaRouterV3SwapTest is SetUp {
         vm.recordLogs();
 
         vm.prank(user1);
-        uint256 quoteInWithProtocolFee = giwaRouter.exactOutBuy(
-            IGiwaRouter.ExactOutBuyParams({
+        uint256 quoteInWithProtocolFee = yachaRouter.exactOutBuy(
+            IYachaRouter.ExactOutBuyParams({
                 amountInMax: amountInMax,
                 amountOut: tokenOut,
                 token: address(fixture.launchToken),
@@ -290,8 +290,8 @@ contract GiwaRouterV3SwapTest is SetUp {
         assertEq(userQuoteBefore - fixture.quoteToken.balanceOf(user1), requiredQuoteInWithProtocolFee);
         assertEq(fixture.launchToken.balanceOf(user2) - recipientTokenBefore, tokenOut);
         assertEq(fixture.quoteToken.balanceOf(feeReceiver) - feeReceiverQuoteBefore, protocolFee);
-        assertEq(fixture.quoteToken.balanceOf(address(giwaRouter)), 0);
-        assertEq(fixture.quoteToken.allowance(address(giwaRouter), address(v3SwapAdapter)), 0);
+        assertEq(fixture.quoteToken.balanceOf(address(yachaRouter)), 0);
+        assertEq(fixture.quoteToken.allowance(address(yachaRouter), address(v3SwapAdapter)), 0);
         _assertTradeEvent(
             vm.getRecordedLogs(),
             BUY_EVENT,
@@ -308,8 +308,8 @@ contract GiwaRouterV3SwapTest is SetUp {
         uint256 snapshot = vm.snapshotState();
         _fundAndApproveQuote(fixture, user1, 10 ether);
         vm.prank(user1);
-        uint256 quoteInWithProtocolFee = giwaRouter.exactOutBuy(
-            IGiwaRouter.ExactOutBuyParams({
+        uint256 quoteInWithProtocolFee = yachaRouter.exactOutBuy(
+            IYachaRouter.ExactOutBuyParams({
                 amountInMax: 10 ether,
                 amountOut: tokenOut,
                 token: address(fixture.launchToken),
@@ -324,10 +324,10 @@ contract GiwaRouterV3SwapTest is SetUp {
         uint256 recipientTokenBefore = fixture.launchToken.balanceOf(user2);
         uint256 feeReceiverQuoteBefore = fixture.quoteToken.balanceOf(feeReceiver);
 
-        vm.expectRevert(IGiwaRouter.ExcessiveInput.selector);
+        vm.expectRevert(IYachaRouter.ExcessiveInput.selector);
         vm.prank(user1);
-        giwaRouter.exactOutBuy(
-            IGiwaRouter.ExactOutBuyParams({
+        yachaRouter.exactOutBuy(
+            IYachaRouter.ExactOutBuyParams({
                 amountInMax: amountInMax,
                 amountOut: tokenOut,
                 token: address(fixture.launchToken),
@@ -347,8 +347,8 @@ contract GiwaRouterV3SwapTest is SetUp {
         uint256 snapshot = vm.snapshotState();
         _fundAndApproveLaunch(fixture, user1, 10 ether);
         vm.prank(user1);
-        uint256 tokenIn = giwaRouter.exactOutSell(
-            IGiwaRouter.ExactOutSellParams({
+        uint256 tokenIn = yachaRouter.exactOutSell(
+            IYachaRouter.ExactOutSellParams({
                 amountInMax: 10 ether,
                 amountOut: quoteOut,
                 token: address(fixture.launchToken),
@@ -363,10 +363,10 @@ contract GiwaRouterV3SwapTest is SetUp {
         uint256 recipientQuoteBefore = fixture.quoteToken.balanceOf(user2);
         uint256 feeReceiverQuoteBefore = fixture.quoteToken.balanceOf(feeReceiver);
 
-        vm.expectRevert(IGiwaRouter.ExcessiveInput.selector);
+        vm.expectRevert(IYachaRouter.ExcessiveInput.selector);
         vm.prank(user1);
-        giwaRouter.exactOutSell(
-            IGiwaRouter.ExactOutSellParams({
+        yachaRouter.exactOutSell(
+            IYachaRouter.ExactOutSellParams({
                 amountInMax: amountInMax,
                 amountOut: quoteOut,
                 token: address(fixture.launchToken),
@@ -386,8 +386,8 @@ contract GiwaRouterV3SwapTest is SetUp {
         uint256 snapshot = vm.snapshotState();
         _fundAndApproveQuote(fixture, user1, 10 ether);
         vm.prank(user1);
-        uint256 requiredQuoteInWithProtocolFee = giwaRouter.exactOutBuy(
-            IGiwaRouter.ExactOutBuyParams({
+        uint256 requiredQuoteInWithProtocolFee = yachaRouter.exactOutBuy(
+            IYachaRouter.ExactOutBuyParams({
                 amountInMax: 10 ether,
                 amountOut: tokenOut,
                 token: address(fixture.launchToken),
@@ -399,8 +399,8 @@ contract GiwaRouterV3SwapTest is SetUp {
 
         uint256 userQuoteBefore = _fundAndApproveQuote(fixture, user1, requiredQuoteInWithProtocolFee);
         vm.prank(user1);
-        uint256 quoteInWithProtocolFee = giwaRouter.exactOutBuy(
-            IGiwaRouter.ExactOutBuyParams({
+        uint256 quoteInWithProtocolFee = yachaRouter.exactOutBuy(
+            IYachaRouter.ExactOutBuyParams({
                 amountInMax: requiredQuoteInWithProtocolFee,
                 amountOut: tokenOut,
                 token: address(fixture.launchToken),
@@ -425,8 +425,8 @@ contract GiwaRouterV3SwapTest is SetUp {
         vm.recordLogs();
 
         vm.prank(user1);
-        uint256 tokenIn = giwaRouter.exactOutSell(
-            IGiwaRouter.ExactOutSellParams({
+        uint256 tokenIn = yachaRouter.exactOutSell(
+            IYachaRouter.ExactOutSellParams({
                 amountInMax: amountInMax,
                 amountOut: quoteOut,
                 token: address(fixture.launchToken),
@@ -443,7 +443,7 @@ contract GiwaRouterV3SwapTest is SetUp {
         assertEq(poolQuoteBefore - fixture.quoteToken.balanceOf(fixture.pool), requiredQuoteOutBeforeProtocolFee);
         assertEq(fixture.quoteToken.balanceOf(user2) - recipientQuoteBefore, quoteOut);
         assertEq(fixture.quoteToken.balanceOf(feeReceiver) - feeReceiverQuoteBefore, protocolFee);
-        assertEq(fixture.launchToken.allowance(address(giwaRouter), address(v3SwapAdapter)), 0);
+        assertEq(fixture.launchToken.allowance(address(yachaRouter), address(v3SwapAdapter)), 0);
         _assertTradeEvent(vm.getRecordedLogs(), SELL_EVENT, user1, address(fixture.launchToken), tokenIn, quoteOut);
     }
 
@@ -453,8 +453,8 @@ contract GiwaRouterV3SwapTest is SetUp {
         uint256 userTokenBefore = _fundAndApproveLaunch(fixture, user1, amountInMax);
 
         vm.prank(user1);
-        uint256 tokenIn = giwaRouter.exactOutSell(
-            IGiwaRouter.ExactOutSellParams({
+        uint256 tokenIn = yachaRouter.exactOutSell(
+            IYachaRouter.ExactOutSellParams({
                 amountInMax: amountInMax,
                 amountOut: 1 ether,
                 token: address(fixture.launchToken),
@@ -466,7 +466,7 @@ contract GiwaRouterV3SwapTest is SetUp {
         assertGt(tokenIn, 0);
         assertLt(tokenIn, amountInMax);
         assertEq(userTokenBefore - fixture.launchToken.balanceOf(user1), tokenIn);
-        assertEq(fixture.launchToken.balanceOf(address(giwaRouter)), 0);
+        assertEq(fixture.launchToken.balanceOf(address(yachaRouter)), 0);
     }
 
     function test_exactOutput_roundsProtocolFeeUpAtOneWei() public {
@@ -476,8 +476,8 @@ contract GiwaRouterV3SwapTest is SetUp {
         _fundAndApproveLaunch(fixture, user1, 1 ether);
 
         vm.prank(user1);
-        giwaRouter.exactOutSell(
-            IGiwaRouter.ExactOutSellParams({
+        yachaRouter.exactOutSell(
+            IYachaRouter.ExactOutSellParams({
                 amountInMax: 1 ether,
                 amountOut: 1,
                 token: address(fixture.launchToken),
@@ -496,8 +496,8 @@ contract GiwaRouterV3SwapTest is SetUp {
 
         vm.expectRevert(IV3SwapAdapter.InvalidAmountOut.selector);
         vm.prank(user1);
-        giwaRouter.exactOutBuy(
-            IGiwaRouter.ExactOutBuyParams({
+        yachaRouter.exactOutBuy(
+            IYachaRouter.ExactOutBuyParams({
                 amountInMax: PARTIAL_INPUT,
                 amountOut: PARTIAL_BALANCE,
                 token: address(fixture.launchToken),
@@ -514,14 +514,14 @@ contract GiwaRouterV3SwapTest is SetUp {
         protocolManager.setFeeReceiver(currentFeeReceiver);
         uint256 quoteDonation = 7 ether;
         uint256 tokenDonation = 11 ether;
-        fixture.quoteToken.mint(address(giwaRouter), quoteDonation);
-        fixture.launchToken.mint(address(giwaRouter), tokenDonation);
+        fixture.quoteToken.mint(address(yachaRouter), quoteDonation);
+        fixture.launchToken.mint(address(yachaRouter), tokenDonation);
         uint256 oldFeeReceiverQuoteBefore = fixture.quoteToken.balanceOf(feeReceiver);
         _fundAndApproveLaunch(fixture, user1, 10 ether);
 
         vm.prank(user1);
-        giwaRouter.exactOutSell(
-            IGiwaRouter.ExactOutSellParams({
+        yachaRouter.exactOutSell(
+            IYachaRouter.ExactOutSellParams({
                 amountInMax: 10 ether,
                 amountOut: 1 ether,
                 token: address(fixture.launchToken),
@@ -532,8 +532,8 @@ contract GiwaRouterV3SwapTest is SetUp {
 
         assertGt(fixture.quoteToken.balanceOf(currentFeeReceiver), 0);
         assertEq(fixture.quoteToken.balanceOf(feeReceiver), oldFeeReceiverQuoteBefore);
-        assertEq(fixture.quoteToken.balanceOf(address(giwaRouter)), quoteDonation);
-        assertEq(fixture.launchToken.balanceOf(address(giwaRouter)), tokenDonation);
+        assertEq(fixture.quoteToken.balanceOf(address(yachaRouter)), quoteDonation);
+        assertEq(fixture.launchToken.balanceOf(address(yachaRouter)), tokenDonation);
     }
 
     function test_exactOutBuy_revertsForTaxedUserPullWithoutConsumingDonation() public {
@@ -541,14 +541,14 @@ contract GiwaRouterV3SwapTest is SetUp {
         ConditionalTransferERC20 conditionalQuote = ConditionalTransferERC20(address(fixture.quoteToken));
         uint256 amountInMax = 10 ether;
         uint256 donation = 2 ether;
-        fixture.quoteToken.mint(address(giwaRouter), donation);
+        fixture.quoteToken.mint(address(yachaRouter), donation);
         uint256 userQuoteBefore = _fundAndApproveQuote(fixture, user1, amountInMax);
-        conditionalQuote.configure(user1, address(giwaRouter), ConditionalTransferERC20.Behavior.Tax, 1_000);
+        conditionalQuote.configure(user1, address(yachaRouter), ConditionalTransferERC20.Behavior.Tax, 1_000);
 
-        vm.expectPartialRevert(IGiwaRouter.InvalidBalanceDelta.selector);
+        vm.expectPartialRevert(IYachaRouter.InvalidBalanceDelta.selector);
         vm.prank(user1);
-        giwaRouter.exactOutBuy(
-            IGiwaRouter.ExactOutBuyParams({
+        yachaRouter.exactOutBuy(
+            IYachaRouter.ExactOutBuyParams({
                 amountInMax: amountInMax,
                 amountOut: 1 ether,
                 token: address(fixture.launchToken),
@@ -558,7 +558,7 @@ contract GiwaRouterV3SwapTest is SetUp {
         );
 
         assertEq(fixture.quoteToken.balanceOf(user1), userQuoteBefore);
-        assertEq(fixture.quoteToken.balanceOf(address(giwaRouter)), donation);
+        assertEq(fixture.quoteToken.balanceOf(address(yachaRouter)), donation);
         assertEq(fixture.launchToken.balanceOf(user2), 0);
     }
 
@@ -581,8 +581,8 @@ contract GiwaRouterV3SwapTest is SetUp {
         uint256 poolQuoteBefore = fixture.quoteToken.balanceOf(fixture.pool);
 
         vm.prank(user1);
-        giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: quoteInMaxWithProtocolFee,
                 amountOutMin: 1,
                 token: address(fixture.launchToken),
@@ -623,10 +623,10 @@ contract GiwaRouterV3SwapTest is SetUp {
         uint256 userQuoteBefore = fixture.quoteToken.balanceOf(user1);
         uint256 feeReceiverQuoteBefore = fixture.quoteToken.balanceOf(feeReceiver);
 
-        vm.expectRevert(IGiwaRouter.InsufficientOutput.selector);
+        vm.expectRevert(IYachaRouter.InsufficientOutput.selector);
         vm.prank(user1);
-        giwaRouter.sell(
-            IGiwaRouter.SellParams({
+        yachaRouter.sell(
+            IYachaRouter.SellParams({
                 amountIn: tokenInMax,
                 amountOutMin: type(uint256).max,
                 token: address(fixture.launchToken),
@@ -644,14 +644,14 @@ contract GiwaRouterV3SwapTest is SetUp {
         Fixture memory fixture = launchBelowQuote;
         uint256 quoteDonation = 7 ether;
         uint256 tokenDonation = 11 ether;
-        fixture.quoteToken.mint(address(giwaRouter), quoteDonation);
-        fixture.launchToken.mint(address(giwaRouter), tokenDonation);
+        fixture.quoteToken.mint(address(yachaRouter), quoteDonation);
+        fixture.launchToken.mint(address(yachaRouter), tokenDonation);
 
         _executeBuy(fixture, user1, 10 ether);
         _fundAndApproveLaunch(fixture, user2, 10 ether);
         vm.prank(user2);
-        giwaRouter.sell(
-            IGiwaRouter.SellParams({
+        yachaRouter.sell(
+            IYachaRouter.SellParams({
                 amountIn: 10 ether,
                 amountOutMin: 1,
                 token: address(fixture.launchToken),
@@ -660,8 +660,8 @@ contract GiwaRouterV3SwapTest is SetUp {
             })
         );
 
-        assertEq(fixture.quoteToken.balanceOf(address(giwaRouter)), quoteDonation);
-        assertEq(fixture.launchToken.balanceOf(address(giwaRouter)), tokenDonation);
+        assertEq(fixture.quoteToken.balanceOf(address(yachaRouter)), quoteDonation);
+        assertEq(fixture.launchToken.balanceOf(address(yachaRouter)), tokenDonation);
     }
 
     function test_directAdapterSwapDoesNotChargeRouterProtocolFee() public {
@@ -707,10 +707,10 @@ contract GiwaRouterV3SwapTest is SetUp {
         protocolManager.removeQuoteToken(address(fixture.quoteToken));
         _fundAndApproveQuote(fixture, user1, 10 ether);
 
-        vm.expectRevert(IGiwaRouter.InvalidV3Quote.selector);
+        vm.expectRevert(IYachaRouter.InvalidV3Quote.selector);
         vm.prank(user1);
-        giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: 10 ether,
                 amountOutMin: 1,
                 token: address(fixture.launchToken),
@@ -730,10 +730,10 @@ contract GiwaRouterV3SwapTest is SetUp {
         );
         _fundAndApproveQuote(fixture, user1, 10 ether);
 
-        vm.expectRevert(IGiwaRouter.InvalidDexFeeRate.selector);
+        vm.expectRevert(IYachaRouter.InvalidDexFeeRate.selector);
         vm.prank(user1);
-        giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: 10 ether,
                 amountOutMin: 1,
                 token: address(fixture.launchToken),
@@ -762,8 +762,8 @@ contract GiwaRouterV3SwapTest is SetUp {
 
         vm.expectRevert(RejectingReceiverERC20.RejectedRecipient.selector);
         vm.prank(user1);
-        giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: quoteInMaxWithProtocolFee,
                 amountOutMin: 1,
                 token: address(fixture.launchToken),
@@ -782,14 +782,14 @@ contract GiwaRouterV3SwapTest is SetUp {
         ConditionalTransferERC20 conditionalQuote = ConditionalTransferERC20(address(fixture.quoteToken));
         uint256 quoteInMaxWithProtocolFee = 10 ether;
         uint256 donation = 2 ether;
-        fixture.quoteToken.mint(address(giwaRouter), donation);
+        fixture.quoteToken.mint(address(yachaRouter), donation);
         uint256 userQuoteBefore = _fundAndApproveQuote(fixture, user1, quoteInMaxWithProtocolFee);
-        conditionalQuote.configure(user1, address(giwaRouter), ConditionalTransferERC20.Behavior.Tax, 1_000);
+        conditionalQuote.configure(user1, address(yachaRouter), ConditionalTransferERC20.Behavior.Tax, 1_000);
 
-        vm.expectPartialRevert(IGiwaRouter.InvalidBalanceDelta.selector);
+        vm.expectPartialRevert(IYachaRouter.InvalidBalanceDelta.selector);
         vm.prank(user1);
-        giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: quoteInMaxWithProtocolFee,
                 amountOutMin: 1,
                 token: address(fixture.launchToken),
@@ -799,7 +799,7 @@ contract GiwaRouterV3SwapTest is SetUp {
         );
 
         assertEq(fixture.quoteToken.balanceOf(user1), userQuoteBefore);
-        assertEq(fixture.quoteToken.balanceOf(address(giwaRouter)), donation);
+        assertEq(fixture.quoteToken.balanceOf(address(yachaRouter)), donation);
         assertEq(fixture.launchToken.balanceOf(user2), 0);
     }
 
@@ -809,13 +809,13 @@ contract GiwaRouterV3SwapTest is SetUp {
         uint256 quoteInMaxWithProtocolFee = 10 ether;
         fixture.quoteToken.mint(user1, 11 ether);
         vm.prank(user1);
-        fixture.quoteToken.approve(address(giwaRouter), quoteInMaxWithProtocolFee);
-        conditionalQuote.configure(user1, address(giwaRouter), ConditionalTransferERC20.Behavior.Surcharge, 1_000);
+        fixture.quoteToken.approve(address(yachaRouter), quoteInMaxWithProtocolFee);
+        conditionalQuote.configure(user1, address(yachaRouter), ConditionalTransferERC20.Behavior.Surcharge, 1_000);
 
-        vm.expectPartialRevert(IGiwaRouter.InvalidBalanceDelta.selector);
+        vm.expectPartialRevert(IYachaRouter.InvalidBalanceDelta.selector);
         vm.prank(user1);
-        giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: quoteInMaxWithProtocolFee,
                 amountOutMin: 1,
                 token: address(fixture.launchToken),
@@ -833,12 +833,12 @@ contract GiwaRouterV3SwapTest is SetUp {
         ConditionalTransferERC20 conditionalQuote = ConditionalTransferERC20(address(fixture.quoteToken));
         uint256 tokenIn = 10 ether;
         uint256 userTokenBefore = _fundAndApproveLaunch(fixture, user1, tokenIn);
-        conditionalQuote.configure(address(giwaRouter), user2, ConditionalTransferERC20.Behavior.Tax, 1_000);
+        conditionalQuote.configure(address(yachaRouter), user2, ConditionalTransferERC20.Behavior.Tax, 1_000);
 
-        vm.expectPartialRevert(IGiwaRouter.InvalidBalanceDelta.selector);
+        vm.expectPartialRevert(IYachaRouter.InvalidBalanceDelta.selector);
         vm.prank(user1);
-        giwaRouter.sell(
-            IGiwaRouter.SellParams({
+        yachaRouter.sell(
+            IYachaRouter.SellParams({
                 amountIn: tokenIn,
                 amountOutMin: 1,
                 token: address(fixture.launchToken),
@@ -854,13 +854,13 @@ contract GiwaRouterV3SwapTest is SetUp {
     function test_exactInput_revertsForRouterAsProtocolFeeReceiver() public {
         Fixture memory fixture = launchBelowQuote;
         vm.prank(admin);
-        protocolManager.setFeeReceiver(address(giwaRouter));
+        protocolManager.setFeeReceiver(address(yachaRouter));
         _fundAndApproveQuote(fixture, user1, 10 ether);
 
-        vm.expectRevert(IGiwaRouter.InvalidRecipient.selector);
+        vm.expectRevert(IYachaRouter.InvalidRecipient.selector);
         vm.prank(user1);
-        giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: 10 ether,
                 amountOutMin: 1,
                 token: address(fixture.launchToken),
@@ -885,8 +885,8 @@ contract GiwaRouterV3SwapTest is SetUp {
             })
         );
 
-        assertEq(giwaRouter.getAmountOut(address(fixture.launchToken), quoteIn, true), tokenOut);
-        assertEq(giwaRouter.getDexAmountOut(address(fixture.launchToken), quoteIn, true), tokenOut);
+        assertEq(yachaRouter.getAmountOut(address(fixture.launchToken), quoteIn, true), tokenOut);
+        assertEq(yachaRouter.getDexAmountOut(address(fixture.launchToken), quoteIn, true), tokenOut);
     }
 
     function test_getAmountOutGraduated_sellMatchesExecutionFeeFormula() public {
@@ -904,11 +904,11 @@ contract GiwaRouterV3SwapTest is SetUp {
         uint256 protocolFee = FullMath.mulDivRoundingUp(quoteOutBeforeProtocolFee, fixture.protocolFeeRate, BPS);
 
         assertEq(
-            giwaRouter.getAmountOut(address(fixture.launchToken), tokenIn, false),
+            yachaRouter.getAmountOut(address(fixture.launchToken), tokenIn, false),
             quoteOutBeforeProtocolFee - protocolFee
         );
         assertEq(
-            giwaRouter.getDexAmountOut(address(fixture.launchToken), tokenIn, false),
+            yachaRouter.getDexAmountOut(address(fixture.launchToken), tokenIn, false),
             quoteOutBeforeProtocolFee - protocolFee
         );
     }
@@ -927,8 +927,8 @@ contract GiwaRouterV3SwapTest is SetUp {
         );
         uint256 quoteIn = FullMath.mulDivRoundingUp(poolQuoteIn, BPS, BPS - fixture.protocolFeeRate);
 
-        assertEq(giwaRouter.getAmountIn(address(fixture.launchToken), tokenOut, true), quoteIn);
-        assertEq(giwaRouter.getDexAmountIn(address(fixture.launchToken), tokenOut, true), quoteIn);
+        assertEq(yachaRouter.getAmountIn(address(fixture.launchToken), tokenOut, true), quoteIn);
+        assertEq(yachaRouter.getDexAmountIn(address(fixture.launchToken), tokenOut, true), quoteIn);
     }
 
     function test_getAmountInGraduated_sellGrossesUpRequestedNetOutput() public {
@@ -945,34 +945,34 @@ contract GiwaRouterV3SwapTest is SetUp {
             })
         );
 
-        assertEq(giwaRouter.getAmountIn(address(fixture.launchToken), quoteOut, false), tokenIn);
-        assertEq(giwaRouter.getDexAmountIn(address(fixture.launchToken), quoteOut, false), tokenIn);
+        assertEq(yachaRouter.getAmountIn(address(fixture.launchToken), quoteOut, false), tokenIn);
+        assertEq(yachaRouter.getDexAmountIn(address(fixture.launchToken), quoteOut, false), tokenIn);
     }
 
     function test_getAmountInGraduated_buyRevertsWhenExactOutputCannotBeFilled() public {
         Fixture memory fixture = _createFixture("PartialQuoteBuy", true, LOW_FEE_TIER, LOW_PROTOCOL_FEE_RATE, true);
 
         vm.expectRevert();
-        giwaRouter.getAmountIn(address(fixture.launchToken), PARTIAL_BALANCE, true);
+        yachaRouter.getAmountIn(address(fixture.launchToken), PARTIAL_BALANCE, true);
     }
 
     function test_getAmountInGraduated_sellRevertsWhenExactOutputCannotBeFilled() public {
         Fixture memory fixture = _createFixture("PartialQuoteSell", false, LOW_FEE_TIER, LOW_PROTOCOL_FEE_RATE, true);
 
         vm.expectRevert();
-        giwaRouter.getDexAmountIn(address(fixture.launchToken), PARTIAL_BALANCE, false);
+        yachaRouter.getDexAmountIn(address(fixture.launchToken), PARTIAL_BALANCE, false);
     }
 
     function test_quoteFunctionsAllowStateChangingQuoterBehavior() public {
         Fixture memory fixture = launchBelowQuote;
         StateChangingQuoter stateChangingQuoter = new StateChangingQuoter(address(v3Factory));
-        GiwaRouter implementation = new GiwaRouter();
-        GiwaRouter router = GiwaRouter(
+        YachaRouter implementation = new YachaRouter();
+        YachaRouter router = YachaRouter(
             payable(address(
                     new ERC1967Proxy(
                         address(implementation),
                         abi.encodeCall(
-                            GiwaRouter.initialize,
+                            YachaRouter.initialize,
                             (
                                 address(protocolManager),
                                 address(bondingCurve),
@@ -1000,7 +1000,7 @@ contract GiwaRouterV3SwapTest is SetUp {
     }
 
     function test_runtimeCodeSize_doesNotExceedEip170Limit() public {
-        GiwaRouter implementation = new GiwaRouter();
+        YachaRouter implementation = new YachaRouter();
         assertLe(address(implementation).code.length, EIP170_RUNTIME_LIMIT - MIN_RUNTIME_HEADROOM);
     }
 
@@ -1098,7 +1098,7 @@ contract GiwaRouterV3SwapTest is SetUp {
         fixture.quoteToken.mint(user, amount);
         balanceBefore = fixture.quoteToken.balanceOf(user);
         vm.prank(user);
-        fixture.quoteToken.approve(address(giwaRouter), amount);
+        fixture.quoteToken.approve(address(yachaRouter), amount);
     }
 
     function _fundAndApproveLaunch(Fixture memory fixture, address user, uint256 amount)
@@ -1108,7 +1108,7 @@ contract GiwaRouterV3SwapTest is SetUp {
         fixture.launchToken.mint(user, amount);
         balanceBefore = fixture.launchToken.balanceOf(user);
         vm.prank(user);
-        fixture.launchToken.approve(address(giwaRouter), amount);
+        fixture.launchToken.approve(address(yachaRouter), amount);
     }
 
     function _executeBuy(Fixture memory fixture, address user, uint256 quoteInMaxWithProtocolFee)
@@ -1117,8 +1117,8 @@ contract GiwaRouterV3SwapTest is SetUp {
     {
         _fundAndApproveQuote(fixture, user, quoteInMaxWithProtocolFee);
         vm.prank(user);
-        tokenOut = giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        tokenOut = yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: quoteInMaxWithProtocolFee,
                 amountOutMin: 1,
                 token: address(fixture.launchToken),
@@ -1173,7 +1173,7 @@ contract GiwaRouterV3SwapTest is SetUp {
         uint256 amountOut
     ) private {
         for (uint256 i = 0; i < logs.length; i++) {
-            if (logs[i].emitter != address(giwaRouter) || logs[i].topics[0] != eventSignature) {
+            if (logs[i].emitter != address(yachaRouter) || logs[i].topics[0] != eventSignature) {
                 continue;
             }
             assertEq(logs[i].topics[1], bytes32(uint256(uint160(trader))));

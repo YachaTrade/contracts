@@ -4,7 +4,7 @@
 **Pattern:** EIP-1167 Clone
 **Inheritance:** `ERC20Upgradeable`, `ERC20PermitUpgradeable`, `IToken`
 
-Simple ERC20 token for NadFun v2. Replaces the V1 TaxToken by removing fee-on-transfer logic entirely. Fee collection is handled at the NadFunPair and BondingCurve level instead.
+Simple ERC-20 launch token with no fee-on-transfer behavior. Lifecycle and protocol fees are handled by BondingCurve, YachaRouter, and LPManager rather than token transfers.
 
 Deployed as an ERC-1167 minimal proxy clone by `BondingCurve.create()`. Uses upgradeable ERC20 and ERC20Permit initializers because clones do not invoke constructors. The entire total supply (1 billion tokens) is minted to the BondingCurve on initialization. On graduation, only the `isGraduated` flag is set -- there is no multi-step state machine.
 
@@ -23,7 +23,7 @@ Deployed as an ERC-1167 minimal proxy clone by `BondingCurve.create()`. Uses upg
 | Variable | Type | Visibility | Purpose |
 |----------|------|------------|---------|
 | `bondingCurve` | `address` | public | BondingCurve contract that deployed this token |
-| `pair` | `address` | public | NadFunPair address for this token |
+| `pair` | `address` | public | Canonical V3 pool address for this token |
 | `isGraduated` | `bool` | public | Whether this token has graduated to DEX |
 
 ---

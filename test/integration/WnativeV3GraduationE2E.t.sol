@@ -13,10 +13,10 @@ import {CreatorFeeProcessor} from "../../src/core/CreatorFeeProcessor.sol";
 import {LPManager} from "../../src/core/LPManager.sol";
 import {TokenRegistry} from "../../src/core/TokenRegistry.sol";
 import {IBondingCurve} from "../../src/interfaces/IBondingCurve.sol";
-import {IGiwaRouter} from "../../src/interfaces/IGiwaRouter.sol";
+import {IYachaRouter} from "../../src/interfaces/IYachaRouter.sol";
 import {IProtocolManager} from "../../src/interfaces/IProtocolManager.sol";
 import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
-import {GiwaRouter} from "../../src/router/GiwaRouter.sol";
+import {YachaRouter} from "../../src/router/YachaRouter.sol";
 import {Token} from "../../src/token/Token.sol";
 
 contract WnativeV3GraduationDeployHarness is Deploy {
@@ -33,7 +33,7 @@ contract WnativeV3GraduationDeployHarness is Deploy {
         LPManager(d.lpManager).setV3LiquidityActor(d.v3LiquidityActor, d.v3Factory);
         d.tokenImpl = address(new Token());
         d.bondingCurve = _deployBondingCurve(address(this), d.tokenImpl, d.protocolManager);
-        (d.quoterV2, d.giwaRouter) = _deployV3Routing(
+        (d.quoterV2, d.yachaRouter) = _deployV3Routing(
             d.protocolManager, d.bondingCurve, d.tokenRegistry, d.wnative, d.v3SwapAdapter, d.v3Factory
         );
 
@@ -43,7 +43,7 @@ contract WnativeV3GraduationDeployHarness is Deploy {
         _setPermissions(d, address(0), address(this));
 
         BondingCurve bondingCurve = BondingCurve(payable(d.bondingCurve));
-        bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), d.giwaRouter);
+        bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), d.yachaRouter);
     }
 
     function _testConfig() private pure returns (ProtocolDeploymentConfig memory config) {
@@ -84,7 +84,7 @@ contract WnativeV3GraduationE2ETest is Test {
     Deploy.Deployed private deployed;
     UniswapV3Factory private v3Factory;
     MockWrappedNative private wnative;
-    GiwaRouter private giwaRouter;
+    YachaRouter private yachaRouter;
     BondingCurve private bondingCurve;
     TokenRegistry private tokenRegistry;
     LPManager private lpManager;
@@ -109,7 +109,7 @@ contract WnativeV3GraduationE2ETest is Test {
         deployed = harness.deployCanonicalFixture(address(v3Factory), feeReceiver);
 
         wnative = MockWrappedNative(payable(deployed.wnative));
-        giwaRouter = GiwaRouter(payable(deployed.giwaRouter));
+        yachaRouter = YachaRouter(payable(deployed.yachaRouter));
         bondingCurve = BondingCurve(payable(deployed.bondingCurve));
         tokenRegistry = TokenRegistry(deployed.tokenRegistry);
         lpManager = LPManager(deployed.lpManager);
@@ -119,7 +119,7 @@ contract WnativeV3GraduationE2ETest is Test {
         pool = tokenRegistry.getPool(token);
 
         assertEq(deployed.wnative, GIWA_WNATIVE, "canonical WNATIVE");
-        assertEq(giwaRouter.wrappedNative(), GIWA_WNATIVE, "router WNATIVE");
+        assertEq(yachaRouter.wrappedNative(), GIWA_WNATIVE, "router WNATIVE");
         assertEq(tokenRegistry.getQuoteToken(token), GIWA_WNATIVE, "registry WNATIVE");
         assertEq(CreatorFeeProcessor(deployed.creatorFeeProcessor).vaultCount(token), 1, "CreatorFeeVault only");
         assertEq(IERC20(token).balanceOf(deployed.lpManager), 0, "graduation token remainder");
@@ -142,11 +142,11 @@ contract WnativeV3GraduationE2ETest is Test {
         assertEq(IERC20(token).balanceOf(trader), 0, "fresh trader token balance");
         assertEq(wnative.balanceOf(trader), quoteIn, "funded trader WNATIVE balance");
         vm.prank(trader);
-        wnative.approve(deployed.giwaRouter, quoteIn);
+        wnative.approve(deployed.yachaRouter, quoteIn);
 
         vm.prank(trader);
-        uint256 tokenOut = giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        uint256 tokenOut = yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: quoteIn, amountOutMin: 1, token: token, to: trader, deadline: block.timestamp
             })
         );
@@ -155,12 +155,12 @@ contract WnativeV3GraduationE2ETest is Test {
         uint256 fullBalance = IERC20(token).balanceOf(trader);
         assertEq(fullBalance, tokenOut, "buyer token balance");
         vm.prank(trader);
-        IERC20(token).approve(deployed.giwaRouter, fullBalance);
+        IERC20(token).approve(deployed.yachaRouter, fullBalance);
 
         uint256 quoteBefore = wnative.balanceOf(trader);
         vm.prank(trader);
-        uint256 quoteOut = giwaRouter.sell(
-            IGiwaRouter.SellParams({
+        uint256 quoteOut = yachaRouter.sell(
+            IYachaRouter.SellParams({
                 amountIn: fullBalance, amountOutMin: 1, token: token, to: trader, deadline: block.timestamp
             })
         );
@@ -198,14 +198,16 @@ contract WnativeV3GraduationE2ETest is Test {
         assertEq(wnative.balanceOf(feeReceiver), beforeSwap.feeReceiverWnative, "fee receiver WNATIVE delta");
         assertEq(beforeSwap.routerToken, 0, "router token before swap");
         assertEq(beforeSwap.routerWnative, 0, "router WNATIVE before swap");
-        assertEq(IERC20(token).balanceOf(deployed.giwaRouter), 0, "router token dust");
-        assertEq(wnative.balanceOf(deployed.giwaRouter), 0, "router WNATIVE dust");
+        assertEq(IERC20(token).balanceOf(deployed.yachaRouter), 0, "router token dust");
+        assertEq(wnative.balanceOf(deployed.yachaRouter), 0, "router WNATIVE dust");
         assertEq(beforeSwap.adapterToken, 0, "adapter token before swap");
         assertEq(beforeSwap.adapterWnative, 0, "adapter WNATIVE before swap");
         assertEq(IERC20(token).balanceOf(deployed.v3SwapAdapter), 0, "adapter token dust");
         assertEq(wnative.balanceOf(deployed.v3SwapAdapter), 0, "adapter WNATIVE dust");
-        assertEq(IERC20(token).allowance(deployed.giwaRouter, deployed.v3SwapAdapter), 0, "router token allowance dust");
-        assertEq(wnative.allowance(deployed.giwaRouter, deployed.v3SwapAdapter), 0, "router WNATIVE allowance dust");
+        assertEq(
+            IERC20(token).allowance(deployed.yachaRouter, deployed.v3SwapAdapter), 0, "router token allowance dust"
+        );
+        assertEq(wnative.allowance(deployed.yachaRouter, deployed.v3SwapAdapter), 0, "router WNATIVE allowance dust");
     }
 
     function _snapshotSettlement() private view returns (SettlementSnapshot memory snapshot) {
@@ -218,8 +220,8 @@ contract WnativeV3GraduationE2ETest is Test {
         snapshot.actorWnative = wnative.balanceOf(deployed.v3LiquidityActor);
         snapshot.feeReceiverToken = IERC20(token).balanceOf(feeReceiver);
         snapshot.feeReceiverWnative = wnative.balanceOf(feeReceiver);
-        snapshot.routerToken = IERC20(token).balanceOf(deployed.giwaRouter);
-        snapshot.routerWnative = wnative.balanceOf(deployed.giwaRouter);
+        snapshot.routerToken = IERC20(token).balanceOf(deployed.yachaRouter);
+        snapshot.routerWnative = wnative.balanceOf(deployed.yachaRouter);
         snapshot.adapterToken = IERC20(token).balanceOf(deployed.v3SwapAdapter);
         snapshot.adapterWnative = wnative.balanceOf(deployed.v3SwapAdapter);
     }
@@ -228,7 +230,7 @@ contract WnativeV3GraduationE2ETest is Test {
         uint256 deployFee = IProtocolManager(deployed.protocolManager).deployFee(deployed.wnative);
         _fundWnative(creator, deployFee);
         vm.prank(creator);
-        wnative.approve(deployed.giwaRouter, deployFee);
+        wnative.approve(deployed.yachaRouter, deployFee);
 
         IBondingCurve.VaultAllocation[] memory vaults = new IBondingCurve.VaultAllocation[](1);
         vaults[0] = IBondingCurve.VaultAllocation({
@@ -236,8 +238,8 @@ contract WnativeV3GraduationE2ETest is Test {
         });
 
         vm.prank(creator);
-        (createdToken,) = giwaRouter.create(
-            IGiwaRouter.CreateParams({
+        (createdToken,) = yachaRouter.create(
+            IYachaRouter.CreateParams({
                 name: "Canonical WNATIVE Launch",
                 symbol: "CWNATIVE",
                 tokenURI: "",
@@ -256,11 +258,11 @@ contract WnativeV3GraduationE2ETest is Test {
         vm.warp(block.timestamp + 100 minutes);
         _fundWnative(graduator, GRADUATION_QUOTE_IN);
         vm.prank(graduator);
-        wnative.approve(deployed.giwaRouter, GRADUATION_QUOTE_IN);
+        wnative.approve(deployed.yachaRouter, GRADUATION_QUOTE_IN);
 
         vm.prank(graduator);
-        giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: GRADUATION_QUOTE_IN, amountOutMin: 1, token: token, to: graduator, deadline: block.timestamp
             })
         );

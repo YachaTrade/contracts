@@ -1,17 +1,17 @@
-# IGiwaRouter
+# IYachaRouter
 
-**Path:** `src/interfaces/IGiwaRouter.sol`
+**Path:** `src/interfaces/IYachaRouter.sol`
 **Type:** Interface
 
-`IGiwaRouter` is the user-facing token creation and lifecycle trading interface. It calls `BondingCurve` before graduation and requires canonical Uniswap V3 metadata after graduation. ERC-20 routes support every allowlisted quote token registered for the launch token. Native routes support only the Router's configured wrapped-native token.
+`IYachaRouter` is the user-facing token creation and lifecycle trading interface. It calls `BondingCurve` before graduation and requires canonical Uniswap V3 metadata after graduation. ERC-20 routes support every allowlisted quote token registered for the launch token. Native routes support only the Router's configured wrapped-native token.
 
-For implementation behavior and fee formulas, see [GiwaRouter](../router/GiwaRouter.md). For the fee-free pool boundary, see [V3SwapAdapter](../adapters/V3SwapAdapter.md).
+For implementation behavior and fee formulas, see [YachaRouter](../router/YachaRouter.md). For the fee-free pool boundary, see [V3SwapAdapter](../adapters/V3SwapAdapter.md).
 
 ## Parameter structs
 
 | Struct | Fields |
 |---|---|
-| `CreateParams` | `string name`, `string symbol`, `string tokenURI`, `address quoteToken`, `uint16 creatorFeeRate`, `IBondingCurve.VaultAllocation[] vaults`, `bytes32 salt`, `ITokenRegistry.DexType dexType`, `uint256 buyQuoteAmount`, `uint256 deadline` |
+| `CreateParams` | `string name`, `string symbol`, `string tokenURI`, `address quoteToken`, `IBondingCurve.VaultAllocation[] vaults`, `bytes32 salt`, `ITokenRegistry.DexType dexType`, `uint256 buyQuoteAmount`, `uint256 deadline` |
 | `BuyParams` | `uint256 amountIn`, `uint256 amountOutMin`, `address token`, `address to`, `uint256 deadline` |
 | `BuyWithNativeParams` | `uint256 amountOutMin`, `address token`, `address to`, `uint256 deadline` |
 | `BuyWithPermitParams` | `uint256 amountIn`, `uint256 amountOutMin`, `uint256 amountAllowance`, `address token`, `address to`, `uint256 deadline`, `uint8 v`, `bytes32 r`, `bytes32 s` |
@@ -33,7 +33,7 @@ For implementation behavior and fee formulas, see [GiwaRouter](../router/GiwaRou
 | `create(CreateParams params)` | nonpayable | `(address token, uint256 tokenOut)` | Pulls `deployFee + buyQuoteAmount` in the selected ERC-20 quote token and calls `BondingCurve.create`. |
 | `createWithNative(CreateParams params)` | payable | `(address token, uint256 tokenOut)` | Same operation using native currency. `params.quoteToken` must equal `wrappedNative()`. Excess `msg.value` is refunded. |
 
-The creation fields retain the current BondingCurve API. The repository's deployment script still wires creation and graduation to the legacy V2 factory/LPManager path; see [Deployment status](../router/GiwaRouter.md#deployment-status).
+The creation flow deploys the Token clone, creates and registers its canonical V3 pool, configures its creator vault allocation, and stores the curve state in one transaction.
 
 ## Exact-input trading
 
@@ -84,8 +84,8 @@ QuoterV2 quote entrypoints are intentionally not Solidity `view`: canonical Quot
 | Event | Meaning |
 |---|---|
 | `Create(address indexed token, address indexed creator)` | A token was created for the caller. |
-| `Buy(address indexed buyer, address indexed token, uint256 amountIn, uint256 amountOut, bool graduated)` | For a graduated buy, `amountIn` includes the Router protocol fee. |
-| `Sell(address indexed seller, address indexed token, uint256 amountIn, uint256 amountOut, bool graduated)` | For a graduated sell, `amountIn` is launch-token input used and `amountOut` is quote output after the Router protocol fee. |
+| `RouterBuy(address indexed buyer, address indexed token, uint256 amountIn, uint256 amountOut, bool graduated)` | For a graduated buy, `amountIn` includes the Router protocol fee. |
+| `RouterSell(address indexed seller, address indexed token, uint256 amountIn, uint256 amountOut, bool graduated)` | For a graduated sell, `amountIn` is launch-token input used and `amountOut` is quote output after the Router protocol fee. |
 
 ## Errors
 
@@ -96,7 +96,7 @@ QuoterV2 quote entrypoints are intentionally not Solidity `view`: canonical Quot
 | `InsufficientOutput()` | Output is below the caller's minimum or requested exact output. |
 | `ExcessiveInput()` | Exact-output input exceeds the caller's maximum. |
 | `TokenNotFound()` | BondingCurve or registry metadata is missing. |
-| `TokenNotGraduated()` | Retained interface error; current V3 validation normally reports `InvalidV3Pool`. |
+| `TokenNotGraduated()` | The selected function requires a graduated token. |
 | `InvalidNativeQuoteToken()` | A native route's quote token is not `wrappedNative()`. |
 | `InvalidRecipient()` | Recipient or fee receiver is invalid. |
 | `InvalidAllowance()` | Permit allowance is smaller than the requested input. |
@@ -109,6 +109,6 @@ QuoterV2 quote entrypoints are intentionally not Solidity `view`: canonical Quot
 
 ## Related
 
-- [GiwaRouter](../router/GiwaRouter.md)
+- [YachaRouter](../router/YachaRouter.md)
 - [V3SwapAdapter](../adapters/V3SwapAdapter.md)
 - [Protocol flow](../../../PROTOCOL_FLOW.md)

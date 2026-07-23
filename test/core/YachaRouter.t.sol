@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-/// @notice Test suite for GiwaRouter.
+/// @notice Test suite for YachaRouter.
 
 import {Vm} from "forge-std/Vm.sol";
 import {SetUp} from "../SetUp.t.sol";
 import {IBondingCurve} from "../../src/interfaces/IBondingCurve.sol";
-import {GiwaRouter} from "../../src/router/GiwaRouter.sol";
-import {IGiwaRouter} from "../../src/interfaces/IGiwaRouter.sol";
+import {YachaRouter} from "../../src/router/YachaRouter.sol";
+import {IYachaRouter} from "../../src/interfaces/IYachaRouter.sol";
 import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockWrappedNative} from "../mocks/MockWrappedNative.sol";
@@ -44,7 +44,7 @@ contract ToggleFeeOnTransferQuote is ERC20 {
     }
 }
 
-contract GiwaRouterTest is SetUp {
+contract YachaRouterTest is SetUp {
     event RouterBuy(address indexed buyer, address indexed token, uint256 amountIn, uint256 amountOut, bool graduated);
     event RouterSell(
         address indexed seller, address indexed token, uint256 amountIn, uint256 amountOut, bool graduated
@@ -92,14 +92,14 @@ contract GiwaRouterTest is SetUp {
         bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), address(this));
         vm.stopPrank();
 
-        // Deploy GiwaRouter (UUPS proxy)
-        GiwaRouter routerImpl = new GiwaRouter();
-        giwaRouter = GiwaRouter(
+        // Deploy YachaRouter (UUPS proxy)
+        YachaRouter routerImpl = new YachaRouter();
+        yachaRouter = YachaRouter(
             payable(address(
                     new ERC1967Proxy(
                         address(routerImpl),
                         abi.encodeCall(
-                            GiwaRouter.initialize,
+                            YachaRouter.initialize,
                             (
                                 address(protocolManager),
                                 address(bondingCurve),
@@ -114,7 +114,7 @@ contract GiwaRouterTest is SetUp {
         );
 
         vm.startPrank(admin);
-        bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), address(giwaRouter));
+        bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), address(yachaRouter));
         vm.stopPrank();
 
         // Fund MockWrappedNative with ETH for native tests
@@ -136,10 +136,10 @@ contract GiwaRouterTest is SetUp {
 
         wnative.mint(user1, maxQuoteIn);
         vm.startPrank(user1);
-        wnative.approve(address(giwaRouter), maxQuoteIn);
+        wnative.approve(address(yachaRouter), maxQuoteIn);
 
-        uint256 amountIn = giwaRouter.exactOutBuy(
-            IGiwaRouter.ExactOutBuyParams({
+        uint256 amountIn = yachaRouter.exactOutBuy(
+            IYachaRouter.ExactOutBuyParams({
                 amountInMax: maxQuoteIn,
                 amountOut: desiredTokens,
                 token: token,
@@ -163,8 +163,8 @@ contract GiwaRouterTest is SetUp {
         vm.deal(user1, maxNativeIn);
 
         vm.prank(user1);
-        uint256 amountIn = giwaRouter.exactOutBuyWithNative{value: maxNativeIn}(
-            IGiwaRouter.ExactOutBuyWithNativeParams({
+        uint256 amountIn = yachaRouter.exactOutBuyWithNative{value: maxNativeIn}(
+            IYachaRouter.ExactOutBuyWithNativeParams({
                 amountOut: desiredTokens, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -182,9 +182,9 @@ contract GiwaRouterTest is SetUp {
 
         vm.deal(user1, nativeInMax);
         vm.prank(user1);
-        vm.expectRevert(IGiwaRouter.InvalidNativeQuoteToken.selector);
-        giwaRouter.exactOutBuyWithNative{value: nativeInMax}(
-            IGiwaRouter.ExactOutBuyWithNativeParams({
+        vm.expectRevert(IYachaRouter.InvalidNativeQuoteToken.selector);
+        yachaRouter.exactOutBuyWithNative{value: nativeInMax}(
+            IYachaRouter.ExactOutBuyWithNativeParams({
                 amountOut: tokenOut, token: lvmonQuotedToken, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -197,14 +197,14 @@ contract GiwaRouterTest is SetUp {
 
         wnative.mint(user2, donation);
         vm.prank(user2);
-        wnative.transfer(address(giwaRouter), donation);
+        wnative.transfer(address(yachaRouter), donation);
 
         wnative.mint(user1, maxQuoteIn);
         vm.startPrank(user1);
-        wnative.approve(address(giwaRouter), maxQuoteIn);
+        wnative.approve(address(yachaRouter), maxQuoteIn);
 
-        uint256 amountIn = giwaRouter.exactOutBuy(
-            IGiwaRouter.ExactOutBuyParams({
+        uint256 amountIn = yachaRouter.exactOutBuy(
+            IYachaRouter.ExactOutBuyParams({
                 amountInMax: maxQuoteIn,
                 amountOut: desiredTokens,
                 token: token,
@@ -215,7 +215,7 @@ contract GiwaRouterTest is SetUp {
         vm.stopPrank();
 
         assertEq(wnative.balanceOf(user1), maxQuoteIn - amountIn, "User should receive only this call's refund");
-        assertEq(wnative.balanceOf(address(giwaRouter)), donation, "Router should retain pre-existing quote balance");
+        assertEq(wnative.balanceOf(address(yachaRouter)), donation, "Router should retain pre-existing quote balance");
     }
 
     function test_exactOutBuyWithNative_bondingCurve_doesNotSweepPreexistingWnative() public {
@@ -225,18 +225,18 @@ contract GiwaRouterTest is SetUp {
 
         wnative.mint(user2, donation);
         vm.prank(user2);
-        wnative.transfer(address(giwaRouter), donation);
+        wnative.transfer(address(yachaRouter), donation);
 
         vm.deal(user1, maxNativeIn);
         vm.prank(user1);
-        uint256 amountIn = giwaRouter.exactOutBuyWithNative{value: maxNativeIn}(
-            IGiwaRouter.ExactOutBuyWithNativeParams({
+        uint256 amountIn = yachaRouter.exactOutBuyWithNative{value: maxNativeIn}(
+            IYachaRouter.ExactOutBuyWithNativeParams({
                 amountOut: desiredTokens, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
 
         assertEq(user1.balance, maxNativeIn - amountIn, "User should receive only this call's native refund");
-        assertEq(wnative.balanceOf(address(giwaRouter)), donation, "Router should retain pre-existing WNATIVE balance");
+        assertEq(wnative.balanceOf(address(yachaRouter)), donation, "Router should retain pre-existing WNATIVE balance");
     }
 
     function test_exactOutBuy_excessiveInput_reverts() public {
@@ -245,11 +245,11 @@ contract GiwaRouterTest is SetUp {
 
         wnative.mint(user1, tooLittle);
         vm.startPrank(user1);
-        wnative.approve(address(giwaRouter), tooLittle);
+        wnative.approve(address(yachaRouter), tooLittle);
 
-        vm.expectRevert(IGiwaRouter.ExcessiveInput.selector);
-        giwaRouter.exactOutBuy(
-            IGiwaRouter.ExactOutBuyParams({
+        vm.expectRevert(IYachaRouter.ExcessiveInput.selector);
+        yachaRouter.exactOutBuy(
+            IYachaRouter.ExactOutBuyParams({
                 amountInMax: tooLittle, amountOut: desiredTokens, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -259,11 +259,11 @@ contract GiwaRouterTest is SetUp {
     function test_exactOutBuy_expiredDeadline_reverts() public {
         wnative.mint(user1, 1 ether);
         vm.startPrank(user1);
-        wnative.approve(address(giwaRouter), 1 ether);
+        wnative.approve(address(yachaRouter), 1 ether);
 
-        vm.expectRevert(IGiwaRouter.ExpiredDeadline.selector);
-        giwaRouter.exactOutBuy(
-            IGiwaRouter.ExactOutBuyParams({
+        vm.expectRevert(IYachaRouter.ExpiredDeadline.selector);
+        yachaRouter.exactOutBuy(
+            IYachaRouter.ExactOutBuyParams({
                 amountInMax: 1 ether, amountOut: 100 ether, token: token, to: user1, deadline: block.timestamp - 1
             })
         );
@@ -274,20 +274,20 @@ contract GiwaRouterTest is SetUp {
         uint256 buyAmount = 2 ether;
         wnative.mint(user1, buyAmount);
         vm.startPrank(user1);
-        wnative.approve(address(giwaRouter), buyAmount);
-        uint256 tokensOwned = giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        wnative.approve(address(yachaRouter), buyAmount);
+        uint256 tokensOwned = yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: buyAmount, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
 
         uint256 desiredQuoteOut = 0.5 ether;
-        IERC20(token).approve(address(giwaRouter), tokensOwned);
+        IERC20(token).approve(address(yachaRouter), tokensOwned);
 
         uint256 quoteBefore = wnative.balanceOf(user1);
         uint256 tokenBefore = IERC20(token).balanceOf(user1);
-        uint256 tokenIn = giwaRouter.exactOutSell(
-            IGiwaRouter.ExactOutSellParams({
+        uint256 tokenIn = yachaRouter.exactOutSell(
+            IYachaRouter.ExactOutSellParams({
                 amountInMax: tokensOwned,
                 amountOut: desiredQuoteOut,
                 token: token,
@@ -310,19 +310,19 @@ contract GiwaRouterTest is SetUp {
         wnative.mint(user1, buyAmount);
 
         vm.startPrank(user1);
-        wnative.approve(address(giwaRouter), buyAmount);
-        uint256 tokensOwned = giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        wnative.approve(address(yachaRouter), buyAmount);
+        uint256 tokensOwned = yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 token: token, amountIn: buyAmount, amountOutMin: 0, to: user1, deadline: block.timestamp + 1
             })
         );
 
-        IERC20(token).approve(address(giwaRouter), tokensOwned);
+        IERC20(token).approve(address(yachaRouter), tokensOwned);
         bytes32 sellTopic = keccak256("Sell(address,address,uint256,uint256)");
 
         vm.recordLogs();
-        giwaRouter.sell(
-            IGiwaRouter.SellParams({
+        yachaRouter.sell(
+            IYachaRouter.SellParams({
                 token: token, amountIn: tokensOwned, amountOutMin: 0, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -346,20 +346,20 @@ contract GiwaRouterTest is SetUp {
         uint256 buyAmount = 2 ether;
         wnative.mint(user1, buyAmount);
         vm.startPrank(user1);
-        wnative.approve(address(giwaRouter), buyAmount);
-        uint256 tokensOwned = giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        wnative.approve(address(yachaRouter), buyAmount);
+        uint256 tokensOwned = yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: buyAmount, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
 
         uint256 desiredNativeOut = 0.5 ether;
-        IERC20(token).approve(address(giwaRouter), tokensOwned);
+        IERC20(token).approve(address(yachaRouter), tokensOwned);
 
         uint256 nativeBefore = user1.balance;
         uint256 tokenBefore = IERC20(token).balanceOf(user1);
-        uint256 tokenIn = giwaRouter.exactOutSellToNative(
-            IGiwaRouter.ExactOutSellToNativeParams({
+        uint256 tokenIn = yachaRouter.exactOutSellToNative(
+            IYachaRouter.ExactOutSellToNativeParams({
                 amountInMax: tokensOwned,
                 amountOut: desiredNativeOut,
                 token: token,
@@ -376,17 +376,17 @@ contract GiwaRouterTest is SetUp {
     function test_exactOutSell_excessiveInput_reverts() public {
         wnative.mint(user1, 0.01 ether);
         vm.startPrank(user1);
-        wnative.approve(address(giwaRouter), 0.01 ether);
-        uint256 tokensOwned = giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        wnative.approve(address(yachaRouter), 0.01 ether);
+        uint256 tokensOwned = yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: 0.01 ether, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
 
-        IERC20(token).approve(address(giwaRouter), tokensOwned);
+        IERC20(token).approve(address(yachaRouter), tokensOwned);
         vm.expectRevert();
-        giwaRouter.exactOutSell(
-            IGiwaRouter.ExactOutSellParams({
+        yachaRouter.exactOutSell(
+            IYachaRouter.ExactOutSellParams({
                 amountInMax: tokensOwned, amountOut: 100 ether, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -407,12 +407,12 @@ contract GiwaRouterTest is SetUp {
         if (expectedQuoteIn > amountIn) expectedQuoteIn = amountIn;
 
         vm.startPrank(user1);
-        wnative.approve(address(giwaRouter), amountIn);
+        wnative.approve(address(yachaRouter), amountIn);
 
-        vm.expectEmit(true, true, false, true, address(giwaRouter));
+        vm.expectEmit(true, true, false, true, address(yachaRouter));
         emit RouterBuy(user1, token, expectedQuoteIn, expectedTokenOut, false);
-        uint256 amountOut = giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        uint256 amountOut = yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: amountIn, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -421,8 +421,8 @@ contract GiwaRouterTest is SetUp {
         assertEq(amountOut, expectedTokenOut, "Token out should match getAmountOut");
         assertEq(IERC20(token).balanceOf(user1), expectedTokenOut, "User token balance should match");
         assertEq(wnative.balanceOf(user1), amountIn - expectedQuoteIn, "User should keep unspent quote");
-        assertEq(wnative.balanceOf(address(giwaRouter)), 0, "Router should hold no quote");
-        assertEq(wnative.allowance(address(giwaRouter), address(bondingCurve)), 0, "Curve allowance reset");
+        assertEq(wnative.balanceOf(address(yachaRouter)), 0, "Router should hold no quote");
+        assertEq(wnative.allowance(address(yachaRouter), address(bondingCurve)), 0, "Curve allowance reset");
     }
 
     function test_buy_bondingCurve_doesNotSweepCurveOrRouterDonations() public {
@@ -432,14 +432,14 @@ contract GiwaRouterTest is SetUp {
         wnative.mint(user2, curveDonation + routerDonation);
         vm.startPrank(user2);
         wnative.transfer(address(bondingCurve), curveDonation);
-        wnative.transfer(address(giwaRouter), routerDonation);
+        wnative.transfer(address(yachaRouter), routerDonation);
         vm.stopPrank();
 
         wnative.mint(user1, amountIn);
         vm.startPrank(user1);
-        wnative.approve(address(giwaRouter), amountIn);
-        giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        wnative.approve(address(yachaRouter), amountIn);
+        yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: amountIn, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -448,16 +448,16 @@ contract GiwaRouterTest is SetUp {
         IBondingCurve.Curve memory curve = bondingCurve.getCurve(token);
         uint256 trackedQuote = curve.virtualQuoteReserve - curve.initialQuoteReserve;
         assertEq(wnative.balanceOf(address(bondingCurve)), trackedQuote + curveDonation, "curve donation remains");
-        assertEq(wnative.balanceOf(address(giwaRouter)), routerDonation, "router donation remains");
+        assertEq(wnative.balanceOf(address(yachaRouter)), routerDonation, "router donation remains");
     }
 
     function test_sell_bondingCurve_doesNotSweepLaunchTokenDonations() public {
         uint256 buyAmount = 4 ether;
         wnative.mint(user1, buyAmount);
         vm.startPrank(user1);
-        wnative.approve(address(giwaRouter), buyAmount);
-        uint256 tokenOut = giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        wnative.approve(address(yachaRouter), buyAmount);
+        uint256 tokenOut = yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: buyAmount, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -467,14 +467,14 @@ contract GiwaRouterTest is SetUp {
         uint256 tokenIn = tokenOut / 5;
         uint256 expectedQuoteOut = bondingCurve.getAmountOut(token, tokenIn, false);
         IERC20(token).transfer(address(bondingCurve), curveDonation);
-        IERC20(token).transfer(address(giwaRouter), routerDonation);
+        IERC20(token).transfer(address(yachaRouter), routerDonation);
         uint256 curveBalanceBefore = IERC20(token).balanceOf(address(bondingCurve));
-        IERC20(token).approve(address(giwaRouter), tokenIn);
+        IERC20(token).approve(address(yachaRouter), tokenIn);
 
-        vm.expectEmit(true, true, false, true, address(giwaRouter));
+        vm.expectEmit(true, true, false, true, address(yachaRouter));
         emit RouterSell(user1, token, tokenIn, expectedQuoteOut, false);
-        giwaRouter.sell(
-            IGiwaRouter.SellParams({
+        yachaRouter.sell(
+            IYachaRouter.SellParams({
                 amountIn: tokenIn, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -485,8 +485,8 @@ contract GiwaRouterTest is SetUp {
             curveBalanceBefore + tokenIn,
             "curve launch-token donation remains"
         );
-        assertEq(IERC20(token).balanceOf(address(giwaRouter)), routerDonation, "router launch-token donation remains");
-        assertEq(IERC20(token).allowance(address(giwaRouter), address(bondingCurve)), 0, "Curve allowance reset");
+        assertEq(IERC20(token).balanceOf(address(yachaRouter)), routerDonation, "router launch-token donation remains");
+        assertEq(IERC20(token).allowance(address(yachaRouter), address(bondingCurve)), 0, "Curve allowance reset");
     }
 
     function test_buy_bondingCurve_taxedQuoteInputRevertsAndRollsBack() public {
@@ -497,10 +497,10 @@ contract GiwaRouterTest is SetUp {
         IBondingCurve.Curve memory curveBefore = bondingCurve.getCurve(taxedToken);
 
         vm.startPrank(user1);
-        taxedQuote.approve(address(giwaRouter), amountIn);
-        vm.expectPartialRevert(IGiwaRouter.InvalidBalanceDelta.selector);
-        giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        taxedQuote.approve(address(yachaRouter), amountIn);
+        vm.expectPartialRevert(IYachaRouter.InvalidBalanceDelta.selector);
+        yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: amountIn, amountOutMin: 0, token: taxedToken, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -519,22 +519,22 @@ contract GiwaRouterTest is SetUp {
         uint256 buyAmount = 4 ether;
         taxedQuote.mint(user1, buyAmount);
         vm.startPrank(user1);
-        taxedQuote.approve(address(giwaRouter), buyAmount);
-        uint256 tokenOut = giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        taxedQuote.approve(address(yachaRouter), buyAmount);
+        uint256 tokenOut = yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: buyAmount, amountOutMin: 0, token: taxedToken, to: user1, deadline: block.timestamp + 1
             })
         );
         uint256 tokenIn = tokenOut / 2;
-        IERC20(taxedToken).approve(address(giwaRouter), tokenIn);
+        IERC20(taxedToken).approve(address(yachaRouter), tokenIn);
         uint256 tokenBalanceBefore = IERC20(taxedToken).balanceOf(user1);
         uint256 quoteBalanceBefore = taxedQuote.balanceOf(user1);
         IBondingCurve.Curve memory curveBefore = bondingCurve.getCurve(taxedToken);
         taxedQuote.setFeeEnabled(true);
 
         vm.expectPartialRevert(IBondingCurve.InvalidBalanceDelta.selector);
-        giwaRouter.sell(
-            IGiwaRouter.SellParams({
+        yachaRouter.sell(
+            IYachaRouter.SellParams({
                 amountIn: tokenIn, amountOutMin: 0, token: taxedToken, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -560,15 +560,15 @@ contract GiwaRouterTest is SetUp {
 
         vm.deal(user1, amountIn);
         vm.prank(user1);
-        uint256 amountOut = giwaRouter.buyWithNative{value: amountIn}(
-            IGiwaRouter.BuyWithNativeParams({amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1})
+        uint256 amountOut = yachaRouter.buyWithNative{value: amountIn}(
+            IYachaRouter.BuyWithNativeParams({amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1})
         );
 
         assertEq(amountOut, expectedTokenOut, "Token out should match getAmountOut");
         assertEq(IERC20(token).balanceOf(user1), expectedTokenOut, "User token balance should match");
         assertEq(user1.balance, expectedRefund, "User should receive exact native refund");
-        assertEq(wnative.balanceOf(address(giwaRouter)), 0, "Router should hold no WNATIVE");
-        assertEq(address(giwaRouter).balance, 0, "Router should hold no native");
+        assertEq(wnative.balanceOf(address(yachaRouter)), 0, "Router should hold no WNATIVE");
+        assertEq(address(yachaRouter).balance, 0, "Router should hold no native");
     }
 
     function test_buyWithNative_lvmonQuote_reverts() public {
@@ -577,9 +577,9 @@ contract GiwaRouterTest is SetUp {
 
         vm.deal(user1, nativeIn);
         vm.prank(user1);
-        vm.expectRevert(IGiwaRouter.InvalidNativeQuoteToken.selector);
-        giwaRouter.buyWithNative{value: nativeIn}(
-            IGiwaRouter.BuyWithNativeParams({
+        vm.expectRevert(IYachaRouter.InvalidNativeQuoteToken.selector);
+        yachaRouter.buyWithNative{value: nativeIn}(
+            IYachaRouter.BuyWithNativeParams({
                 amountOutMin: 0, token: lvmonQuotedToken, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -598,9 +598,9 @@ contract GiwaRouterTest is SetUp {
 
         wnative.mint(user1, quoteNeeded);
         vm.startPrank(user1);
-        wnative.approve(address(giwaRouter), quoteNeeded);
-        giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        wnative.approve(address(yachaRouter), quoteNeeded);
+        yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: quoteNeeded, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -612,18 +612,18 @@ contract GiwaRouterTest is SetUp {
         uint256 exactNeeded = bondingCurve.getAmountIn(token, remainingTokens, true);
         uint256 excessAmount = exactNeeded * 10;
 
-        // Pre-calculate: giwaRouter should only spend exactNeeded, not excessAmount
+        // Pre-calculate: yachaRouter should only spend exactNeeded, not excessAmount
         uint256 expectedTokenOut = bondingCurve.getAmountOut(token, excessAmount, true);
         uint256 expectedQuoteIn = bondingCurve.getAmountIn(token, expectedTokenOut, true);
         if (expectedQuoteIn > excessAmount) expectedQuoteIn = excessAmount;
 
         wnative.mint(user2, excessAmount);
         vm.startPrank(user2);
-        wnative.approve(address(giwaRouter), excessAmount);
+        wnative.approve(address(yachaRouter), excessAmount);
         uint256 expectedRefund = excessAmount - expectedQuoteIn;
 
-        giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: excessAmount, amountOutMin: 0, token: token, to: user2, deadline: block.timestamp + 1
             })
         );
@@ -631,7 +631,7 @@ contract GiwaRouterTest is SetUp {
 
         assertEq(IERC20(token).balanceOf(user2), expectedTokenOut, "User should receive capped token amount");
         assertEq(wnative.balanceOf(user2), expectedRefund, "User should receive exact quote refund");
-        assertEq(wnative.balanceOf(address(giwaRouter)), 0, "Router should hold no quote");
+        assertEq(wnative.balanceOf(address(yachaRouter)), 0, "Router should hold no quote");
     }
 
     function test_buy_bondingCurve_checksSlippageBeforeRefund() public {
@@ -641,9 +641,9 @@ contract GiwaRouterTest is SetUp {
 
         wnative.mint(user1, quoteNeeded);
         vm.startPrank(user1);
-        wnative.approve(address(giwaRouter), quoteNeeded);
-        giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        wnative.approve(address(yachaRouter), quoteNeeded);
+        yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: quoteNeeded, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -660,7 +660,7 @@ contract GiwaRouterTest is SetUp {
 
         wnative.mint(user2, quoteInMax);
         vm.prank(user2);
-        wnative.approve(address(giwaRouter), quoteInMax);
+        wnative.approve(address(yachaRouter), quoteInMax);
         vm.mockCallRevert(
             address(wnative),
             abi.encodeCall(IERC20.transfer, (user2, refund)),
@@ -668,9 +668,9 @@ contract GiwaRouterTest is SetUp {
         );
 
         vm.prank(user2);
-        vm.expectRevert(IGiwaRouter.InsufficientOutput.selector);
-        giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        vm.expectRevert(IYachaRouter.InsufficientOutput.selector);
+        yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: quoteInMax, amountOutMin: tokenOut + 1, token: token, to: user2, deadline: block.timestamp + 1
             })
         );
@@ -685,8 +685,8 @@ contract GiwaRouterTest is SetUp {
 
         vm.deal(user1, quoteNeeded);
         vm.prank(user1);
-        giwaRouter.buyWithNative{value: quoteNeeded}(
-            IGiwaRouter.BuyWithNativeParams({amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1})
+        yachaRouter.buyWithNative{value: quoteNeeded}(
+            IYachaRouter.BuyWithNativeParams({amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1})
         );
 
         // Send 10x what's needed for remaining tokens
@@ -703,28 +703,28 @@ contract GiwaRouterTest is SetUp {
 
         vm.deal(user2, excessAmount);
         vm.prank(user2);
-        giwaRouter.buyWithNative{value: excessAmount}(
-            IGiwaRouter.BuyWithNativeParams({amountOutMin: 0, token: token, to: user2, deadline: block.timestamp + 1})
+        yachaRouter.buyWithNative{value: excessAmount}(
+            IYachaRouter.BuyWithNativeParams({amountOutMin: 0, token: token, to: user2, deadline: block.timestamp + 1})
         );
 
         assertEq(IERC20(token).balanceOf(user2), expectedTokenOut, "User should receive capped token amount");
         assertEq(user2.balance, expectedRefund, "User should receive exact native refund");
-        assertEq(address(giwaRouter).balance, 0, "Router should hold no native");
-        assertEq(wnative.balanceOf(address(giwaRouter)), 0, "Router should hold no WNATIVE");
+        assertEq(address(yachaRouter).balance, 0, "Router should hold no native");
+        assertEq(wnative.balanceOf(address(yachaRouter)), 0, "Router should hold no WNATIVE");
     }
 
     // ── Unified quote — phase-aware getAmountOut / getAmountIn ──────
 
     function test_getAmountOut_preGraduation_matchesBondingCurve() public {
         uint256 amountIn = 0.5 ether;
-        uint256 unified = giwaRouter.getAmountOut(token, amountIn, true);
+        uint256 unified = yachaRouter.getAmountOut(token, amountIn, true);
         uint256 direct = bondingCurve.getAmountOut(token, amountIn, true);
         assertEq(unified, direct, "Pre-graduation getAmountOut should delegate to BondingCurve");
     }
 
     function test_getAmountIn_preGraduation_matchesBondingCurve() public {
         uint256 amountOut = 1_000 ether;
-        uint256 unified = giwaRouter.getAmountIn(token, amountOut, true);
+        uint256 unified = yachaRouter.getAmountIn(token, amountOut, true);
         uint256 direct = bondingCurve.getAmountIn(token, amountOut, true);
         assertEq(unified, direct, "Pre-graduation getAmountIn should delegate to BondingCurve");
     }
@@ -766,7 +766,7 @@ contract GiwaRouterTest is SetUp {
     }
 
     function test_initialize_revertsOnImplementation() public {
-        GiwaRouter implementation = new GiwaRouter();
+        YachaRouter implementation = new YachaRouter();
         address[6] memory dependencies = _validDependencies();
 
         vm.expectRevert(Initializable.InvalidInitialization.selector);
@@ -776,12 +776,12 @@ contract GiwaRouterTest is SetUp {
     }
 
     function test_dependencyGetters_returnConfiguredDependencies() public view {
-        assertEq(giwaRouter.authority(), address(protocolManager));
-        assertEq(giwaRouter.bondingCurve(), address(bondingCurve));
-        assertEq(giwaRouter.tokenRegistry(), address(tokenRegistry));
-        assertEq(giwaRouter.wrappedNative(), address(wnative));
-        assertEq(giwaRouter.v3SwapAdapter(), address(v3SwapAdapter));
-        assertEq(giwaRouter.quoterV2(), address(quoterV2));
+        assertEq(yachaRouter.authority(), address(protocolManager));
+        assertEq(yachaRouter.bondingCurve(), address(bondingCurve));
+        assertEq(yachaRouter.tokenRegistry(), address(tokenRegistry));
+        assertEq(yachaRouter.wrappedNative(), address(wnative));
+        assertEq(yachaRouter.v3SwapAdapter(), address(v3SwapAdapter));
+        assertEq(yachaRouter.quoterV2(), address(quoterV2));
     }
 
     function test_setAuthority_remainsUnavailable() public {
@@ -789,7 +789,7 @@ contract GiwaRouterTest is SetUp {
         vm.expectRevert(
             abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, address(protocolManager))
         );
-        giwaRouter.setAuthority(makeAddr("replacementAuthority"));
+        yachaRouter.setAuthority(makeAddr("replacementAuthority"));
     }
 
     function _validDependencies() internal view returns (address[6] memory dependencies) {
@@ -804,12 +804,12 @@ contract GiwaRouterTest is SetUp {
     }
 
     function _expectInvalidDependency(address[6] memory dependencies) internal {
-        GiwaRouter implementation = new GiwaRouter();
-        vm.expectRevert(IGiwaRouter.InvalidDependency.selector);
+        YachaRouter implementation = new YachaRouter();
+        vm.expectRevert(IYachaRouter.InvalidDependency.selector);
         new ERC1967Proxy(
             address(implementation),
             abi.encodeCall(
-                GiwaRouter.initialize,
+                YachaRouter.initialize,
                 (dependencies[0], dependencies[1], dependencies[2], dependencies[3], dependencies[4], dependencies[5])
             )
         );
@@ -825,7 +825,7 @@ contract GiwaRouterTest is SetUp {
             tokenURI: "",
             quoteToken: address(wnative),
             vaults: vaults,
-            salt: keccak256("giwaRouterTest"),
+            salt: keccak256("yachaRouterTest"),
             dexType: ITokenRegistry.DexType.UniswapV3,
             creator: address(this),
             buyQuoteAmount: 0
@@ -837,7 +837,7 @@ contract GiwaRouterTest is SetUp {
         lvmon.approve(address(bondingCurve), defaultDeployFee);
         IBondingCurve.CreateTokenParams memory params = _nadFunDefaultParams();
         params.quoteToken = address(lvmon);
-        params.salt = keccak256("giwaRouterLvmonTest");
+        params.salt = keccak256("yachaRouterLvmonTest");
         (lvmonQuotedToken,) = bondingCurve.create(params);
         vm.warp(block.timestamp + 100 minutes);
     }
@@ -862,7 +862,7 @@ contract GiwaRouterTest is SetUp {
         taxedQuote.approve(address(bondingCurve), defaultDeployFee);
         IBondingCurve.CreateTokenParams memory params = _nadFunDefaultParams();
         params.quoteToken = address(taxedQuote);
-        params.salt = keccak256("giwaRouterTaxedQuoteTest");
+        params.salt = keccak256("yachaRouterTaxedQuoteTest");
         (taxedToken,) = bondingCurve.create(params);
         vm.warp(block.timestamp + 100 minutes);
         vm.roll(block.number + 10);

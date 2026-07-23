@@ -3,7 +3,7 @@
 **Path:** `src/interfaces/IToken.sol`
 **Type:** Interface
 
-Simple ERC20 token interface for NadFun v2. Deployed as an ERC-1167 clone by BondingCurve. No fee-on-transfer -- fee collection happens at the NadFunPair and BondingCurve level.
+Simple ERC-20 launch-token interface. Deployed as an EIP-1167 clone by BondingCurve with no fee-on-transfer behavior.
 
 ---
 
@@ -15,7 +15,7 @@ Simple ERC20 token interface for NadFun v2. Deployed as an ERC-1167 clone by Bon
 | `setIsGraduated()` | -- | Called by BondingCurve on graduation. Sets isGraduated flag |
 | `isGraduated()` | `bool` | Whether this token has graduated from bonding curve to DEX |
 | `bondingCurve()` | `address` | The BondingCurve contract that deployed this token |
-| `pair()` | `address` | The NadFunPair address for this token |
+| `pair()` | `address` | The canonical V3 pool address for this token |
 | `tokenURI()` | `string` | Token metadata URI |
 | `TOTAL_SUPPLY()` | `uint256` | Fixed total supply: 1 billion tokens (1e27 wei) |
 

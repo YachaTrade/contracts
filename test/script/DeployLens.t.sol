@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {DeployLens} from "../../script/deploy/normal/DeployLens.s.sol";
-import {GiwaRouter} from "../../src/router/GiwaRouter.sol";
+import {YachaRouter} from "../../src/router/YachaRouter.sol";
 import {Lens} from "../../src/lens/Lens.sol";
 import {SetUp} from "../SetUp.t.sol";
 
@@ -14,21 +14,23 @@ contract DeployLensHarness is DeployLens {
     function validateInputs(
         uint256 deployerPrivateKey,
         address deployer,
-        address giwaRouter,
+        address yachaRouter,
         address bondingCurve,
         address tokenRegistry,
         address protocolManager,
         uint256 chainId
     ) external view {
-        _validateInputs(deployerPrivateKey, deployer, giwaRouter, bondingCurve, tokenRegistry, protocolManager, chainId);
+        _validateInputs(
+            deployerPrivateKey, deployer, yachaRouter, bondingCurve, tokenRegistry, protocolManager, chainId
+        );
     }
 
-    function deployLens(address giwaRouter, address bondingCurve, address tokenRegistry, address protocolManager)
+    function deployLens(address yachaRouter, address bondingCurve, address tokenRegistry, address protocolManager)
         external
         returns (address lensAddress)
     {
-        Lens lens = _deployLens(giwaRouter);
-        _verifyLens(lens, giwaRouter, bondingCurve, tokenRegistry, protocolManager);
+        Lens lens = _deployLens(yachaRouter);
+        _verifyLens(lens, yachaRouter, bondingCurve, tokenRegistry, protocolManager);
         lensAddress = address(lens);
     }
 }
@@ -49,7 +51,7 @@ contract DeployLensTest is SetUp {
         harness.validateInputs(
             DEPLOYER_PRIVATE_KEY,
             deployer,
-            address(giwaRouter),
+            address(yachaRouter),
             address(bondingCurve),
             address(tokenRegistry),
             address(protocolManager),
@@ -57,22 +59,22 @@ contract DeployLensTest is SetUp {
         );
 
         address deployed = harness.deployLens(
-            address(giwaRouter), address(bondingCurve), address(tokenRegistry), address(protocolManager)
+            address(yachaRouter), address(bondingCurve), address(tokenRegistry), address(protocolManager)
         );
 
         Lens lens = Lens(deployed);
         assertGt(deployed.code.length, 0);
-        assertEq(address(lens.giwaRouter()), address(giwaRouter));
+        assertEq(address(lens.yachaRouter()), address(yachaRouter));
         assertEq(lens.curve(), address(bondingCurve));
-        assertEq(lens.curveRouter(), address(giwaRouter));
-        assertEq(lens.dexRouter(), address(giwaRouter));
+        assertEq(lens.curveRouter(), address(yachaRouter));
+        assertEq(lens.dexRouter(), address(yachaRouter));
         assertEq(lens.tokenRegistry(), address(tokenRegistry));
     }
 
     function test_runDeploysFromConfiguredSignerAndWiresDependencies() public {
         vm.setEnv("PRIVATE_KEY", vm.toString(DEPLOYER_PRIVATE_KEY));
         vm.setEnv("DEPLOYER", vm.toString(deployer));
-        vm.setEnv("GIWA_ROUTER", vm.toString(address(giwaRouter)));
+        vm.setEnv("YACHA_ROUTER", vm.toString(address(yachaRouter)));
         vm.setEnv("BONDING_CURVE", vm.toString(address(bondingCurve)));
         vm.setEnv("TOKEN_REGISTRY", vm.toString(address(tokenRegistry)));
         vm.setEnv("PROTOCOL_MANAGER", vm.toString(address(protocolManager)));
@@ -83,7 +85,7 @@ contract DeployLensTest is SetUp {
 
         Lens lens = Lens(deployed);
         assertEq(vm.getNonce(deployer), deployerNonceBefore + 1);
-        assertEq(address(lens.giwaRouter()), address(giwaRouter));
+        assertEq(address(lens.yachaRouter()), address(yachaRouter));
         assertEq(lens.curve(), address(bondingCurve));
         assertEq(lens.tokenRegistry(), address(tokenRegistry));
     }
@@ -93,7 +95,7 @@ contract DeployLensTest is SetUp {
         harness.validateInputs(
             DEPLOYER_PRIVATE_KEY,
             deployer,
-            address(giwaRouter),
+            address(yachaRouter),
             address(bondingCurve),
             address(tokenRegistry),
             address(protocolManager),
@@ -106,7 +108,7 @@ contract DeployLensTest is SetUp {
         harness.validateInputs(
             DEPLOYER_PRIVATE_KEY,
             makeAddr("wrongDeployer"),
-            address(giwaRouter),
+            address(yachaRouter),
             address(bondingCurve),
             address(tokenRegistry),
             address(protocolManager),
@@ -115,7 +117,7 @@ contract DeployLensTest is SetUp {
     }
 
     function test_validateInputsRejectsCodeLessRouter() public {
-        vm.expectRevert("DeployLens: GIWA_ROUTER missing code");
+        vm.expectRevert("DeployLens: YACHA_ROUTER missing code");
         harness.validateInputs(
             DEPLOYER_PRIVATE_KEY,
             deployer,
@@ -128,9 +130,9 @@ contract DeployLensTest is SetUp {
     }
 
     function test_validateInputsRejectsRouterImplementation() public {
-        GiwaRouter implementation = new GiwaRouter();
+        YachaRouter implementation = new YachaRouter();
 
-        vm.expectRevert("DeployLens: GIWA_ROUTER is not an ERC1967 proxy");
+        vm.expectRevert("DeployLens: YACHA_ROUTER is not an ERC1967 proxy");
         harness.validateInputs(
             DEPLOYER_PRIVATE_KEY,
             deployer,
@@ -144,13 +146,13 @@ contract DeployLensTest is SetUp {
 
     function test_validateInputsRejectsWrongInitializedRouterProxy() public {
         DeployLensDependencyStub wrongBondingCurve = new DeployLensDependencyStub();
-        GiwaRouter implementation = new GiwaRouter();
-        GiwaRouter wrongRouter = GiwaRouter(
+        YachaRouter implementation = new YachaRouter();
+        YachaRouter wrongRouter = YachaRouter(
             payable(address(
                     new ERC1967Proxy(
                         address(implementation),
                         abi.encodeCall(
-                            GiwaRouter.initialize,
+                            YachaRouter.initialize,
                             (
                                 address(protocolManager),
                                 address(wrongBondingCurve),
@@ -177,13 +179,13 @@ contract DeployLensTest is SetUp {
     }
 
     function test_validateInputsRejectsSameDependencyRouterWithoutCurveRole() public {
-        GiwaRouter implementation = new GiwaRouter();
-        GiwaRouter unauthorizedRouter = GiwaRouter(
+        YachaRouter implementation = new YachaRouter();
+        YachaRouter unauthorizedRouter = YachaRouter(
             payable(address(
                     new ERC1967Proxy(
                         address(implementation),
                         abi.encodeCall(
-                            GiwaRouter.initialize,
+                            YachaRouter.initialize,
                             (
                                 address(protocolManager),
                                 address(bondingCurve),
@@ -197,7 +199,7 @@ contract DeployLensTest is SetUp {
                 ))
         );
 
-        vm.expectRevert("DeployLens: GIWA_ROUTER missing curve role");
+        vm.expectRevert("DeployLens: YACHA_ROUTER missing curve role");
         harness.validateInputs(
             DEPLOYER_PRIVATE_KEY,
             deployer,
@@ -214,7 +216,7 @@ contract DeployLensTest is SetUp {
         harness.validateInputs(
             DEPLOYER_PRIVATE_KEY,
             deployer,
-            address(giwaRouter),
+            address(yachaRouter),
             makeAddr("codeLessBondingCurve"),
             address(tokenRegistry),
             address(protocolManager),
@@ -229,7 +231,7 @@ contract DeployLensTest is SetUp {
         harness.validateInputs(
             DEPLOYER_PRIVATE_KEY,
             deployer,
-            address(giwaRouter),
+            address(yachaRouter),
             address(bondingCurve),
             address(tokenRegistry),
             address(otherProtocolManager),

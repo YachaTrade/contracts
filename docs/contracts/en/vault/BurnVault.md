@@ -4,7 +4,7 @@
 **Pattern:** UUPS Proxy (Singleton)
 **Inheritance:** `IVault`, `UUPSUpgradeable`, `AccessManagedUpgradeable`
 
-Buyback and burn vault. Deployed once as a singleton UUPS proxy and shared across all tokens. Receives quoteToken from CreatorFeeProcessor, buys token, and sends to `0xdead` for permanent burn. Supports both bonding phase (via GiwaRouter, which caps/refunds clamped buys) and post-graduation (via the registered DEX adapter).
+Buyback and burn vault. Deployed once as a singleton UUPS proxy and shared across all tokens. Receives quoteToken from CreatorFeeProcessor, buys token, and sends to `0xdead` for permanent burn. Supports both bonding phase (via YachaRouter, which caps/refunds clamped buys) and post-graduation (via the registered DEX adapter).
 
 ---
 
@@ -32,7 +32,7 @@ Buyback and burn vault. Deployed once as a singleton UUPS proxy and shared acros
 |----------|--------|-------------|
 | `initialize(protocolManager_, tokenRegistry_, creatorFeeProcessor_, bondingCurve_, router_)` | external (initializer) | UUPS initializer |
 | `setup(token, data)` | external | No-op. Required by IVault interface but nothing to configure |
-| `afterDeposit(token, quoteToken, amount)` | creatorFeeProcessor only | Buy token and send to 0xdead. Pre-graduation: GiwaRouter.buy; post-graduation: registered adapter swap |
+| `afterDeposit(token, quoteToken, amount)` | creatorFeeProcessor only | Buy token and send to 0xdead. Pre-graduation: YachaRouter.buy; post-graduation: registered adapter swap |
 
 ---
 
@@ -50,7 +50,7 @@ CreatorFeeProcessor -> vault.afterDeposit(token, quoteToken, amount)
   |     +-- adapter.swap(pair, quoteToken, token, totalQuote, this, "")
   |-- else (bonding phase):
   |     |-- approve router
-  |     +-- GiwaRouter.buy({amountIn: totalQuote, amountOutMin: 1})
+  |     +-- YachaRouter.buy({amountIn: totalQuote, amountOutMin: 1})
   |-- transfer token -> 0xdead
   +-- emit Burn
 ```

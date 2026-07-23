@@ -9,10 +9,10 @@ import {CreatorFeeProcessor} from "../../src/core/CreatorFeeProcessor.sol";
 import {ProtocolManager} from "../../src/core/ProtocolManager.sol";
 import {TokenRegistry} from "../../src/core/TokenRegistry.sol";
 import {IBondingCurve} from "../../src/interfaces/IBondingCurve.sol";
-import {IGiwaRouter} from "../../src/interfaces/IGiwaRouter.sol";
+import {IYachaRouter} from "../../src/interfaces/IYachaRouter.sol";
 import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
 import {IVaultRegistry} from "../../src/interfaces/IVaultRegistry.sol";
-import {GiwaRouter} from "../../src/router/GiwaRouter.sol";
+import {YachaRouter} from "../../src/router/YachaRouter.sol";
 import {Token} from "../../src/token/Token.sol";
 import {CreatorFeeVault} from "../../src/vault/CreatorFeeVault.sol";
 import {VaultRegistry} from "../../src/vault/VaultRegistry.sol";
@@ -46,12 +46,12 @@ contract DuplicateVaultQuoterStub {
     }
 }
 
-contract GiwaRouterDuplicateVaultTest is Test {
+contract YachaRouterDuplicateVaultTest is Test {
     uint256 private constant VIRTUAL_RESERVE = 70_000 ether;
     uint256 private constant VIRTUAL_TOKEN_RESERVE = 1_060_569_000 ether;
     uint256 private constant MIN_TOKEN_RESERVE = 251_660_440_677_966_101_694_915_255;
 
-    GiwaRouter private router;
+    YachaRouter private router;
     MockWrappedNative private wnative;
     CreatorFeeVault private creatorFeeVault;
 
@@ -118,12 +118,12 @@ contract GiwaRouterDuplicateVaultTest is Test {
         address factory = address(new DuplicateVaultPool());
         address swapAdapter = address(new DuplicateVaultSwapAdapterStub(factory, address(tokenRegistry)));
         address quoter = address(new DuplicateVaultQuoterStub(factory));
-        router = GiwaRouter(
+        router = YachaRouter(
             payable(address(
                     new ERC1967Proxy(
-                        address(new GiwaRouter()),
+                        address(new YachaRouter()),
                         abi.encodeCall(
-                            GiwaRouter.initialize,
+                            YachaRouter.initialize,
                             (
                                 address(protocolManager),
                                 address(bondingCurve),
@@ -162,7 +162,7 @@ contract GiwaRouterDuplicateVaultTest is Test {
 
         vm.expectRevert(IBondingCurve.DuplicateVault.selector);
         router.create(
-            IGiwaRouter.CreateParams({
+            IYachaRouter.CreateParams({
                 name: "Duplicate Vault",
                 symbol: "DUP",
                 tokenURI: "",

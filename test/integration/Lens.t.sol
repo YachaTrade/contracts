@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {IBondingCurve} from "../../src/interfaces/IBondingCurve.sol";
-import {IGiwaRouter} from "../../src/interfaces/IGiwaRouter.sol";
+import {IYachaRouter} from "../../src/interfaces/IYachaRouter.sol";
 import {IProtocolManager} from "../../src/interfaces/IProtocolManager.sol";
 import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
 import {ILens} from "../../src/lens/ILens.sol";
@@ -190,7 +190,7 @@ contract LensIntegrationTest is SetUp {
 
     function setUp() public override {
         super.setUp();
-        lens = new Lens(address(giwaRouter));
+        lens = new Lens(address(yachaRouter));
         token = _createToken();
     }
 
@@ -217,10 +217,10 @@ contract LensIntegrationTest is SetUp {
     }
 
     function test_compatibilityGetters_resolveUnifiedRouterDependencies() public view {
-        assertEq(address(lens.giwaRouter()), address(giwaRouter));
+        assertEq(address(lens.yachaRouter()), address(yachaRouter));
         assertEq(lens.curve(), address(bondingCurve));
-        assertEq(lens.curveRouter(), address(giwaRouter));
-        assertEq(lens.dexRouter(), address(giwaRouter));
+        assertEq(lens.curveRouter(), address(yachaRouter));
+        assertEq(lens.dexRouter(), address(yachaRouter));
         assertEq(lens.tokenRegistry(), address(tokenRegistry));
     }
 
@@ -246,23 +246,23 @@ contract LensIntegrationTest is SetUp {
     function test_preGraduationQuotes_returnUnifiedRouterAndMatchRouter() public {
         {
             (address router, uint256 amountOut) = lens.getAmountOut(token, 100 ether, true);
-            assertEq(router, address(giwaRouter));
-            assertEq(amountOut, giwaRouter.getAmountOut(token, 100 ether, true));
+            assertEq(router, address(yachaRouter));
+            assertEq(amountOut, yachaRouter.getAmountOut(token, 100 ether, true));
         }
         {
             (address router, uint256 amountOut) = lens.getAmountOut(token, 1_000 ether, false);
-            assertEq(router, address(giwaRouter));
-            assertEq(amountOut, giwaRouter.getAmountOut(token, 1_000 ether, false));
+            assertEq(router, address(yachaRouter));
+            assertEq(amountOut, yachaRouter.getAmountOut(token, 1_000 ether, false));
         }
         {
             (address router, uint256 amountIn) = lens.getAmountIn(token, 1_000 ether, true);
-            assertEq(router, address(giwaRouter));
-            assertEq(amountIn, giwaRouter.getAmountIn(token, 1_000 ether, true));
+            assertEq(router, address(yachaRouter));
+            assertEq(amountIn, yachaRouter.getAmountIn(token, 1_000 ether, true));
         }
         {
             (address router, uint256 amountIn) = lens.getAmountIn(token, 10 ether, false);
-            assertEq(router, address(giwaRouter));
-            assertEq(amountIn, giwaRouter.getAmountIn(token, 10 ether, false));
+            assertEq(router, address(yachaRouter));
+            assertEq(amountIn, yachaRouter.getAmountIn(token, 10 ether, false));
         }
     }
 
@@ -273,26 +273,26 @@ contract LensIntegrationTest is SetUp {
         {
             uint256 quoteIn = 10 ether;
             (address router, uint256 tokenOut) = lens.getAmountOut(token, quoteIn, true);
-            assertEq(router, address(giwaRouter));
-            assertEq(tokenOut, giwaRouter.getAmountOut(token, quoteIn, true));
+            assertEq(router, address(yachaRouter));
+            assertEq(tokenOut, yachaRouter.getAmountOut(token, quoteIn, true));
         }
         {
             uint256 tokenIn = 1_000 ether;
             (address router, uint256 quoteOut) = lens.getAmountOut(token, tokenIn, false);
-            assertEq(router, address(giwaRouter));
-            assertEq(quoteOut, giwaRouter.getAmountOut(token, tokenIn, false));
+            assertEq(router, address(yachaRouter));
+            assertEq(quoteOut, yachaRouter.getAmountOut(token, tokenIn, false));
         }
         {
             uint256 tokenOut = 1_000 ether;
             (address router, uint256 quoteIn) = lens.getAmountIn(token, tokenOut, true);
-            assertEq(router, address(giwaRouter));
-            assertEq(quoteIn, giwaRouter.getAmountIn(token, tokenOut, true));
+            assertEq(router, address(yachaRouter));
+            assertEq(quoteIn, yachaRouter.getAmountIn(token, tokenOut, true));
         }
         {
             uint256 quoteOut = 1 ether;
             (address router, uint256 tokenIn) = lens.getAmountIn(token, quoteOut, false);
-            assertEq(router, address(giwaRouter));
-            assertEq(tokenIn, giwaRouter.getAmountIn(token, quoteOut, false));
+            assertEq(router, address(yachaRouter));
+            assertEq(tokenIn, yachaRouter.getAmountIn(token, quoteOut, false));
         }
     }
 
@@ -442,10 +442,10 @@ contract LensIntegrationTest is SetUp {
         uint256 requiredQuote = protocolManager.deployFee(address(quote)) + quoteIn;
         quote.mint(creator, requiredQuote);
         vm.prank(creator);
-        quote.approve(address(giwaRouter), requiredQuote);
+        quote.approve(address(yachaRouter), requiredQuote);
         vm.prank(creator);
-        (createdToken, tokenOut) = giwaRouter.create(
-            IGiwaRouter.CreateParams({
+        (createdToken, tokenOut) = yachaRouter.create(
+            IYachaRouter.CreateParams({
                 name: "Initial Buy Token",
                 symbol: "IBT",
                 tokenURI: "",
@@ -468,11 +468,11 @@ contract LensIntegrationTest is SetUp {
         uint256 requiredQuote = protocolManager.deployFee(address(quote)) + quoteIn;
         quote.mint(creator, requiredQuote);
         vm.prank(creator);
-        quote.approve(address(giwaRouter), requiredQuote);
+        quote.approve(address(yachaRouter), requiredQuote);
         vm.expectRevert(bytes("Invalid inputs"));
         vm.prank(creator);
-        giwaRouter.create(
-            IGiwaRouter.CreateParams({
+        yachaRouter.create(
+            IYachaRouter.CreateParams({
                 name: "Initial Buy Token",
                 symbol: "IBT",
                 tokenURI: "",

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {IBondingCurve} from "../interfaces/IBondingCurve.sol";
-import {IGiwaRouter} from "../interfaces/IGiwaRouter.sol";
+import {IYachaRouter} from "../interfaces/IYachaRouter.sol";
 import {IProtocolManager} from "../interfaces/IProtocolManager.sol";
 import {ITokenRegistry} from "../interfaces/ITokenRegistry.sol";
 import {IWrappedNative} from "../interfaces/IWrappedNative.sol";
@@ -21,10 +21,10 @@ import {
 } from "@openzeppelin-upgradeable/contracts/access/manager/AccessManagedUpgradeable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-/// @title GiwaRouter
+/// @title YachaRouter
 /// @notice Unified user-facing router for token creation and lifecycle-aware trading.
 /// @dev Preserves bonding-curve execution and routes graduated trades through the canonical V3SwapAdapter.
-contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, ReentrancyGuard {
+contract YachaRouter is IYachaRouter, UUPSUpgradeable, AccessManagedUpgradeable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     uint256 private constant BPS = 10_000;
@@ -102,7 +102,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
     //  Token Creation
     // ═══════════════════════════════════════════════
 
-    /// @inheritdoc IGiwaRouter
+    /// @inheritdoc IYachaRouter
     function create(CreateParams calldata params)
         external
         nonReentrant
@@ -121,7 +121,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
         emit Create(token, msg.sender);
     }
 
-    /// @inheritdoc IGiwaRouter
+    /// @inheritdoc IYachaRouter
     function createWithNative(CreateParams calldata params)
         external
         payable
@@ -150,7 +150,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
     //  Buy
     // ═══════════════════════════════════════════════
 
-    /// @inheritdoc IGiwaRouter
+    /// @inheritdoc IYachaRouter
     function buy(BuyParams calldata params) external nonReentrant ensure(params.deadline) returns (uint256 amountOut) {
         _validateExactInput(params.amountIn, params.to);
         amountOut = _buyErc20(
@@ -165,7 +165,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
         );
     }
 
-    /// @inheritdoc IGiwaRouter
+    /// @inheritdoc IYachaRouter
     function buyWithNative(BuyWithNativeParams calldata params)
         external
         payable
@@ -210,7 +210,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
         emit RouterBuy(msg.sender, params.token, quoteIn, amountOut, graduated);
     }
 
-    /// @inheritdoc IGiwaRouter
+    /// @inheritdoc IYachaRouter
     function buyWithPermit(BuyWithPermitParams calldata params)
         external
         nonReentrant
@@ -241,7 +241,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
     //  Sell
     // ═══════════════════════════════════════════════
 
-    /// @inheritdoc IGiwaRouter
+    /// @inheritdoc IYachaRouter
     function sell(SellParams calldata params)
         external
         nonReentrant
@@ -263,7 +263,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
         );
     }
 
-    /// @inheritdoc IGiwaRouter
+    /// @inheritdoc IYachaRouter
     function sellToNative(SellToNativeParams calldata params)
         external
         nonReentrant
@@ -285,7 +285,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
         );
     }
 
-    /// @inheritdoc IGiwaRouter
+    /// @inheritdoc IYachaRouter
     function sellWithPermit(SellWithPermitParams calldata params)
         external
         nonReentrant
@@ -318,7 +318,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
         );
     }
 
-    /// @inheritdoc IGiwaRouter
+    /// @inheritdoc IYachaRouter
     function sellToNativeWithPermit(SellToNativeWithPermitParams calldata params)
         external
         nonReentrant
@@ -355,7 +355,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
     //  Exact Output
     // ═══════════════════════════════════════════════
 
-    /// @inheritdoc IGiwaRouter
+    /// @inheritdoc IYachaRouter
     function exactOutBuy(ExactOutBuyParams calldata params)
         external
         nonReentrant
@@ -396,7 +396,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
         emit RouterBuy(msg.sender, params.token, amountIn, params.amountOut, graduated);
     }
 
-    /// @inheritdoc IGiwaRouter
+    /// @inheritdoc IYachaRouter
     function exactOutBuyWithNative(ExactOutBuyWithNativeParams calldata params)
         external
         payable
@@ -440,7 +440,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
         emit RouterBuy(msg.sender, params.token, amountIn, params.amountOut, graduated);
     }
 
-    /// @inheritdoc IGiwaRouter
+    /// @inheritdoc IYachaRouter
     function exactOutSell(ExactOutSellParams calldata params)
         external
         nonReentrant
@@ -464,7 +464,7 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
         );
     }
 
-    /// @inheritdoc IGiwaRouter
+    /// @inheritdoc IYachaRouter
     function exactOutSellToNative(ExactOutSellToNativeParams calldata params)
         external
         nonReentrant
@@ -498,14 +498,14 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
         return _isGraduated(token);
     }
 
-    /// @inheritdoc IGiwaRouter
+    /// @inheritdoc IYachaRouter
     function getAmountOut(address token, uint256 amountIn, bool isBuy) external returns (uint256) {
         return _isGraduated(token)
             ? _dexAmountOut(token, amountIn, isBuy)
             : _bondingCurve.getAmountOut(token, amountIn, isBuy);
     }
 
-    /// @inheritdoc IGiwaRouter
+    /// @inheritdoc IYachaRouter
     function getAmountIn(address token, uint256 amountOut, bool isBuy) external returns (uint256) {
         return _isGraduated(token)
             ? _dexAmountIn(token, amountOut, isBuy)
@@ -522,12 +522,12 @@ contract GiwaRouter is IGiwaRouter, UUPSUpgradeable, AccessManagedUpgradeable, R
         return _bondingCurve.getAmountIn(token, amountOut, isBuy);
     }
 
-    /// @inheritdoc IGiwaRouter
+    /// @inheritdoc IYachaRouter
     function getDexAmountOut(address token, uint256 amountIn, bool isBuy) external returns (uint256 amountOut) {
         amountOut = _dexAmountOut(token, amountIn, isBuy);
     }
 
-    /// @inheritdoc IGiwaRouter
+    /// @inheritdoc IYachaRouter
     function getDexAmountIn(address token, uint256 amountOut, bool isBuy) external returns (uint256 amountIn) {
         amountIn = _dexAmountIn(token, amountOut, isBuy);
     }

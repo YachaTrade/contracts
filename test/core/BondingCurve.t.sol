@@ -5,8 +5,8 @@ pragma solidity ^0.8.24;
 
 import {SetUp} from "../SetUp.t.sol";
 import {IBondingCurve} from "../../src/interfaces/IBondingCurve.sol";
-import {IGiwaRouter} from "../../src/interfaces/IGiwaRouter.sol";
-import {GiwaRouter} from "../../src/router/GiwaRouter.sol";
+import {IYachaRouter} from "../../src/interfaces/IYachaRouter.sol";
+import {YachaRouter} from "../../src/router/YachaRouter.sol";
 import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
 import {MockWrappedNative} from "../mocks/MockWrappedNative.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -15,7 +15,7 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {TOKEN_TOTAL_SUPPLY} from "../../src/libraries/Constants.sol";
 
 contract BondingCurveTest is SetUp {
-    GiwaRouter localRouter;
+    YachaRouter localRouter;
 
     address vault;
     address token;
@@ -46,14 +46,14 @@ contract BondingCurveTest is SetUp {
         bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), user1);
         bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), user2);
 
-        // Deploy GiwaRouter as UUPS proxy with MockWrappedNative as wrappedNative
-        GiwaRouter routerImpl = new GiwaRouter();
-        localRouter = GiwaRouter(
+        // Deploy YachaRouter as UUPS proxy with MockWrappedNative as wrappedNative
+        YachaRouter routerImpl = new YachaRouter();
+        localRouter = YachaRouter(
             payable(address(
                     new ERC1967Proxy(
                         address(routerImpl),
                         abi.encodeCall(
-                            GiwaRouter.initialize,
+                            YachaRouter.initialize,
                             (
                                 address(protocolManager),
                                 address(bondingCurve),
@@ -67,7 +67,7 @@ contract BondingCurveTest is SetUp {
                 ))
         );
 
-        // Grant ROUTER_ROLE to GiwaRouter so it can call bondingCurve.buy/sell
+        // Grant ROUTER_ROLE to YachaRouter so it can call bondingCurve.buy/sell
         bondingCurve.grantRole(bondingCurve.ROUTER_ROLE(), address(localRouter));
         vm.stopPrank();
 
@@ -158,9 +158,9 @@ contract BondingCurveTest is SetUp {
     function test_buy_slippageProtection() public {
         _mintAndApproveRouter(user1, 1 ether);
         vm.prank(user1);
-        vm.expectRevert(IGiwaRouter.InsufficientOutput.selector);
+        vm.expectRevert(IYachaRouter.InsufficientOutput.selector);
         localRouter.buy(
-            IGiwaRouter.BuyParams({
+            IYachaRouter.BuyParams({
                 amountIn: 1 ether,
                 amountOutMin: type(uint256).max,
                 token: token,
@@ -197,7 +197,7 @@ contract BondingCurveTest is SetUp {
         vm.startPrank(user1);
         IERC20(token).approve(address(localRouter), sellAmount);
         uint256 quoteOut = localRouter.sell(
-            IGiwaRouter.SellParams({
+            IYachaRouter.SellParams({
                 amountIn: sellAmount, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -221,7 +221,7 @@ contract BondingCurveTest is SetUp {
         vm.startPrank(user1);
         IERC20(token).approve(address(localRouter), sellAmount);
         uint256 quoteOut = localRouter.sell(
-            IGiwaRouter.SellParams({
+            IYachaRouter.SellParams({
                 amountIn: sellAmount, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -271,9 +271,9 @@ contract BondingCurveTest is SetUp {
 
         vm.startPrank(user1);
         IERC20(token).approve(address(localRouter), tokenOut);
-        vm.expectRevert(IGiwaRouter.InsufficientOutput.selector);
+        vm.expectRevert(IYachaRouter.InsufficientOutput.selector);
         localRouter.sell(
-            IGiwaRouter.SellParams({
+            IYachaRouter.SellParams({
                 amountIn: tokenOut,
                 amountOutMin: type(uint256).max,
                 token: token,
@@ -510,7 +510,7 @@ contract BondingCurveTest is SetUp {
         wnative.approve(address(localRouter), maxQuoteIn);
 
         uint256 amountIn = localRouter.exactOutBuy(
-            IGiwaRouter.ExactOutBuyParams({
+            IYachaRouter.ExactOutBuyParams({
                 amountInMax: maxQuoteIn,
                 amountOut: desiredTokens,
                 token: token,
@@ -535,9 +535,9 @@ contract BondingCurveTest is SetUp {
         vm.startPrank(user1);
         wnative.approve(address(localRouter), tooLittleQuote);
 
-        vm.expectRevert(IGiwaRouter.ExcessiveInput.selector);
+        vm.expectRevert(IYachaRouter.ExcessiveInput.selector);
         localRouter.exactOutBuy(
-            IGiwaRouter.ExactOutBuyParams({
+            IYachaRouter.ExactOutBuyParams({
                 amountInMax: tooLittleQuote,
                 amountOut: desiredTokens,
                 token: token,
@@ -555,7 +555,7 @@ contract BondingCurveTest is SetUp {
 
         vm.prank(user1);
         uint256 amountIn = localRouter.exactOutBuyWithNative{value: maxNativeIn}(
-            IGiwaRouter.ExactOutBuyWithNativeParams({
+            IYachaRouter.ExactOutBuyWithNativeParams({
                 amountOut: desiredTokens, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -583,7 +583,7 @@ contract BondingCurveTest is SetUp {
         wnative.approve(address(localRouter), maxQuoteIn);
 
         uint256 amountIn = localRouter.exactOutBuy(
-            IGiwaRouter.ExactOutBuyParams({
+            IYachaRouter.ExactOutBuyParams({
                 amountInMax: maxQuoteIn,
                 amountOut: desiredTokens,
                 token: newToken,
@@ -603,7 +603,7 @@ contract BondingCurveTest is SetUp {
         vm.startPrank(user1);
         wnative.approve(address(localRouter), buyAmount);
         uint256 tokensOwned = localRouter.buy(
-            IGiwaRouter.BuyParams({
+            IYachaRouter.BuyParams({
                 amountIn: buyAmount, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -613,7 +613,7 @@ contract BondingCurveTest is SetUp {
 
         uint256 quoteBefore = wnative.balanceOf(user1);
         uint256 tokenIn = localRouter.exactOutSell(
-            IGiwaRouter.ExactOutSellParams({
+            IYachaRouter.ExactOutSellParams({
                 amountInMax: tokensOwned,
                 amountOut: desiredQuoteOut,
                 token: token,
@@ -640,7 +640,7 @@ contract BondingCurveTest is SetUp {
         vm.startPrank(user1);
         wnative.approve(address(localRouter), buyAmount);
         uint256 tokensOwned = localRouter.buy(
-            IGiwaRouter.BuyParams({
+            IYachaRouter.BuyParams({
                 amountIn: buyAmount, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -650,7 +650,7 @@ contract BondingCurveTest is SetUp {
 
         uint256 nativeBefore = user1.balance;
         uint256 tokenIn = localRouter.exactOutSellToNative(
-            IGiwaRouter.ExactOutSellToNativeParams({
+            IYachaRouter.ExactOutSellToNativeParams({
                 amountInMax: tokensOwned,
                 amountOut: desiredNativeOut,
                 token: token,
@@ -676,7 +676,7 @@ contract BondingCurveTest is SetUp {
         vm.startPrank(user1);
         wnative.approve(address(localRouter), 0.01 ether);
         uint256 tokensOwned = localRouter.buy(
-            IGiwaRouter.BuyParams({
+            IYachaRouter.BuyParams({
                 amountIn: 0.01 ether, amountOutMin: 0, token: token, to: user1, deadline: block.timestamp + 1
             })
         );
@@ -684,7 +684,7 @@ contract BondingCurveTest is SetUp {
         IERC20(token).approve(address(localRouter), tokensOwned);
         vm.expectRevert();
         localRouter.exactOutSell(
-            IGiwaRouter.ExactOutSellParams({
+            IYachaRouter.ExactOutSellParams({
                 amountInMax: tokensOwned, amountOut: 100 ether, token: token, to: user1, deadline: block.timestamp + 1
             })
         );

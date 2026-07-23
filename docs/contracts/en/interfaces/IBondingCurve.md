@@ -34,10 +34,9 @@ enum CurveVersion {
 | `initialTokenReserve` | `uint256` | Initial virtual token reserve |
 | `createdAtBlock` | `uint64` | Creation block number (anti-sniping index = `block.number - createdAtBlock`) |
 | `graduated` | `bool` | Whether graduated |
-| `creatorFeeRate` | `uint16` | Creator fee rate in BPS |
 | `version` | `CurveVersion` | V1 |
-| `dexType` | `ITokenRegistry.DexType` | DEX type (V2/V3/V4) |
-| `pair` | `address` | DEX pair address |
+| `dexType` | `ITokenRegistry.DexType` | Registered DEX type; current launches require Uniswap V3 |
+| `pair` | `address` | Canonical V3 pool address |
 | `graduateFee` | `uint256` | Quote-denominated graduation fee captured for the curve |
 
 ### VaultAllocation — Vault allocation for token creation
@@ -56,10 +55,9 @@ enum CurveVersion {
 | `symbol` | `string` | Token symbol |
 | `tokenURI` | `string` | Token metadata URI |
 | `quoteToken` | `address` | Quote token address |
-| `creatorFeeRate` | `uint16` | Creator fee rate (BPS) |
 | `vaults` | `VaultAllocation[]` | Vault allocations (max 5, bps sum = 10000) |
 | `salt` | `bytes32` | CREATE2 salt |
-| `dexType` | `ITokenRegistry.DexType` | DEX type selection (V2/V3/V4) |
+| `dexType` | `ITokenRegistry.DexType` | DEX type selection; current launches require Uniswap V3 |
 | `creator` | `address` | Token creator |
 | `buyQuoteAmount` | `uint256` | Explicit optional initial-buy quote amount |
 
@@ -72,8 +70,8 @@ enum CurveVersion {
 | Function | Returns | Description |
 |----------|---------|-------------|
 | `create(CreateTokenParams)` payable | `(address token, uint256 tokenOut)` | Create token and optionally execute the explicit initial buy |
-| `buy(to, token)` | `uint256 tokensOut` | Bonding curve buy (balance-detection) |
-| `sell(to, token)` | `uint256 quoteOut` | Bonding curve sell (balance-detection) |
+| `buy(to, token, quoteIn)` | `uint256 tokenOut` | Pull and execute an exact quote-input curve buy |
+| `sell(to, token, tokenIn)` | `uint256 quoteOut` | Pull and execute an exact token-input curve sell |
 | `getCurve(token)` | `Curve memory` | Query curve information |
 | `getQuoteToken(token)` | `address` | Query quote token address |
 | `isHalted()` | `bool` | Check halt status |

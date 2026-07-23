@@ -3,7 +3,7 @@
 **Path:** `src/interfaces/IToken.sol`
 **Type:** Interface
 
-NadFun V2 단순 ERC20 토큰 인터페이스. BondingCurve가 ERC-1167 클론으로 배포. fee-on-transfer 없이 수수료 수집은 NadFunPair와 BondingCurve 레벨에서 처리.
+BondingCurve가 EIP-1167 clone으로 배포하는 단순 ERC-20 launch-token interface다. Fee-on-transfer 동작은 없다.
 
 ---
 
@@ -15,7 +15,7 @@ NadFun V2 단순 ERC20 토큰 인터페이스. BondingCurve가 ERC-1167 클론�
 | `setIsGraduated()` | — | 졸업 플래그 설정 (BondingCurve만 호출) |
 | `isGraduated()` | `bool` | 졸업 여부 |
 | `bondingCurve()` | `address` | 배포한 BondingCurve 주소 |
-| `pair()` | `address` | NadFunPair 주소 |
+| `pair()` | `address` | Canonical V3 pool 주소 |
 | `tokenURI()` | `string` | 토큰 메타데이터 URI |
 | `TOTAL_SUPPLY()` | `uint256` | 고정 총 발행량 (1e27 wei = 1B tokens) |
 

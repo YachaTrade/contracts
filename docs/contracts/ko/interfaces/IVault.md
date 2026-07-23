@@ -27,7 +27,8 @@ IVault 자체는 공통 이벤트를 선언하지 않는다. 각 구현체가 �
 | Implementation | VaultType | Description |
 |----------------|-----------|-------------|
 | `BurnVault` | Burn | 바이백 소각: quoteToken으로 token을 스왑 후 0xdead로 전송. setup은 no-op |
-| `LPVault` | LP | quoteToken 절반을 token으로 스왑, 유동성 추가, LP 소각. setup은 no-op |
 | `CreatorFeeVault` | Creator | 토큰별 creator를 설정하고 quoteToken을 누적한 뒤 creator가 claim |
 | `GiftVault` | Gift | Platform-id (GitHub/X) 기반 **claim 모델** gift vault. 3상태: Accumulating → `restricted setReceiver` 호출 시 Active / bind window 만료 후 deposit 수신 시 Burned. Active receiver는 `claim(token)`으로 누적분 인출, 반복 가능. Rotate 시 누적 잔액은 이전 receiver에게 sweep |
 | `DividendVault` | Dividend | 설정 비율로 입금을 나누고, 승인된 경로로 pending quote를 변환한 뒤 누적 Merkle claim으로 확정 잔액을 분배 |
+
+기본 배포는 `CreatorFeeVault`만 등록하며 나머지는 선택적 source module이다.

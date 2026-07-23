@@ -54,7 +54,7 @@
       {
         "name": "params",
         "type": "tuple",
-        "internalType": "struct IGiwaRouter.BuyParams",
+        "internalType": "struct IYachaRouter.BuyParams",
         "components": [
           {
             "name": "amountIn",
@@ -100,7 +100,7 @@
       {
         "name": "params",
         "type": "tuple",
-        "internalType": "struct IGiwaRouter.BuyWithNativeParams",
+        "internalType": "struct IYachaRouter.BuyWithNativeParams",
         "components": [
           {
             "name": "amountOutMin",
@@ -141,7 +141,7 @@
       {
         "name": "params",
         "type": "tuple",
-        "internalType": "struct IGiwaRouter.BuyWithPermitParams",
+        "internalType": "struct IYachaRouter.BuyWithPermitParams",
         "components": [
           {
             "name": "amountIn",
@@ -207,7 +207,7 @@
       {
         "name": "params",
         "type": "tuple",
-        "internalType": "struct IGiwaRouter.CreateParams",
+        "internalType": "struct IYachaRouter.CreateParams",
         "components": [
           {
             "name": "name",
@@ -295,7 +295,7 @@
       {
         "name": "params",
         "type": "tuple",
-        "internalType": "struct IGiwaRouter.CreateParams",
+        "internalType": "struct IYachaRouter.CreateParams",
         "components": [
           {
             "name": "name",
@@ -383,7 +383,7 @@
       {
         "name": "params",
         "type": "tuple",
-        "internalType": "struct IGiwaRouter.ExactOutBuyParams",
+        "internalType": "struct IYachaRouter.ExactOutBuyParams",
         "components": [
           {
             "name": "amountInMax",
@@ -429,7 +429,7 @@
       {
         "name": "params",
         "type": "tuple",
-        "internalType": "struct IGiwaRouter.ExactOutBuyWithNativeParams",
+        "internalType": "struct IYachaRouter.ExactOutBuyWithNativeParams",
         "components": [
           {
             "name": "amountOut",
@@ -470,7 +470,7 @@
       {
         "name": "params",
         "type": "tuple",
-        "internalType": "struct IGiwaRouter.ExactOutSellParams",
+        "internalType": "struct IYachaRouter.ExactOutSellParams",
         "components": [
           {
             "name": "amountInMax",
@@ -516,7 +516,7 @@
       {
         "name": "params",
         "type": "tuple",
-        "internalType": "struct IGiwaRouter.ExactOutSellToNativeParams",
+        "internalType": "struct IYachaRouter.ExactOutSellToNativeParams",
         "components": [
           {
             "name": "amountInMax",
@@ -832,7 +832,7 @@
       {
         "name": "params",
         "type": "tuple",
-        "internalType": "struct IGiwaRouter.SellParams",
+        "internalType": "struct IYachaRouter.SellParams",
         "components": [
           {
             "name": "amountIn",
@@ -878,7 +878,7 @@
       {
         "name": "params",
         "type": "tuple",
-        "internalType": "struct IGiwaRouter.SellToNativeParams",
+        "internalType": "struct IYachaRouter.SellToNativeParams",
         "components": [
           {
             "name": "amountIn",
@@ -924,7 +924,7 @@
       {
         "name": "params",
         "type": "tuple",
-        "internalType": "struct IGiwaRouter.SellToNativeWithPermitParams",
+        "internalType": "struct IYachaRouter.SellToNativeWithPermitParams",
         "components": [
           {
             "name": "amountIn",
@@ -990,7 +990,7 @@
       {
         "name": "params",
         "type": "tuple",
-        "internalType": "struct IGiwaRouter.SellWithPermitParams",
+        "internalType": "struct IYachaRouter.SellWithPermitParams",
         "components": [
           {
             "name": "amountIn",

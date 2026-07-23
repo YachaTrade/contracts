@@ -1,21 +1,21 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-/// @notice Tests for GiwaRouter permit endpoints, including the front-run guard in `_permit`.
+/// @notice Tests for YachaRouter permit endpoints, including the front-run guard in `_permit`.
 ///         The internal `_permit` helper skips the permit call when allowance is already
 ///         sufficient so a front-running attacker cannot DoS users by consuming their nonce.
 
 import {SetUp} from "../SetUp.t.sol";
 import {TokenRegistry} from "../../src/core/TokenRegistry.sol";
 import {IBondingCurve} from "../../src/interfaces/IBondingCurve.sol";
-import {IGiwaRouter} from "../../src/interfaces/IGiwaRouter.sol";
+import {IYachaRouter} from "../../src/interfaces/IYachaRouter.sol";
 import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {IUniswapV3Pool} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
 import {MockERC20Permit} from "../mocks/MockERC20Permit.sol";
 
-contract GiwaRouterPermitTest is SetUp {
+contract YachaRouterPermitTest is SetUp {
     uint256 internal sellerKey = 0xA11CE;
     address internal seller;
 
@@ -58,9 +58,9 @@ contract GiwaRouterPermitTest is SetUp {
         uint256 buyAmount = 1 ether;
         quoteToken.mint(seller, buyAmount);
         vm.startPrank(seller);
-        quoteToken.approve(address(giwaRouter), buyAmount);
-        giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        quoteToken.approve(address(yachaRouter), buyAmount);
+        yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: buyAmount, amountOutMin: 0, token: token, to: seller, deadline: block.timestamp + 1
             })
         );
@@ -80,13 +80,13 @@ contract GiwaRouterPermitTest is SetUp {
         uint256 sellAmount = IERC20(token).balanceOf(seller) / 4;
         uint256 deadline = block.timestamp + 1 hours;
         (uint8 v, bytes32 r, bytes32 s) =
-            _signPermit(sellerKey, token, seller, address(giwaRouter), sellAmount, deadline);
+            _signPermit(sellerKey, token, seller, address(yachaRouter), sellAmount, deadline);
 
         uint256 quoteBefore = quoteToken.balanceOf(seller);
 
         vm.prank(seller);
-        uint256 amountOut = giwaRouter.sellWithPermit(
-            IGiwaRouter.SellWithPermitParams({
+        uint256 amountOut = yachaRouter.sellWithPermit(
+            IYachaRouter.SellWithPermitParams({
                 amountIn: sellAmount,
                 amountOutMin: 0,
                 amountAllowance: sellAmount,
@@ -107,20 +107,20 @@ contract GiwaRouterPermitTest is SetUp {
         uint256 sellAmount = IERC20(token).balanceOf(seller) / 4;
         uint256 deadline = block.timestamp + 1 hours;
         (uint8 v, bytes32 r, bytes32 s) =
-            _signPermit(sellerKey, token, seller, address(giwaRouter), sellAmount, deadline);
+            _signPermit(sellerKey, token, seller, address(yachaRouter), sellAmount, deadline);
 
         // Attacker front-runs: pushes the user's signed permit directly. Nonce is consumed
         // but allowance is set, exactly as the permit is designed to work.
         address attacker = makeAddr("attacker");
         vm.prank(attacker);
-        IERC20Permit(token).permit(seller, address(giwaRouter), sellAmount, deadline, v, r, s);
-        assertEq(IERC20(token).allowance(seller, address(giwaRouter)), sellAmount, "allowance set by attacker");
+        IERC20Permit(token).permit(seller, address(yachaRouter), sellAmount, deadline, v, r, s);
+        assertEq(IERC20(token).allowance(seller, address(yachaRouter)), sellAmount, "allowance set by attacker");
 
         // Router must still complete the sell: allowance pre-check skips the permit call.
         uint256 quoteBefore = quoteToken.balanceOf(seller);
         vm.prank(seller);
-        uint256 amountOut = giwaRouter.sellWithPermit(
-            IGiwaRouter.SellWithPermitParams({
+        uint256 amountOut = yachaRouter.sellWithPermit(
+            IYachaRouter.SellWithPermitParams({
                 amountIn: sellAmount,
                 amountOutMin: 0,
                 amountAllowance: sellAmount,
@@ -143,12 +143,12 @@ contract GiwaRouterPermitTest is SetUp {
 
         // Seller already approved via a direct approve(); no valid signature needed.
         vm.prank(seller);
-        IERC20(token).approve(address(giwaRouter), sellAmount);
+        IERC20(token).approve(address(yachaRouter), sellAmount);
 
         // Pass invalid permit params. The allowance pre-check must cause these to be ignored.
         vm.prank(seller);
-        uint256 amountOut = giwaRouter.sellWithPermit(
-            IGiwaRouter.SellWithPermitParams({
+        uint256 amountOut = yachaRouter.sellWithPermit(
+            IYachaRouter.SellWithPermitParams({
                 amountIn: sellAmount,
                 amountOutMin: 0,
                 amountAllowance: sellAmount,
@@ -174,12 +174,12 @@ contract GiwaRouterPermitTest is SetUp {
         fixture.permitQuote.mint(buyer, fixture.excessAmount);
         uint256 deadline = block.timestamp + 1 hours;
         (uint8 v, bytes32 r, bytes32 s) = _signPermit(
-            buyerKey, address(fixture.permitQuote), buyer, address(giwaRouter), fixture.excessAmount, deadline
+            buyerKey, address(fixture.permitQuote), buyer, address(yachaRouter), fixture.excessAmount, deadline
         );
 
         vm.prank(buyer);
-        uint256 amountOut = giwaRouter.buyWithPermit(
-            IGiwaRouter.BuyWithPermitParams({
+        uint256 amountOut = yachaRouter.buyWithPermit(
+            IYachaRouter.BuyWithPermitParams({
                 amountIn: fixture.excessAmount,
                 amountOutMin: 0,
                 amountAllowance: fixture.excessAmount,
@@ -194,7 +194,7 @@ contract GiwaRouterPermitTest is SetUp {
 
         assertEq(amountOut, fixture.expectedTokenOut, "token out should match capped quote");
         assertEq(fixture.permitQuote.balanceOf(buyer), fixture.expectedRefund, "buyer should receive quote refund");
-        assertEq(fixture.permitQuote.balanceOf(address(giwaRouter)), 0, "router should hold no quote");
+        assertEq(fixture.permitQuote.balanceOf(address(yachaRouter)), 0, "router should hold no quote");
     }
 
     function test_buyWithPermit_bondingCurve_checksSlippageBeforeRefund() public {
@@ -205,7 +205,7 @@ contract GiwaRouterPermitTest is SetUp {
         fixture.permitQuote.mint(buyer, fixture.excessAmount);
         uint256 deadline = block.timestamp + 1 hours;
         (uint8 v, bytes32 r, bytes32 s) = _signPermit(
-            buyerKey, address(fixture.permitQuote), buyer, address(giwaRouter), fixture.excessAmount, deadline
+            buyerKey, address(fixture.permitQuote), buyer, address(yachaRouter), fixture.excessAmount, deadline
         );
         vm.mockCallRevert(
             address(fixture.permitQuote),
@@ -214,9 +214,9 @@ contract GiwaRouterPermitTest is SetUp {
         );
 
         vm.prank(buyer);
-        vm.expectRevert(IGiwaRouter.InsufficientOutput.selector);
-        giwaRouter.buyWithPermit(
-            IGiwaRouter.BuyWithPermitParams({
+        vm.expectRevert(IYachaRouter.InsufficientOutput.selector);
+        yachaRouter.buyWithPermit(
+            IYachaRouter.BuyWithPermitParams({
                 amountIn: fixture.excessAmount,
                 amountOutMin: fixture.expectedTokenOut + 1,
                 amountAllowance: fixture.excessAmount,
@@ -269,17 +269,17 @@ contract GiwaRouterPermitTest is SetUp {
             graduatedTraderKey,
             address(fixture.quoteToken),
             graduatedTrader,
-            address(giwaRouter),
+            address(yachaRouter),
             quoteInMaxWithProtocolFee,
             deadline
         );
 
         vm.prank(makeAddr("graduatedPermitAttacker"));
-        fixture.quoteToken.permit(graduatedTrader, address(giwaRouter), quoteInMaxWithProtocolFee, deadline, v, r, s);
+        fixture.quoteToken.permit(graduatedTrader, address(yachaRouter), quoteInMaxWithProtocolFee, deadline, v, r, s);
 
         vm.prank(graduatedTrader);
-        uint256 tokenOut = giwaRouter.buyWithPermit(
-            IGiwaRouter.BuyWithPermitParams({
+        uint256 tokenOut = yachaRouter.buyWithPermit(
+            IYachaRouter.BuyWithPermitParams({
                 amountIn: quoteInMaxWithProtocolFee,
                 amountOutMin: 1,
                 amountAllowance: quoteInMaxWithProtocolFee,
@@ -306,9 +306,9 @@ contract GiwaRouterPermitTest is SetUp {
 
         permitQuote.mint(creator, defaultDeployFee);
         vm.startPrank(creator);
-        permitQuote.approve(address(giwaRouter), defaultDeployFee);
-        (permitToken,) = giwaRouter.create(
-            IGiwaRouter.CreateParams({
+        permitQuote.approve(address(yachaRouter), defaultDeployFee);
+        (permitToken,) = yachaRouter.create(
+            IYachaRouter.CreateParams({
                 name: "PermitToken",
                 symbol: "PRM",
                 tokenURI: "",
@@ -376,9 +376,9 @@ contract GiwaRouterPermitTest is SetUp {
         uint256 buyerQuoteBefore = fixture.quoteToken.balanceOf(buyer);
         uint256 feeReceiverQuoteBefore = fixture.quoteToken.balanceOf(feeReceiver);
         vm.startPrank(buyer);
-        fixture.quoteToken.approve(address(giwaRouter), quoteInMaxWithProtocolFee);
-        tokenOut = giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        fixture.quoteToken.approve(address(yachaRouter), quoteInMaxWithProtocolFee);
+        tokenOut = yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: quoteInMaxWithProtocolFee,
                 amountOutMin: 1,
                 token: address(fixture.launchToken),
@@ -404,13 +404,13 @@ contract GiwaRouterPermitTest is SetUp {
             graduatedTraderKey,
             address(fixture.quoteToken),
             graduatedTrader,
-            address(giwaRouter),
+            address(yachaRouter),
             quoteInMaxWithProtocolFee,
             deadline
         );
         vm.prank(graduatedTrader);
-        tokenOut = giwaRouter.buyWithPermit(
-            IGiwaRouter.BuyWithPermitParams({
+        tokenOut = yachaRouter.buyWithPermit(
+            IYachaRouter.BuyWithPermitParams({
                 amountIn: quoteInMaxWithProtocolFee,
                 amountOutMin: 1,
                 amountAllowance: quoteInMaxWithProtocolFee,
@@ -434,9 +434,9 @@ contract GiwaRouterPermitTest is SetUp {
         uint256 sellerTokenBefore = fixture.launchToken.balanceOf(seller_);
         uint256 feeReceiverQuoteBefore = fixture.quoteToken.balanceOf(feeReceiver);
         vm.startPrank(seller_);
-        fixture.launchToken.approve(address(giwaRouter), tokenInMax);
-        quoteOut = giwaRouter.sell(
-            IGiwaRouter.SellParams({
+        fixture.launchToken.approve(address(yachaRouter), tokenInMax);
+        quoteOut = yachaRouter.sell(
+            IYachaRouter.SellParams({
                 amountIn: tokenInMax,
                 amountOutMin: 1,
                 token: address(fixture.launchToken),
@@ -459,11 +459,16 @@ contract GiwaRouterPermitTest is SetUp {
         uint256 sellerTokenBefore = fixture.launchToken.balanceOf(graduatedTrader);
         uint256 feeReceiverQuoteBefore = fixture.quoteToken.balanceOf(feeReceiver);
         (uint8 v, bytes32 r, bytes32 s) = _signPermit(
-            graduatedTraderKey, address(fixture.launchToken), graduatedTrader, address(giwaRouter), tokenInMax, deadline
+            graduatedTraderKey,
+            address(fixture.launchToken),
+            graduatedTrader,
+            address(yachaRouter),
+            tokenInMax,
+            deadline
         );
         vm.prank(graduatedTrader);
-        quoteOut = giwaRouter.sellWithPermit(
-            IGiwaRouter.SellWithPermitParams({
+        quoteOut = yachaRouter.sellWithPermit(
+            IYachaRouter.SellWithPermitParams({
                 amountIn: tokenInMax,
                 amountOutMin: 1,
                 amountAllowance: tokenInMax,
@@ -514,9 +519,9 @@ contract GiwaRouterPermitTest is SetUp {
 
         fixture.permitQuote.mint(user1, quoteNeeded);
         vm.startPrank(user1);
-        fixture.permitQuote.approve(address(giwaRouter), quoteNeeded);
-        giwaRouter.buy(
-            IGiwaRouter.BuyParams({
+        fixture.permitQuote.approve(address(yachaRouter), quoteNeeded);
+        yachaRouter.buy(
+            IYachaRouter.BuyParams({
                 amountIn: quoteNeeded,
                 amountOutMin: 0,
                 token: fixture.permitToken,

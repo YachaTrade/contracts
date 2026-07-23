@@ -213,7 +213,7 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
     //   else if (curve.version == CurveVersion.V2) _buyV2(...)
     /// @notice Buys tokens from the bonding curve using an explicitly declared quote amount.
     /// @dev This low-level entrypoint performs no slippage or deadline checks. User-facing buys should
-    ///      go through GiwaRouter, which enforces caller-provided execution protection.
+    ///      go through YachaRouter, which enforces caller-provided execution protection.
     function buy(address to, address token, uint256 quoteIn)
         external
         onlyRole(ROUTER_ROLE)
@@ -310,7 +310,7 @@ contract BondingCurve is IBondingCurve, UUPSUpgradeable, AccessControlUpgradeabl
 
     /// @notice Sells an explicitly declared launch-token amount into the bonding curve.
     /// @dev This low-level entrypoint performs no slippage or deadline checks. User-facing sells should
-    ///      go through GiwaRouter, which enforces caller-provided execution protection.
+    ///      go through YachaRouter, which enforces caller-provided execution protection.
     function sell(address to, address token, uint256 tokenIn)
         external
         onlyRole(ROUTER_ROLE)

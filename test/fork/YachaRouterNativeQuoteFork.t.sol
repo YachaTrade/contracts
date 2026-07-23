@@ -9,15 +9,15 @@ import {QuoterV2} from "@uniswap/v3-periphery/contracts/lens/QuoterV2.sol";
 
 import {SetUp} from "../SetUp.t.sol";
 import {TokenRegistry} from "../../src/core/TokenRegistry.sol";
-import {GiwaRouter} from "../../src/router/GiwaRouter.sol";
+import {YachaRouter} from "../../src/router/YachaRouter.sol";
 import {IBondingCurve} from "../../src/interfaces/IBondingCurve.sol";
-import {IGiwaRouter} from "../../src/interfaces/IGiwaRouter.sol";
+import {IYachaRouter} from "../../src/interfaces/IYachaRouter.sol";
 import {ITokenRegistry} from "../../src/interfaces/ITokenRegistry.sol";
 import {IWrappedNative} from "../../src/interfaces/IWrappedNative.sol";
 import {MockERC20Permit} from "../mocks/MockERC20Permit.sol";
 import {GIWA_WNATIVE} from "../../script/deploy/normal/Deploy.s.sol";
 
-contract GiwaRouterNativeQuoteForkTest is SetUp {
+contract YachaRouterNativeQuoteForkTest is SetUp {
     using SafeERC20 for IERC20;
 
     uint24 private constant FEE_TIER = 500;
@@ -39,13 +39,13 @@ contract GiwaRouterNativeQuoteForkTest is SetUp {
         assertGt(GIWA_WNATIVE.code.length, 0, "canonical WNATIVE has no code on this fork");
 
         QuoterV2 deployedWnativeQuoter = new QuoterV2(address(v3Factory), address(deployedWnative));
-        GiwaRouter implementation = new GiwaRouter();
-        giwaRouter = GiwaRouter(
+        YachaRouter implementation = new YachaRouter();
+        yachaRouter = YachaRouter(
             payable(address(
                     new ERC1967Proxy(
                         address(implementation),
                         abi.encodeCall(
-                            GiwaRouter.initialize,
+                            YachaRouter.initialize,
                             (
                                 address(protocolManager),
                                 address(bondingCurve),
@@ -103,27 +103,27 @@ contract GiwaRouterNativeQuoteForkTest is SetUp {
         vm.deal(user1, nativeIn);
 
         vm.prank(user1);
-        uint256 tokenOut = giwaRouter.buyWithNative{value: nativeIn}(
-            IGiwaRouter.BuyWithNativeParams({
+        uint256 tokenOut = yachaRouter.buyWithNative{value: nativeIn}(
+            IYachaRouter.BuyWithNativeParams({
                 amountOutMin: 1, token: address(launchToken), to: user1, deadline: block.timestamp
             })
         );
         assertGt(tokenOut, 0);
 
         vm.prank(user1);
-        launchToken.approve(address(giwaRouter), tokenOut);
+        launchToken.approve(address(yachaRouter), tokenOut);
         uint256 nativeBefore = user1.balance;
         vm.prank(user1);
-        uint256 nativeOut = giwaRouter.sellToNative(
-            IGiwaRouter.SellToNativeParams({
+        uint256 nativeOut = yachaRouter.sellToNative(
+            IYachaRouter.SellToNativeParams({
                 amountIn: tokenOut, amountOutMin: 1, token: address(launchToken), to: user1, deadline: block.timestamp
             })
         );
 
         assertGt(nativeOut, 0);
         assertEq(user1.balance - nativeBefore, nativeOut);
-        assertEq(deployedWnative.balanceOf(address(giwaRouter)), 0);
-        assertEq(address(giwaRouter).balance, 0);
+        assertEq(deployedWnative.balanceOf(address(yachaRouter)), 0);
+        assertEq(address(yachaRouter).balance, 0);
     }
 
     function uniswapV3MintCallback(uint256 amount0Owed, uint256 amount1Owed, bytes calldata) external {

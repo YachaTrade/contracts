@@ -4,7 +4,7 @@
 **Pattern:** UUPS Proxy
 **Inheritance:** `IVault`, `UUPSUpgradeable`, `AccessManagedUpgradeable`
 
-바이백 앤 번(Buyback & Burn) Vault. CreatorFeeProcessor로부터 quoteToken을 받아 token으로 스왑한 후 `0xdead`로 전송하여 영구 소각. 본딩 phase에서는 GiwaRouter.buy()를 사용해 clamped buy 환불/잔액 보존 로직을 타고, 졸업 후에는 등록 DEX 어댑터를 통해 스왑. singleton UUPS proxy로 배포되어 모든 token에 대해 하나의 인스턴스가 공유됨.
+바이백 앤 번(Buyback & Burn) Vault. CreatorFeeProcessor로부터 quoteToken을 받아 token으로 스왑한 후 `0xdead`로 전송하여 영구 소각. 본딩 phase에서는 YachaRouter.buy()를 사용해 clamped buy 환불/잔액 보존 로직을 타고, 졸업 후에는 등록 DEX 어댑터를 통해 스왑. singleton UUPS proxy로 배포되어 모든 token에 대해 하나의 인스턴스가 공유됨.
 
 ---
 

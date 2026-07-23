@@ -3,7 +3,7 @@
 **Path:** `src/interfaces/ICreatorFeeProcessor.sol`
 **Type:** Interface
 
-Public interface for the non-upgradeable CreatorFeeProcessor singleton. It pulls an already-denominated quote-token creator fee from FeeCollector and distributes it across the token's configured vaults.
+Public interface for the non-upgradeable CreatorFeeProcessor singleton. It pulls an already-denominated quote-token creator share from a caller authorized by ProtocolManager and distributes it across the token's configured vaults.
 
 ---
 
@@ -27,7 +27,7 @@ struct VaultSlot {
 | Function | Returns | Description |
 |----------|---------|-------------|
 | `setup(token, vaults)` | — | Register the token's vault allocation; callable only by BondingCurve and only once |
-| `processCreatorFee(token, quoteToken, amount)` | — | Pull `amount` of `quoteToken` from FeeCollector, split it by BPS, transfer each share, and call each vault's `afterDeposit` |
+| `processCreatorFee(token, quoteToken, amount)` | — | Pull `amount` of `quoteToken` from an authorized caller, split it by BPS, transfer each share, and call each vault's `afterDeposit` |
 | `vaultCount(token)` | `uint256` | Number of vault slots for given token |
 | `getVaults(token)` | `VaultSlot[]` | All configured vault slots for the token |
 
@@ -51,7 +51,7 @@ Distribution is atomic: a failed transfer or vault callback reverts the whole tr
 |-------|-------------|
 | `InvalidBpsTotal()` | Vault BPS total != 10000 |
 | `ZeroAddress()` | Required address is zero |
-| `NotAuthorized()` | Caller is not BondingCurve for `setup`, or not FeeCollector for `processCreatorFee` |
+| `NotAuthorized()` | ProtocolManager does not authorize the caller for the exact target selector |
 | `TooManyVaults()` | More than 5 vaults |
 | `NoVaults()` | Zero vaults provided |
 | `ZeroBps()` | A vault has 0 BPS |
