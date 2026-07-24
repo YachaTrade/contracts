@@ -197,7 +197,7 @@ Run `bash script/extract-abis.sh` to regenerate the checked-in public ABIs from 
 
 - `abis/YachaRouter.json` is the canonical router ABI; the previous router ABI was removed.
 - `abis/Lens.json` exposes `yachaRouter()` and the current router-backed read surface.
-- `abis/LPManager.json` is regenerated from the upgraded LPManager and exposes the canonical `Allocate` and `Collect` events, including their `timestamp` field.
+- `abis/LPManager.json` is regenerated from the upgraded LPManager and exposes the canonical `Allocate` and `Collect` events. `Collect.quoteAmount` is the final quote total distributed after the collected launch-token fee is swapped into quote.
 
 ## Deployment
 
@@ -240,7 +240,7 @@ Implementation addresses are listed separately for upgrade and deployment auditi
 | TokenRegistry | Implementation | [`0x13cd48F5B53efd2DE08e5534734Eda50f1Bd8332`](https://sepolia-explorer.giwa.io/address/0x13cd48F5B53efd2DE08e5534734Eda50f1Bd8332) | [`0xe457…8f7d`](https://sepolia-explorer.giwa.io/tx/0xe4573c21ae589287abc9bca90160907cfdc6efab5e0e38cb509d559e27fc8f7d) |
 | CreatorFeeProcessor | Standalone | [`0xDfD7a91438B35Ea94C8EAB89c0EE4fFf13E55969`](https://sepolia-explorer.giwa.io/address/0xDfD7a91438B35Ea94C8EAB89c0EE4fFf13E55969) | [`0xe2b6…9490`](https://sepolia-explorer.giwa.io/tx/0xe2b6ed244b1536724c502369ef5162f3673b5b3b198e75ebf32f7afbd73a9490) |
 | V3SwapAdapter | Standalone | [`0x7e2E8492C0E3C8fF56920CDa02D7D37c60485852`](https://sepolia-explorer.giwa.io/address/0x7e2E8492C0E3C8fF56920CDa02D7D37c60485852) | [`0xee96…af49`](https://sepolia-explorer.giwa.io/tx/0xee96099f247f1bd68936aa71b04d208817c7cb592f53476477aec7a693f6af49) |
-| LPManager | Implementation | [`0x158F477345cd2B26efC087F0Cc42f5ce76732E8F`](https://sepolia-explorer.giwa.io/address/0x158F477345cd2B26efC087F0Cc42f5ce76732E8F) | [`0xf911…0027`](https://sepolia-explorer.giwa.io/tx/0xf911a16212d9e48767e5c56459049810b253f9d776cbcbe6631dc68c625c0027) |
+| LPManager | Implementation | [`0xbD8c3c60eFDf5d6f3370CC4180AE9ED317B01AAc`](https://sepolia-explorer.giwa.io/address/0xbD8c3c60eFDf5d6f3370CC4180AE9ED317B01AAc) | [`0x46f6…54c4`](https://sepolia-explorer.giwa.io/tx/0x46f6655285f6048322849a69f3ef893a1afd8f4e9f807972663f7863edb354c4) |
 | V3PoolDeployer | Implementation | [`0x034709910cf31ffb318316FA7EdBAc6a18EC77DA`](https://sepolia-explorer.giwa.io/address/0x034709910cf31ffb318316FA7EdBAc6a18EC77DA) | [`0x7aea…62de`](https://sepolia-explorer.giwa.io/tx/0x7aeac0dbc13bf2d765699e58188d52c7418bf0cd09a57ffa7390ba05953062de) |
 | V3LiquidityActor | Standalone | [`0x9685d85f92dcaC12802B367807352A0afFA5a466`](https://sepolia-explorer.giwa.io/address/0x9685d85f92dcaC12802B367807352A0afFA5a466) | [`0xa6c3…e300`](https://sepolia-explorer.giwa.io/tx/0xa6c36befab4d1a13d239bfa11dadc439389b64aab4266704f4859bc7670ce300) |
 | Token | EIP-1167 clone implementation | [`0xf5f8C3707f278E15Ad7a9Dc0255C42757AeC0b46`](https://sepolia-explorer.giwa.io/address/0xf5f8C3707f278E15Ad7a9Dc0255C42757AeC0b46) | [`0x3f1f…40a9`](https://sepolia-explorer.giwa.io/tx/0x3f1f5032a868cc65de1d44d2df3041b2076a511c12d1ed066c653e01c00d40a9) |
@@ -263,7 +263,8 @@ callable, but the YachaRouter and Lens addresses above are the canonical integra
 
 | Operation | Transaction |
 | --- | --- |
-| LPManager proxy upgrade | [`0x673d…1e86`](https://sepolia-explorer.giwa.io/tx/0x673d7838b961910e562dbc24c6e0e87cf1f0ad2da6eb8ad4ea3e8f11f6371e86) |
+| LPManager `Collect` event implementation deployment | [`0x46f6…54c4`](https://sepolia-explorer.giwa.io/tx/0x46f6655285f6048322849a69f3ef893a1afd8f4e9f807972663f7863edb354c4) |
+| LPManager `Collect` event proxy upgrade | [`0x2dfa…315e`](https://sepolia-explorer.giwa.io/tx/0x2dfa38f733aa6273381bce0adc4001dce537c122a3e9f1bcda10d580d7f9315e) |
 | Grant new YachaRouter curve role | [`0x262a…eb43`](https://sepolia-explorer.giwa.io/tx/0x262aa7edaeef0650a2ffbf36637060766ca8ba46bad9cf08ca9a891fd730eb43) |
 | Revoke previous router curve role | [`0xbc2f…134e`](https://sepolia-explorer.giwa.io/tx/0xbc2fce67c0e44cc7c8aa9b60010c0b0d9a0988ac7d1b8ef99a3c6560615f134e) |
 

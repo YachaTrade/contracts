@@ -74,11 +74,10 @@ contract WnativeV3LpFeeCollectionDeployHarness is Deploy {
 contract WnativeV3LpFeeCollectionE2ETest is Test {
     uint256 private constant GRADUATION_QUOTE_IN = 800_000 ether;
     uint256 private constant POST_GRADUATION_QUOTE_IN = 100 ether;
-    bytes32 private constant COLLECT_TOPIC = keccak256("Collect(address,address,uint256,uint256,uint256)");
+    bytes32 private constant COLLECT_TOPIC = keccak256("Collect(address,address,uint256,uint256)");
 
     struct CollectedFees {
-        uint256 tokenFee;
-        uint256 directQuoteFee;
+        uint256 quoteAmount;
         uint256 timestamp;
     }
 
@@ -175,13 +174,13 @@ contract WnativeV3LpFeeCollectionE2ETest is Test {
         uint256 vaultQuoteDelta = wnative.balanceOf(deployed.creatorFeeVault) - snapshot.vaultQuote;
         uint256 creatorCreditDelta = creatorFeeVault.getBalance(token) - snapshot.creatorCredit;
         uint256 actualDistributedQuote = receiverQuoteDelta + vaultQuoteDelta;
+        assertGt(pendingTokenFee, 0, "pre-collection oracle did not observe launch-token fee");
         assertGe(actualDistributedQuote, pendingQuoteFee, "distribution omitted independently observed quote fee");
         uint256 actualSwappedQuote = actualDistributedQuote - pendingQuoteFee;
         uint256 expectedProtocolQuote = actualDistributedQuote * 5_000 / 10_000;
         uint256 expectedCreatorQuote = actualDistributedQuote - expectedProtocolQuote;
 
-        assertEq(fees.tokenFee, pendingTokenFee, "event token fee differs from pre-collection oracle");
-        assertEq(fees.directQuoteFee, pendingQuoteFee, "event quote fee differs from pre-collection oracle");
+        assertEq(fees.quoteAmount, actualDistributedQuote, "event quote amount differs from distribution");
         assertEq(fees.timestamp, block.timestamp, "event collection timestamp");
         assertEq(receiverQuoteDelta, expectedProtocolQuote, "protocol ratio from independent deltas");
         assertEq(vaultQuoteDelta, expectedCreatorQuote, "creator ratio from independent deltas");
@@ -301,8 +300,7 @@ contract WnativeV3LpFeeCollectionE2ETest is Test {
                     && logs[i].topics[0] == COLLECT_TOPIC && address(uint160(uint256(logs[i].topics[1]))) == token
                     && address(uint160(uint256(logs[i].topics[2]))) == pool
             ) {
-                (fees.directQuoteFee, fees.tokenFee, fees.timestamp) =
-                    abi.decode(logs[i].data, (uint256, uint256, uint256));
+                (fees.quoteAmount, fees.timestamp) = abi.decode(logs[i].data, (uint256, uint256));
                 return fees;
             }
         }

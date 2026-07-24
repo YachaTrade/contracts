@@ -53,9 +53,7 @@ interface ILPManager {
         address indexed token, address indexed pool, uint256 quoteAmount, uint256 tokenAmount, uint256 timestamp
     );
 
-    event Collect(
-        address indexed token, address indexed pool, uint256 quoteAmount, uint256 tokenAmount, uint256 timestamp
-    );
+    event Collect(address indexed token, address indexed pool, uint256 quoteAmount, uint256 timestamp);
 
     function addLiquidity(
         address token,
