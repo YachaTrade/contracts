@@ -119,11 +119,12 @@ contract LPManager is ILPManager, UUPSUpgradeable, AccessManagedUpgradeable {
         uint256 quoteBalanceEntry = IERC20(live.quoteToken).balanceOf(address(this));
         (uint256 tokenFee, uint256 directQuoteFee) = _collectRawFees(token, live, tokenBalanceEntry, quoteBalanceEntry);
         uint256 swappedQuote = _swapCollectedToken(token, live, tokenFee, tokenBalanceEntry);
-        _distributeCollectedQuote(token, live.quoteToken, directQuoteFee + swappedQuote);
+        uint256 quoteAmount = directQuoteFee + swappedQuote;
+        _distributeCollectedQuote(token, live.quoteToken, quoteAmount);
 
         _requireBalance(IERC20(token), tokenBalanceEntry);
         _requireBalance(IERC20(live.quoteToken), quoteBalanceEntry);
-        emit Collect(token, live.pool, directQuoteFee, tokenFee, block.timestamp);
+        emit Collect(token, live.pool, quoteAmount, block.timestamp);
     }
 
     function _validatedStoredPool(address token) private view returns (ILPManager.PoolData memory live) {
