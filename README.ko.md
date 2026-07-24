@@ -164,7 +164,7 @@ LP principal invariant는 65,536 calls / 0 reverts로 통과했습니다.
 
 - `abis/YachaRouter.json`은 현재 canonical router ABI이며 이전 router ABI는 제거했습니다.
 - `abis/Lens.json`은 `yachaRouter()`와 현재 router 기반 read surface를 제공합니다.
-- `abis/LPManager.json`은 업그레이드된 LPManager에서 다시 생성했으며 `timestamp`를 포함한 canonical `Allocate`, `Collect` 이벤트를 제공합니다.
+- `abis/LPManager.json`은 업그레이드된 LPManager에서 다시 생성한 canonical `Allocate`, `Collect` 이벤트를 제공합니다. `Collect.quoteAmount`는 수집한 launch-token 수수료를 quote로 스왑한 뒤 실제 배분하는 최종 quote 총액입니다.
 
 ## GIWA Sepolia 배포
 
@@ -181,7 +181,7 @@ LP principal invariant는 65,536 calls / 0 reverts로 통과했습니다.
 | BondingCurve | [`0x852716437D0e67e8BbaF4c8282C26b7941DD16E9`](https://sepolia-explorer.giwa.io/address/0x852716437D0e67e8BbaF4c8282C26b7941DD16E9) |
 | TokenRegistry | [`0xB9E1a129818fE17300152E067b978eA9098100F0`](https://sepolia-explorer.giwa.io/address/0xB9E1a129818fE17300152E067b978eA9098100F0) |
 | LPManager proxy | [`0xA7dAacA8DF5685bCAA20043071953dC87b0BC24f`](https://sepolia-explorer.giwa.io/address/0xA7dAacA8DF5685bCAA20043071953dC87b0BC24f) |
-| LPManager implementation | [`0x158F477345cd2B26efC087F0Cc42f5ce76732E8F`](https://sepolia-explorer.giwa.io/address/0x158F477345cd2B26efC087F0Cc42f5ce76732E8F) |
+| LPManager implementation | [`0xbD8c3c60eFDf5d6f3370CC4180AE9ED317B01AAc`](https://sepolia-explorer.giwa.io/address/0xbD8c3c60eFDf5d6f3370CC4180AE9ED317B01AAc) |
 | YachaRouter proxy | [`0x733132B6f0FEbd58D062f61657F1b3dbb2aDEB5A`](https://sepolia-explorer.giwa.io/address/0x733132B6f0FEbd58D062f61657F1b3dbb2aDEB5A) |
 | YachaRouter implementation | [`0xD69eD80ac8FB5064176fa3714BB6bce5A0E806E9`](https://sepolia-explorer.giwa.io/address/0xD69eD80ac8FB5064176fa3714BB6bce5A0E806E9) |
 | Lens | [`0x198BdbC54B7abaFc3f781d958e2b9E935064305C`](https://sepolia-explorer.giwa.io/address/0x198BdbC54B7abaFc3f781d958e2b9E935064305C) |
@@ -197,6 +197,11 @@ LP principal invariant는 65,536 calls / 0 reverts로 통과했습니다.
 현재 LPManager 구현체, YachaRouter ERC1967 proxy와 구현체의 Explorer 소스 검증은 모두
 완료됐습니다. Lens는 배포와 온체인 연결 검증은 완료됐지만 Explorer Cloudflare가 검증
 제출을 차단해 소스 검증만 대기 중입니다.
+
+LPManager `Collect` 이벤트 업그레이드 트랜잭션은
+[`0x2dfa…315e`](https://sepolia-explorer.giwa.io/tx/0x2dfa38f733aa6273381bce0adc4001dce537c122a3e9f1bcda10d580d7f9315e)이며,
+새 구현체 배포 트랜잭션은
+[`0x46f6…54c4`](https://sepolia-explorer.giwa.io/tx/0x46f6655285f6048322849a69f3ef893a1afd8f4e9f807972663f7863edb354c4)입니다.
 
 ### Router 교체 실행 순서
 
