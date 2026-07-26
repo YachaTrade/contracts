@@ -19,3 +19,11 @@ docs/superpowers/
 # gstack (skills are local, not committed)
 .claude/skills/gstack/
 .gstack/
+
+# AI agent tooling
+.claude/
+.superpowers/
+.omc/
+CLAUDE.md
+AGENTS.md
+docs/agents.md
